@@ -120,6 +120,13 @@ const envSchema = z
 
     // Testing
     OTP_STATIC_CODE: optionalString,
+
+    /**
+     * Public origin of this deployment, used as the OpenAPI `servers` entry so Swagger's
+     * "Try it out" targets the running host instead of a placeholder. Falls back to the
+     * local port when unset, which is what a developer wants.
+     */
+    PUBLIC_API_URL: optionalUrl,
   })
   .superRefine((env, ctx) => {
     if (env.OTP_STATIC_CODE) {

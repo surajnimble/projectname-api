@@ -11,7 +11,13 @@ import { SERVER_SCHEMA } from './schemas';
  * Every module is documented with `@openapi` blocks, and different modules put
  * them in different files, so both route and controller files are scanned.
  * Missing one of the two silently drops that module's paths from the spec.
+ *
+ * After `tsc` this module runs from `dist/docs`, so the sibling modules live in
+ * `dist/modules` and carry a `.js` extension; under `tsx` they are `.ts`. Both
+ * extensions are matched so the spec is identical in dev and in a deployed build.
  */
+const DOC_EXTENSIONS = ['.ts', '.js'];
+
 const docFiles = (): string[] => {
   const modulesDir = path.join(__dirname, '..', 'modules');
   const files: string[] = [];
@@ -21,7 +27,13 @@ const docFiles = (): string[] => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.routes.ts') || entry.name.endsWith('.controller.ts')) files.push(full);
+      else if (
+        DOC_EXTENSIONS.some(
+          (ext) => entry.name.endsWith(`.routes${ext}`) || entry.name.endsWith(`.controller${ext}`),
+        )
+      ) {
+        files.push(full);
+      }
     }
   };
 
@@ -61,8 +73,12 @@ export const swaggerSpec: swaggerJsdoc.OAS3Definition = {
     ].join('\n'),
   },
   servers: [
-    { url: `http://localhost:${process.env.PORT ?? APP.DEFAULT_PORT}${APP.API_PREFIX}`, description: 'Local' },
-    { url: `https://your-app.onrender.com${APP.API_PREFIX}`, description: 'Render' },
+    {
+      url:
+        process.env.PUBLIC_API_URL ??
+        `http://localhost:${process.env.PORT ?? APP.DEFAULT_PORT}${APP.API_PREFIX}`,
+      description: process.env.PUBLIC_API_URL ? 'Server' : 'Local',
+    },
   ],
   tags: [
     { name: 'Auth' },
