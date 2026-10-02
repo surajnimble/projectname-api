@@ -1,15 +1,15 @@
 import { Router } from 'express';
-import { validate } from '../../middlewares/validate.middleware';
+import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
 import * as controller from './notification.controller';
 import * as schema from './notification.schema';
 
-const router = Router();
+// ── Notifications ────────────────────────────────────────────────────────────
 
-// ── Notifications ─────────────────────────────────────────────────────────────
+const notification = Router();
 
 /** GET /notifications/getAll */
-router.get(
+notification.get(
   '/getAll',
   authenticate,
   validate({ query: schema.listNotificationsSchema }),
@@ -17,52 +17,108 @@ router.get(
 );
 
 /** GET /notifications/getUnreadCount */
-router.get('/getUnreadCount', authenticate, controller.getUnreadCount);
+notification.get('/getUnreadCount', authenticate, controller.getUnreadCount);
 
-/** POST /notifications/markRead — no ids means "all" */
-router.post(
-  '/markRead',
+/** PATCH /notifications/markRead/:id */
+notification.patch(
+  '/markRead/:id',
   authenticate,
-  validate({ body: schema.markReadSchema }),
-  controller.markNotificationsRead,
+  validate({ params: schema.notificationIdParamSchema }),
+  controller.markNotificationRead,
 );
 
-/** GET /notifications/getPreferences */
-router.get('/getPreferences', authenticate, controller.getPreferences);
+/** PATCH /notifications/markAllRead */
+notification.patch('/markAllRead', authenticate, controller.markAllNotificationsRead);
 
-/** PATCH /notifications/preferences */
-router.patch(
-  '/preferences',
-  authenticate,
-  validate({ body: schema.preferencesSchema }),
-  controller.setPreferences,
-);
-
-/** DELETE /notifications/:id/delete */
-router.delete(
-  '/:id/delete',
+/** DELETE /notifications/delete/:id */
+notification.delete(
+  '/delete/:id',
   authenticate,
   validate({ params: schema.notificationIdParamSchema }),
   controller.remove,
 );
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
+/** GET /notifications/getPreferences */
+notification.get('/getPreferences', authenticate, controller.getPreferences);
 
-// -- Admin: notification fan-out --------------------------------------------------
+/** PATCH /notifications/updatePreferences */
+notification.patch(
+  '/updatePreferences',
+  authenticate,
+  validate({ body: schema.preferencesSchema }),
+  controller.setPreferences,
+);
 
-router.post(
-  '/broadcast',
+/** POST /notifications/registerDevice — stores the FCM token against the caller */
+notification.post(
+  '/registerDevice',
+  authenticate,
+  validate({ body: schema.deviceTokenSchema }),
+  controller.registerDevice,
+);
+
+/** POST /notifications/unregisterDevice */
+notification.post(
+  '/unregisterDevice',
+  authenticate,
+  validate({ body: schema.deviceTokenSchema }),
+  controller.unregisterDevice,
+);
+
+/** POST /notifications/sendBulk — admin */
+notification.post(
+  '/sendBulk',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.broadcastSchema }),
   controller.broadcast,
 );
 
+/** GET /notifications/getTemplates — admin */
+notification.get(
+  '/getTemplates',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.listNotificationsSchema }),
+  controller.getTemplates,
+);
+
+/** POST /notifications/createTemplate — admin */
+notification.post(
+  '/createTemplate',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.templateSchema }),
+  controller.createTemplate,
+);
+
+/** PATCH /notifications/updateTemplate/:id — admin */
+notification.patch(
+  '/updateTemplate/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema, body: schema.templateSchema.partial() }),
+  controller.updateTemplate,
+);
+
+/** DELETE /notifications/deleteTemplate/:id — admin */
+notification.delete(
+  '/deleteTemplate/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.deleteTemplate,
+);
+
+export const notificationRoutes = notification;
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+
 const chat = Router();
 
-/** GET /chat/getAll */
+/** GET /chat/getConversations */
 chat.get(
-  '/getAll',
+  '/getConversations',
   authenticate,
   validate({ query: schema.listConversationsSchema }),
   controller.getConversations,
@@ -70,20 +126,6 @@ chat.get(
 
 /** GET /chat/getUnreadCount */
 chat.get('/getUnreadCount', authenticate, controller.chatUnread);
-
-/** GET /chat/getBlocked */
-chat.get('/getBlocked', authenticate, controller.getBlocked);
-
-/** POST /chat/block */
-chat.post('/block', authenticate, validate({ body: schema.blockUserSchema }), controller.block);
-
-/** POST /chat/unblock/:id */
-chat.post(
-  '/unblock/:id',
-  authenticate,
-  validate({ params: schema.blockIdParamSchema }),
-  controller.unblock,
-);
 
 /** POST /chat/startConversation */
 chat.post(
@@ -93,107 +135,131 @@ chat.post(
   controller.startConversation,
 );
 
-/** GET /chat/getMessages/:id */
+/** GET /chat/getMessages/:conversationId */
 chat.get(
-  '/getMessages/:id',
+  '/getMessages/:conversationId',
   authenticate,
-  validate({ params: schema.conversationIdParamSchema, query: schema.listConversationsSchema }),
+  validate({
+    params: schema.conversationIdParamSchema,
+    query: schema.listConversationsSchema,
+  }),
   controller.getMessages,
 );
 
-/** POST /chat/:id/sendMessage */
+/** POST /chat/sendMessage */
 chat.post(
-  '/:id/sendMessage',
+  '/sendMessage',
   authenticate,
-  validate({ params: schema.conversationIdParamSchema, body: schema.sendMessageSchema }),
+  validate({ body: schema.sendMessageSchema }),
   controller.sendMessage,
 );
 
-/** POST /chat/:id/read */
-chat.post(
-  '/:id/read',
+/** PATCH /chat/markRead/:conversationId */
+chat.patch(
+  '/markRead/:conversationId',
   authenticate,
-  validate({ params: schema.conversationIdParamSchema, body: schema.readConversationSchema }),
+  validate({ params: schema.conversationIdParamSchema }),
   controller.markConversationRead,
 );
 
-/** DELETE /chat/:id/deleteMessage */
+/** DELETE /chat/deleteMessage/:id */
 chat.delete(
-  '/:id/deleteMessage',
+  '/deleteMessage/:id',
   authenticate,
-  validate({ params: schema.conversationIdParamSchema }),
+  validate({ params: idParamSchema }),
   controller.deleteMessage,
 );
 
-export const notificationRoutes = router;
-export const chatRoutes = chat;
-
-// ── Tickets ───────────────────────────────────────────────────────────────────
-
-const tickets = Router();
-
-/** GET /tickets/getCategories */
-tickets.get('/getCategories', authenticate, controller.getCategories);
-
-/** POST /tickets/categories — admin */
-tickets.post(
-  '/categories',
+/** POST /chat/blockUser/:userId */
+chat.post(
+  '/blockUser/:userId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ body: schema.ticketCategorySchema }),
-  controller.createCategory,
+  validate({ params: schema.blockIdParamSchema, body: schema.blockUserSchema }),
+  controller.block,
 );
 
-/** GET /tickets/getStats — admin */
-tickets.get('/getStats', authenticate, ...controller.guards.admin, controller.getStats);
+/** GET /chat/getBlocked */
+chat.get('/getBlocked', authenticate, controller.getBlocked);
+
+export const chatRoutes = chat;
+
+// ── Tickets ──────────────────────────────────────────────────────────────────
+
+const ticket = Router();
+
+/** GET /tickets/getCategories — public so a signed-out visitor can open one */
+ticket.get(
+  '/getCategories',
+  validate({ query: schema.listTicketsSchema }),
+  controller.getCategories,
+);
+
+/** POST /tickets/create */
+ticket.post(
+  '/create',
+  authenticate,
+  validate({ body: schema.createTicketSchema }),
+  controller.createTicket,
+);
 
 /** GET /tickets/getAll */
-tickets.get(
+ticket.get(
   '/getAll',
   authenticate,
   validate({ query: schema.listTicketsSchema }),
   controller.getTickets,
 );
 
-/** POST /tickets/createTicket */
-tickets.post(
-  '/createTicket',
-  authenticate,
-  validate({ body: schema.createTicketSchema }),
-  controller.createTicket,
-);
-
 /** GET /tickets/getById/:id */
-tickets.get(
+ticket.get(
   '/getById/:id',
   authenticate,
   validate({ params: schema.ticketIdParamSchema }),
   controller.getById,
 );
 
-/** POST /tickets/:id/reply */
-tickets.post(
-  '/:id/reply',
+/** POST /tickets/reply/:id */
+ticket.post(
+  '/reply/:id',
   authenticate,
   validate({ params: schema.ticketIdParamSchema, body: schema.replyTicketSchema }),
   controller.reply,
 );
 
-/** PATCH /tickets/:id/updateStatus */
-tickets.patch(
-  '/:id/updateStatus',
+/** PATCH /tickets/updateStatus/:id */
+ticket.patch(
+  '/updateStatus/:id',
   authenticate,
   validate({ params: schema.ticketIdParamSchema, body: schema.ticketStatusSchema }),
   controller.updateStatus,
 );
 
-/** PATCH /tickets/:id/assign — staff only */
-tickets.patch(
-  '/:id/assign',
+/** PATCH /tickets/assign/:id — staff only */
+ticket.patch(
+  '/assign/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.ticketIdParamSchema, body: schema.assignTicketSchema }),
   controller.assign,
 );
 
-export const ticketRoutes = tickets;
+/** PATCH /tickets/close/:id */
+ticket.patch(
+  '/close/:id',
+  authenticate,
+  validate({ params: schema.ticketIdParamSchema }),
+  controller.closeTicket,
+);
+
+/** DELETE /tickets/delete/:id — admin */
+ticket.delete(
+  '/delete/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.ticketIdParamSchema }),
+  controller.deleteTicket,
+);
+
+export const ticketRoutes = ticket;
+
+export default notificationRoutes;

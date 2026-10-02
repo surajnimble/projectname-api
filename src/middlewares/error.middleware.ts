@@ -8,7 +8,6 @@ import { VALIDATION, zodIssueToMessage } from '../messages/validation';
 import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
 import { mapPrismaError } from '../services/prisma.service';
 import { logger } from '../services/logger.service';
-import { isProduction } from '../config/env.config';
 
 /** Normalises anything thrown anywhere into the strict 3-key error envelope. */
 export const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: any, next) => {
@@ -103,7 +102,7 @@ export const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: a
   }
 
   // ── Rate limiter ─────────────────────────────────────────────────────────
-  if (err?.code === 'LIMIT_...' || err?.statusCode === HTTP_STATUS.TOO_MANY_REQUESTS) {
+  if (err?.statusCode === HTTP_STATUS.TOO_MANY_REQUESTS) {
     return ApiResponse.error(res, {
       statusCode: HTTP_STATUS.TOO_MANY_REQUESTS,
       message: ERROR.COMMON.RATE_LIMITED,
@@ -137,6 +136,3 @@ export const notFoundHandler = (req: Request, res: any) =>
     message: ERROR.COMMON.NOT_FOUND,
     code: ERROR_CODE.NOT_FOUND,
   });
-
-/** Wraps sync/async route handlers — replaces per-controller try/catch. */
-export const notFound = notFoundHandler;

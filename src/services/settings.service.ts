@@ -190,11 +190,14 @@ export const getCommissionBounds = async () => ({
   min: await getSetting<number>(SETTING_KEY.COMMISSION_MIN_PERCENT, 0),
   max: await getSetting<number>(SETTING_KEY.COMMISSION_MAX_PERCENT, 50),
 });
-export const getDefaultGstPercent = () => getSetting<number>(SETTING_KEY.TAX_DEFAULT_GST_PERCENT, 18);
+export const getDefaultGstPercent = () =>
+  getSetting<number>(SETTING_KEY.TAX_DEFAULT_GST_PERCENT, 18);
 export const getTaxInclusive = () => getSetting<boolean>(SETTING_KEY.TAX_INCLUSIVE, false);
-export const getVendorAutoApprove = () => getSetting<boolean>(SETTING_KEY.VENDOR_AUTO_APPROVE, false);
+export const getVendorAutoApprove = () =>
+  getSetting<boolean>(SETTING_KEY.VENDOR_AUTO_APPROVE, false);
 export const getVendorMaxProducts = () => getSetting<number>(SETTING_KEY.VENDOR_MAX_PRODUCTS, 500);
-export const getMinPayoutAmount = () => getSetting<number>(SETTING_KEY.VENDOR_MIN_PAYOUT_AMOUNT, 500);
+export const getMinPayoutAmount = () =>
+  getSetting<number>(SETTING_KEY.VENDOR_MIN_PAYOUT_AMOUNT, 500);
 export const getVendorPayoutHoldDays = () =>
   getSetting<number>(SETTING_KEY.VENDOR_PAYOUT_HOLD_DAYS, 3);
 export const getOrderMinAmount = () => getSetting<number>(SETTING_KEY.ORDER_MIN_AMOUNT, 100);
@@ -208,9 +211,11 @@ export const getCurrencySymbol = () => getSetting<string>(SETTING_KEY.CURRENCY_S
 export const getCurrencyDecimals = () => getSetting<number>(SETTING_KEY.CURRENCY_DECIMALS, 2);
 export const getSiteName = () => getSetting<string>(SETTING_KEY.SITE_NAME, 'ProjectName');
 
-// Read sequentially, not via Promise.all: this runs on every request, and a burst
-// of parallel queries needs several pooled connections. Sequential reads keep it
-// to one, which matters on single-connection pools and Render's free tier.
+/**
+ * Read sequentially, not via Promise.all: this runs on every request, and a burst of parallel
+ * queries needs several pooled connections. Sequential reads keep it to one, which matters on
+ * single-connection pools and Render's free tier.
+ */
 export const getMaintenanceStatus = async (): Promise<{
   enabled: boolean;
   message: string;
@@ -254,16 +259,23 @@ export const getTokenPaymentConfig = async () => {
 };
 
 export const getTokenPolicy = async () => {
-  const [refundable, refundPercent, cancelWindowMin, balanceDueDays, allowedMethods, forfeitOnNoPay, autoCancelAfterDue] =
-    await Promise.all([
-      getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_REFUNDABLE, true),
-      getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_REFUND_PERCENT, 100),
-      getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_CANCEL_WINDOW_MIN, 60),
-      getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_BALANCE_DUE_DAYS, 7),
-      getSetting<string[]>(SETTING_KEY.PAYMENT_TOKEN_ALLOWED_METHODS, ['UPI', 'CARD', 'NETBANKING']),
-      getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_FORFEIT_ON_NO_PAY, true),
-      getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_AUTO_CANCEL_AFTER_DUE, true),
-    ]);
+  const [
+    refundable,
+    refundPercent,
+    cancelWindowMin,
+    balanceDueDays,
+    allowedMethods,
+    forfeitOnNoPay,
+    autoCancelAfterDue,
+  ] = await Promise.all([
+    getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_REFUNDABLE, true),
+    getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_REFUND_PERCENT, 100),
+    getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_CANCEL_WINDOW_MIN, 60),
+    getSetting<number>(SETTING_KEY.PAYMENT_TOKEN_BALANCE_DUE_DAYS, 7),
+    getSetting<string[]>(SETTING_KEY.PAYMENT_TOKEN_ALLOWED_METHODS, ['UPI', 'CARD', 'NETBANKING']),
+    getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_FORFEIT_ON_NO_PAY, true),
+    getSetting<boolean>(SETTING_KEY.PAYMENT_TOKEN_AUTO_CANCEL_AFTER_DUE, true),
+  ]);
 
   return {
     refundable: Boolean(refundable),
@@ -323,24 +335,44 @@ export const getReturnConfig = async () => {
 };
 
 export const getPaymentMethodsConfig = async () => {
-  const [codEnabled, upiEnabled, bankEnabled, codMax, codEnabledAbove, codExtraCharge, upiId, bankHolder, bankAccount, bankIfsc] =
-    await Promise.all([
-      getSetting<boolean>(SETTING_KEY.PAYMENT_COD_ENABLED, true),
-      getSetting<boolean>(SETTING_KEY.PAYMENT_UPI_ENABLED, true),
-      getSetting<boolean>(SETTING_KEY.PAYMENT_BANK_ENABLED, true),
-      getSetting<number>(SETTING_KEY.PAYMENT_COD_MAX_AMOUNT, 20000),
-      getSetting<number>(SETTING_KEY.PAYMENT_COD_ENABLED_ABOVE, 0),
-      getSetting<number>(SETTING_KEY.PAYMENT_COD_EXTRA_CHARGE, 0),
-      getSetting<string>(SETTING_KEY.PAYMENT_UPI_ID, ''),
-      getSetting<string>(SETTING_KEY.PAYMENT_BANK_HOLDER, ''),
-      getSetting<string>(SETTING_KEY.PAYMENT_BANK_ACCOUNT, ''),
-      getSetting<string>(SETTING_KEY.PAYMENT_BANK_IFSC, ''),
-    ]);
+  const [
+    codEnabled,
+    upiEnabled,
+    bankEnabled,
+    codMax,
+    codEnabledAbove,
+    codExtraCharge,
+    upiId,
+    bankHolder,
+    bankAccount,
+    bankIfsc,
+  ] = await Promise.all([
+    getSetting<boolean>(SETTING_KEY.PAYMENT_COD_ENABLED, true),
+    getSetting<boolean>(SETTING_KEY.PAYMENT_UPI_ENABLED, true),
+    getSetting<boolean>(SETTING_KEY.PAYMENT_BANK_ENABLED, true),
+    getSetting<number>(SETTING_KEY.PAYMENT_COD_MAX_AMOUNT, 20000),
+    getSetting<number>(SETTING_KEY.PAYMENT_COD_ENABLED_ABOVE, 0),
+    getSetting<number>(SETTING_KEY.PAYMENT_COD_EXTRA_CHARGE, 0),
+    getSetting<string>(SETTING_KEY.PAYMENT_UPI_ID, ''),
+    getSetting<string>(SETTING_KEY.PAYMENT_BANK_HOLDER, ''),
+    getSetting<string>(SETTING_KEY.PAYMENT_BANK_ACCOUNT, ''),
+    getSetting<string>(SETTING_KEY.PAYMENT_BANK_IFSC, ''),
+  ]);
 
   return {
-    cod: { enabled: Boolean(codEnabled), maxAmount: Number(codMax ?? 20000), enabledAbove: Number(codEnabledAbove ?? 0), extraCharge: Number(codExtraCharge ?? 0) },
+    cod: {
+      enabled: Boolean(codEnabled),
+      maxAmount: Number(codMax ?? 20000),
+      enabledAbove: Number(codEnabledAbove ?? 0),
+      extraCharge: Number(codExtraCharge ?? 0),
+    },
     upi: { enabled: Boolean(upiEnabled), upiId: String(upiId ?? '') },
-    bank: { enabled: Boolean(bankEnabled), holderName: String(bankHolder ?? ''), accountNo: String(bankAccount ?? ''), ifsc: String(bankIfsc ?? '') },
+    bank: {
+      enabled: Boolean(bankEnabled),
+      holderName: String(bankHolder ?? ''),
+      accountNo: String(bankAccount ?? ''),
+      ifsc: String(bankIfsc ?? ''),
+    },
   };
 };
 
@@ -407,16 +439,23 @@ export const getGiftCardConfig = async () => {
 };
 
 export const getSecurityConfig = async () => {
-  const [maxAttempts, lockoutMinutes, sessionDays, otpLoginEnabled, twoFactorEnabled, requirePhoneVerify, requireEmailVerify] =
-    await Promise.all([
-      getSetting<number>(SETTING_KEY.SECURITY_MAX_LOGIN_ATTEMPTS, 5),
-      getSetting<number>(SETTING_KEY.SECURITY_LOCKOUT_MINUTES, 15),
-      getSetting<number>(SETTING_KEY.SECURITY_SESSION_DAYS, 7),
-      getSetting<boolean>(SETTING_KEY.SECURITY_OTP_LOGIN_ENABLED, false),
-      getSetting<boolean>(SETTING_KEY.SECURITY_TWO_FACTOR_ENABLED, false),
-      getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_PHONE_VERIFY, true),
-      getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_EMAIL_VERIFY, false),
-    ]);
+  const [
+    maxAttempts,
+    lockoutMinutes,
+    sessionDays,
+    otpLoginEnabled,
+    twoFactorEnabled,
+    requirePhoneVerify,
+    requireEmailVerify,
+  ] = await Promise.all([
+    getSetting<number>(SETTING_KEY.SECURITY_MAX_LOGIN_ATTEMPTS, 5),
+    getSetting<number>(SETTING_KEY.SECURITY_LOCKOUT_MINUTES, 15),
+    getSetting<number>(SETTING_KEY.SECURITY_SESSION_DAYS, 7),
+    getSetting<boolean>(SETTING_KEY.SECURITY_OTP_LOGIN_ENABLED, false),
+    getSetting<boolean>(SETTING_KEY.SECURITY_TWO_FACTOR_ENABLED, false),
+    getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_PHONE_VERIFY, true),
+    getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_EMAIL_VERIFY, false),
+  ]);
   return {
     maxAttempts: Number(maxAttempts ?? 5),
     lockoutMinutes: Number(lockoutMinutes ?? 15),

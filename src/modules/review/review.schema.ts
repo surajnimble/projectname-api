@@ -1,14 +1,13 @@
 import { z } from 'zod';
 import { CouponStatus, CouponType, ReviewStatus } from '@prisma/client';
 import { VALIDATION } from '../../messages/validation';
+import { ERROR } from '../../messages/error';
 import { NAME } from '../../config/password.config';
 import { COUPON_CODE_REGEX } from '../../constants/countries';
 import { common, paginationSchema } from '../../middlewares/validate.middleware';
 import { D } from '../../utils/defaults';
 
 const id = common.cuid;
-
-const ERROR_RATING = 'Rating must be between 1 and 5.';
 
 // ─── Review ───────────────────────────────────────────────────────────────────
 
@@ -30,7 +29,11 @@ export const listReviewsSchema = z
 export const addReviewSchema = z
   .object({
     productId: id,
-    rating: z.coerce.number().int().min(1, ERROR_RATING).max(5, ERROR_RATING),
+    rating: z.coerce
+      .number()
+      .int()
+      .min(1, ERROR.REVIEW.RATING_INVALID)
+      .max(5, ERROR.REVIEW.RATING_INVALID),
     title: z.string().trim().max(NAME.TITLE_MAX_LENGTH).optional(),
     comment: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
     images: z.array(z.string().trim().max(300)).max(5).optional(),
@@ -40,7 +43,12 @@ export const addReviewSchema = z
 /** PATCH /reviews/updateReview/:id */
 export const updateReviewSchema = z
   .object({
-    rating: z.coerce.number().int().min(1, ERROR_RATING).max(5, ERROR_RATING).optional(),
+    rating: z.coerce
+      .number()
+      .int()
+      .min(1, ERROR.REVIEW.RATING_INVALID)
+      .max(5, ERROR.REVIEW.RATING_INVALID)
+      .optional(),
     title: z.string().trim().max(NAME.TITLE_MAX_LENGTH).optional(),
     comment: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
     images: z.array(z.string().trim().max(300)).max(5).optional(),
@@ -58,11 +66,7 @@ export const moderateReviewSchema = z
 /** POST /reviews/reply/:id */
 export const replyReviewSchema = z
   .object({
-    reply: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('reply', 2))
-      .max(NAME.COMMENT_MAX_LENGTH),
+    reply: z.string().trim().min(2, VALIDATION.MIN_LENGTH('reply', 2)).max(NAME.COMMENT_MAX_LENGTH),
   })
   .strict();
 
@@ -177,16 +181,14 @@ export const createCouponSchema = couponBody.superRefine((v, ctx) => {
 });
 
 /** PATCH /coupons/updateCoupon/:id */
-export const updateCouponSchema = couponBody
-  .partial()
-  .superRefine((v, ctx) => {
-    if (Object.keys(v).length === 0) {
-      ctx.addIssue({ code: 'custom', message: VALIDATION.INVALID_JSON });
-    }
-    for (const rule of couponRules) {
-      if (!rule.check(v as any)) ctx.addIssue({ code: 'custom', message: rule.message });
-    }
-  });
+export const updateCouponSchema = couponBody.partial().superRefine((v, ctx) => {
+  if (Object.keys(v).length === 0) {
+    ctx.addIssue({ code: 'custom', message: VALIDATION.INVALID_JSON });
+  }
+  for (const rule of couponRules) {
+    if (!rule.check(v as any)) ctx.addIssue({ code: 'custom', message: rule.message });
+  }
+});
 
 /** PATCH /coupons/toggleStatus/:id */
 export const toggleCouponSchema = z
@@ -224,11 +226,7 @@ export const listFlashSalesSchema = z
 /** POST /flash-sales/create */
 export const createFlashSaleSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
     banner: z.string().trim().max(300).optional(),
     startsAt: common.dateString,
     endsAt: common.dateString,
@@ -280,6 +278,10 @@ export const updateFlashSaleSchema = z
   .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
 
 export const flashSaleIdParamSchema = z.object({ id });
+
+export const flashSlugParamSchema = z.object({ slug: common.cuidOrSlug });
+
+export const questionProductParamSchema = z.object({ productId: id });
 
 export type AddReviewInput = z.infer<typeof addReviewSchema>;
 export type CreateCouponInput = z.infer<typeof createCouponSchema>;

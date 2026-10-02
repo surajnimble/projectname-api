@@ -12,6 +12,12 @@ import { createApp } from '../src/app';
 
 const app = createApp();
 
+/**
+ * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
+ * code predictable so a suite can run offline with no mail provider configured.
+ */
+const OTP = process.env.OTP_STATIC_CODE || '111111';
+
 interface Check {
   name: string;
   passed: boolean;
@@ -59,11 +65,16 @@ const register = async (
   type: 'CUSTOMER' | 'VENDOR',
   shopName?: string,
 ): Promise<{ token: string; userId: string; vendorId: string; status: number }> => {
+  await request(app)
+    .post('/api/v1/auth/sendOtp')
+    .send({ type: 'REGISTER', channel: 'EMAIL', identifier: email(tag) });
+
   const res = await request(app)
     .post('/api/v1/auth/register')
     .send({
       type,
       name: `UV ${tag}`,
+      otp: OTP,
       email: email(tag),
       phone: phoneFor(tag),
       password: 'Secret@123',
@@ -83,14 +94,16 @@ const main = async (): Promise<void> => {
   const customer = await register('cu', 'CUSTOMER');
   const vendor = await register('ve', 'VENDOR');
 
-  // The seed already creates a SUPER_ADMIN; reuse it instead of writing through
-  // Prisma here — the PGlite bridge serves a single connection, so a direct
-  // write after HTTP traffic would be rejected.
+  /**
+   * The seed already creates a SUPER_ADMIN; reuse it instead of writing through Prisma here —
+   * the PGlite bridge serves a single connection, so a direct write after HTTP traffic would be
+   * rejected.
+   */
   const adminLogin = await request(app)
     .post('/api/v1/auth/login')
     .send({
       email: process.env.SUPER_ADMIN_EMAIL ?? 'superadmin@projectname.com',
-      password: process.env.SUPER_ADMIN_PASSWORD ?? 'SuperSecret@123',
+      password: process.env.SUPER_ADMIN_PASSWORD || 'SuperSecret@123',
     });
   const adminToken = adminLogin.body?.result?.accessToken ?? '';
   const adminUserId = adminLogin.body?.result?.userData?.userId ?? '';
@@ -118,7 +131,11 @@ const main = async (): Promise<void> => {
   record('profile has no null values', JSON.stringify(profile.body).includes('null') === false);
 
   const noAuthProfile = await request(app).get('/api/v1/users/getProfile');
-  record('getProfile without token -> 401', noAuthProfile.status === 401, `status=${noAuthProfile.status}`);
+  record(
+    'getProfile without token -> 401',
+    noAuthProfile.status === 401,
+    `status=${noAuthProfile.status}`,
+  );
 
   // ══ USER: update profile ══════════════════════════════════════════════════
   const update = await request(app)
@@ -214,36 +231,56 @@ const main = async (): Promise<void> => {
   const badPincode = await request(app)
     .post('/api/v1/users/addAddress')
     .set('Authorization', `Bearer ${customer.token}`)
-    .send({ fullName: 'X Y', line1: 'Z', city: 'A', state: 'B', countryCode: 'IN', pincode: 'abc' });
+    .send({
+      fullName: 'X Y',
+      line1: 'Z',
+      city: 'A',
+      state: 'B',
+      countryCode: 'IN',
+      pincode: 'abc',
+    });
   record('invalid pincode -> 400', badPincode.status === 400, `status=${badPincode.status}`);
 
   const badCountry = await request(app)
     .post('/api/v1/users/addAddress')
     .set('Authorization', `Bearer ${customer.token}`)
-    .send({ fullName: 'X Y', line1: 'Z', city: 'A', state: 'B', countryCode: 'ZZ', pincode: '110001' });
+    .send({
+      fullName: 'X Y',
+      line1: 'Z',
+      city: 'A',
+      state: 'B',
+      countryCode: 'ZZ',
+      pincode: '110001',
+    });
   record('invalid countryCode -> 400', badCountry.status === 400, `status=${badCountry.status}`);
 
   const patchAddr = await request(app)
     .patch(`/api/v1/users/updateAddress/${addressId}`)
     .set('Authorization', `Bearer ${customer.token}`)
     .send({ landmark: 'Near Metro' });
-  record('PATCH address -> 200', patchAddr.status === 200 && patchAddr.body?.result?.landmark === 'Near Metro');
+  record(
+    'PATCH address -> 200',
+    patchAddr.status === 200 && patchAddr.body?.result?.landmark === 'Near Metro',
+  );
 
   const setDefault = await request(app)
     .patch(`/api/v1/users/setDefaultAddress/${addressId}`)
     .set('Authorization', `Bearer ${customer.token}`);
-  record('setDefaultAddress -> 200', setDefault.status === 200 && setDefault.body?.result?.isDefault === true);
+  record(
+    'setDefaultAddress -> 200',
+    setDefault.status === 200 && setDefault.body?.result?.isDefault === true,
+  );
 
   const otherAddrId = addr2.body?.result?.addressId ?? '';
   const deleteAddr = await request(app)
-    .delete(`/api/v1/users/deleteAddress/${otherAddrId}`)
+    .del(`/api/v1/users/deleteAddress/${otherAddrId}`)
     .set('Authorization', `Bearer ${customer.token}`);
   record('DELETE address -> 200', deleteAddr.status === 200, `status=${deleteAddr.status}`);
 
   // A different customer must not see or touch this customer's address.
   const otherCustomer = await register('ot', 'CUSTOMER');
   const foreignDelete = await request(app)
-    .delete(`/api/v1/users/deleteAddress/${addressId}`)
+    .del(`/api/v1/users/deleteAddress/${addressId}`)
     .set('Authorization', `Bearer ${otherCustomer.token}`);
   record(
     "deleting another customer's address -> 404",
@@ -265,7 +302,11 @@ const main = async (): Promise<void> => {
     .get('/api/v1/users/getAll?page=1&limit=5')
     .set('Authorization', `Bearer ${adminToken}`);
 
-  record('GET /users/getAll (admin) -> 200', listUsers.status === 200, `status=${listUsers.status}`);
+  record(
+    'GET /users/getAll (admin) -> 200',
+    listUsers.status === 200,
+    `status=${listUsers.status}`,
+  );
   record(
     'userList present and pagination ordered',
     Array.isArray(listUsers.body?.result?.userList) &&
@@ -280,7 +321,9 @@ const main = async (): Promise<void> => {
           'nextPage',
           'previousPage',
         ]),
-    Object.keys(listUsers.body?.result ?? {}).slice(0, 9).join(','),
+    Object.keys(listUsers.body?.result ?? {})
+      .slice(0, 9)
+      .join(','),
   );
 
   const listDenied = await request(app)
@@ -297,8 +340,7 @@ const main = async (): Promise<void> => {
     .set('Authorization', `Bearer ${adminToken}`);
   record(
     'search filter narrows results',
-    searchUsers.status === 200 &&
-      (searchUsers.body?.result?.userList ?? []).length >= 3,
+    searchUsers.status === 200 && (searchUsers.body?.result?.userList ?? []).length >= 3,
     `found=${searchUsers.body?.result?.userList?.length}`,
   );
 
@@ -359,10 +401,7 @@ const main = async (): Promise<void> => {
     impersonate.status === 200 && Boolean(impersonate.body?.result?.accessToken),
     `status=${impersonate.status}`,
   );
-  record(
-    'impersonation flags isImpersonating',
-    impersonate.body?.result?.isImpersonating === true,
-  );
+  record('impersonation flags isImpersonating', impersonate.body?.result?.isImpersonating === true);
 
   const impersonatedMe = await request(app)
     .get('/api/v1/auth/getMe')
@@ -377,7 +416,11 @@ const main = async (): Promise<void> => {
     .post(`/api/v1/users/impersonate/${customer.userId}`)
     .set('Authorization', `Bearer ${vendor.token}`)
     .send({ reason: 'nope' });
-  record('vendor cannot impersonate -> 403', impersonateDenied.status === 403, `status=${impersonateDenied.status}`);
+  record(
+    'vendor cannot impersonate -> 403',
+    impersonateDenied.status === 403,
+    `status=${impersonateDenied.status}`,
+  );
 
   const impersonateNoReason = await request(app)
     .post(`/api/v1/users/impersonate/${customer.userId}`)
@@ -406,7 +449,11 @@ const main = async (): Promise<void> => {
   const vByCustomer = await request(app)
     .get('/api/v1/vendors/getProfile')
     .set('Authorization', `Bearer ${customer.token}`);
-  record('customer cannot read /vendors/getProfile -> 403', vByCustomer.status === 403, `status=${vByCustomer.status}`);
+  record(
+    'customer cannot read /vendors/getProfile -> 403',
+    vByCustomer.status === 403,
+    `status=${vByCustomer.status}`,
+  );
 
   // ══ VENDOR: unapproved shop is hidden publicly ════════════════════════════
   const pendingProducts = await request(app).get(`/api/v1/vendors/getProducts/${vendor.vendorId}`);
@@ -530,7 +577,11 @@ const main = async (): Promise<void> => {
   );
 
   const ratingsMissing = await request(app).get('/api/v1/vendors/getRatings/does-not-exist');
-  record('ratings for unknown vendor -> 404', ratingsMissing.status === 404, `status=${ratingsMissing.status}`);
+  record(
+    'ratings for unknown vendor -> 404',
+    ratingsMissing.status === 404,
+    `status=${ratingsMissing.status}`,
+  );
 
   // ══ VENDOR: payout min amount ═════════════════════════════════════════════
   const payoutTooSmall = await request(app)
@@ -607,13 +658,20 @@ const main = async (): Promise<void> => {
     rejectVendor.status === 200 && rejectVendor.body?.result?.status === 'REJECTED',
     `status=${rejectVendor.status} state=${rejectVendor.body?.result?.status}`,
   );
-  record('rejection reason stored', rejectVendor.body?.result?.rejectedReason === 'incomplete documents');
+  record(
+    'rejection reason stored',
+    rejectVendor.body?.result?.rejectedReason === 'incomplete documents',
+  );
 
   const rejectNoReason = await request(app)
     .patch(`/api/v1/vendors/rejectVendor/${vendor2.vendorId}`)
     .set('Authorization', `Bearer ${adminToken}`)
     .send({});
-  record('reject without reason -> 400', rejectNoReason.status === 400, `status=${rejectNoReason.status}`);
+  record(
+    'reject without reason -> 400',
+    rejectNoReason.status === 400,
+    `status=${rejectNoReason.status}`,
+  );
 
   // ══ VENDOR: admin list + docs queue ════════════════════════════════════════
   const vendorList = await request(app)
@@ -633,9 +691,7 @@ const main = async (): Promise<void> => {
   record(
     'status filter applied',
     approvedOnly.status === 200 &&
-      (approvedOnly.body?.result?.vendorList ?? []).every(
-        (v: any) => v.status === 'APPROVED',
-      ),
+      (approvedOnly.body?.result?.vendorList ?? []).every((v: any) => v.status === 'APPROVED'),
     `count=${approvedOnly.body?.result?.vendorList?.length}`,
   );
 
@@ -668,12 +724,10 @@ const main = async (): Promise<void> => {
     process.exitCode = 1;
   }
   /* eslint-enable no-console */
-
 };
 
-void main()
-  .catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('[e2e-user-vendor] crashed:', err);
-    process.exit(1);
-  });
+void main().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('[e2e-user-vendor] crashed:', err);
+  process.exit(1);
+});

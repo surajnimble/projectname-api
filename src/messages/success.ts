@@ -9,7 +9,7 @@ export const SUCCESS = {
     OTP_SENT: 'OTP sent successfully.',
     OTP_VERIFIED: 'OTP verified successfully.',
     PASSWORD_RESET: 'Password reset successfully.',
-    PASSWORD_CHANGED: 'Password changed successfully.',
+    PASSWORD_UPDATED: 'Password updated successfully.',
     PROFILE_UPDATED: 'Profile updated successfully.',
     EMAIL_VERIFIED: 'Email verified successfully.',
     PHONE_VERIFIED: 'Phone verified successfully.',
@@ -347,6 +347,7 @@ export const SUCCESS = {
     PERMISSIONS_FETCHED: 'Permissions fetched successfully.',
     PERMISSIONS_UPDATED: 'Permissions updated successfully.',
     AUDIT_LOGS_FETCHED: 'Audit logs fetched successfully.',
+    AUDIT_LOGS_PURGED: 'Audit logs purged successfully.',
     ACTIVITY_LOGS_FETCHED: 'Activity logs fetched successfully.',
     HEALTH_FETCHED: 'System health fetched successfully.',
     CACHE_CLEARED: 'Cache cleared successfully.',
@@ -440,6 +441,7 @@ export const SUCCESS = {
     SHIPMENT_CREATED: 'Shipment created successfully.',
     STATUS_UPDATED: 'Shipment status updated successfully.',
     TRACKED: 'Shipment tracked successfully.',
+    DELIVERY_STATUS_UPDATED: 'Delivery status updated successfully.',
   },
   DELIVERY_BOY: {
     CREATED: 'Delivery boy created successfully.',
@@ -527,6 +529,9 @@ export const SUCCESS = {
   },
   SYSTEM: {
     HEALTH_OK: 'Service healthy.',
+    DATABASE_UNREACHABLE: 'Database unreachable.',
+    REDIS_UNAVAILABLE: 'Redis not available.',
+    QUEUE_UNAVAILABLE: 'Queue not available.',
     VERSION_FETCHED: 'API version fetched successfully.',
   },
   COMMON: {

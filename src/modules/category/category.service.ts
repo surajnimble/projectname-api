@@ -44,17 +44,11 @@ const CATEGORY_SELECT = {
 } satisfies Prisma.CategorySelect;
 
 /** Rejects a parent that would create a cycle. */
-const assertNoCycle = async (
-  categoryId: string,
-  parentId: string,
-): Promise<void> => {
+const assertNoCycle = async (categoryId: string, parentId: string): Promise<void> => {
   if (!parentId) return;
 
   if (parentId === categoryId) {
-    throw AppError.badRequest(
-      'A category cannot be its own parent.',
-      ERROR_CODE.VALIDATION_ERROR,
-    );
+    throw AppError.badRequest('A category cannot be its own parent.', ERROR_CODE.VALIDATION_ERROR);
   }
 
   // Walk up from the proposed parent; if we meet the category itself, it is a cycle.
@@ -95,8 +89,10 @@ export const listCategories = async (
   const where: Prisma.CategoryWhereInput = {
     deletedAt: null,
     ...(query?.parentId ? { parentId: D.str(query.parentId) } : {}),
-    // "rootsOnly=true" -> parentId IS NULL. The generic flagQuery also accepts
-    // an explicit id, which must not be read as a boolean.
+    /**
+     * "rootsOnly=true" -> parentId IS NULL. The generic flagQuery also accepts an explicit id,
+     * which must not be read as a boolean.
+     */
     ...(query?.parentId === 'null' || query?.rootsOnly === 'true' || query?.rootsOnly === true
       ? { parentId: null }
       : {}),
@@ -228,11 +224,7 @@ export const createCategory = async (input: any, req?: any): Promise<any> => {
   return category;
 };
 
-export const updateCategory = async (
-  categoryId: string,
-  input: any,
-  req?: any,
-): Promise<any> => {
+export const updateCategory = async (categoryId: string, input: any, req?: any): Promise<any> => {
   const before = await getCategoryById(categoryId);
 
   const data: Prisma.CategoryUpdateInput = {};
@@ -361,7 +353,11 @@ export const reorderCategories = async (
 export const bulkCreate = async (
   input: { categories: any[]; continueOnError: boolean },
   req?: any,
-): Promise<{ successCount: number; failCount: number; errors: { row: number; message: string }[] }> => {
+): Promise<{
+  successCount: number;
+  failCount: number;
+  errors: { row: number; message: string }[];
+}> => {
   const errors: { row: number; message: string }[] = [];
   let successCount = 0;
 
@@ -370,10 +366,7 @@ export const bulkCreate = async (
       // Business rules are checked per row so one bad entry does not abort the batch.
       const itemName = D.str(item.name);
       if (itemName.length < 2) {
-        throw AppError.badRequest(
-          VALIDATION.MIN_LENGTH('name', 2),
-          ERROR_CODE.VALIDATION_ERROR,
-        );
+        throw AppError.badRequest(VALIDATION.MIN_LENGTH('name', 2), ERROR_CODE.VALIDATION_ERROR);
       }
 
       const parentId = D.str(item.parentId);

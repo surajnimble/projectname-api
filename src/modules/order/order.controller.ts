@@ -2,6 +2,7 @@ import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
@@ -20,7 +21,7 @@ const userId = (req: Request): string => req.auth!.userId;
 const vendorId = (req: Request): string => req.auth!.vendorId;
 
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
   vendor: [requireRole('VENDOR')],
 };
 
@@ -92,21 +93,10 @@ export const placeOrder = asyncHandler(async (req, res) => {
  */
 export const getById = asyncHandler(async (req, res) => {
   const order = await service.getOrderById(D.str(req.params.id), userId(req));
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.FETCHED, result: serializeOrder(order) });
-});
-
-/**
- * @openapi
- * /orders/getByNumber/:orderNumber:
- *   get:
- *     tags: [Orders]
- *     summary: A single order looked up by its human-readable number
- *     responses:
- *       200: { description: Order detail }
- */
-export const getByNumber = asyncHandler(async (req, res) => {
-  const order = await service.getOrderByNumber(D.str(req.params.orderNumber), userId(req));
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.FETCHED, result: serializeOrder(order) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.FETCHED,
+    result: serializeOrder(order),
+  });
 });
 
 /**
@@ -136,7 +126,7 @@ export const getTimeline = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
- * /orders/track/:orderNumber:
+ * /orders/track/:id:
  *   get:
  *     tags: [Orders]
  *     summary: Public order tracking (no auth, no customer identity)
@@ -145,8 +135,11 @@ export const getTimeline = asyncHandler(async (req, res) => {
  *       404: { description: Order not found }
  */
 export const track = asyncHandler(async (req, res) => {
-  const order = await service.trackOrder(D.str(req.params.orderNumber));
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.TRACKED, result: serializeTrackOrder(order) });
+  const order = await service.trackOrder(D.str(req.params.id));
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.TRACKED,
+    result: serializeTrackOrder(order),
+  });
 });
 
 /**
@@ -164,7 +157,10 @@ export const track = asyncHandler(async (req, res) => {
  */
 export const cancelOrder = asyncHandler(async (req, res) => {
   const order = await service.cancelOrder(D.str(req.params.id), userId(req), req.body, req);
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.CANCELLED, result: serializeOrder(order) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.CANCELLED,
+    result: serializeOrder(order),
+  });
 });
 
 /**
@@ -177,7 +173,11 @@ export const cancelOrder = asyncHandler(async (req, res) => {
  *       200: { description: How many lines were added and which were skipped }
  */
 export const reorder = asyncHandler(async (req, res) => {
-  const { added, skipped } = await service.reorder(userId(req), req.body, req);
+  const { added, skipped } = await service.reorder(
+    userId(req),
+    { ...req.body, orderId: D.str(req.params.id) },
+    req,
+  );
 
   const cart = await (await import('../cart/cart.service')).getCart(userId(req));
   const totals = await (await import('../cart/cart.service')).calculateTotals(cart);
@@ -239,7 +239,10 @@ export const getInvoice = asyncHandler(async (req, res) => {
   });
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${pdfFileName('INVOICE', order.orderNumber)}"`);
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${pdfFileName('INVOICE', order.orderNumber)}"`,
+  );
   return res.send(pdf);
 });
 
@@ -308,7 +311,7 @@ export const updateSubOrderStatus = asyncHandler(async (req, res) => {
  */
 export const vendorCancelSubOrder = asyncHandler(async (req, res) => {
   const sub = await service.cancelOrder(
-    D.str((await findOrderIdForSub(D.str(req.params.id)))),
+    D.str(await findOrderIdForSub(D.str(req.params.id))),
     userId(req),
     { ...req.body, subOrderId: D.str(req.params.id) },
     req,
@@ -325,7 +328,10 @@ export const vendorCancelSubOrder = asyncHandler(async (req, res) => {
 /** Resolves a sub-order id to its parent order id. */
 const findOrderIdForSub = async (subOrderId: string): Promise<string> => {
   const { prisma } = await import('../../services/prisma.service');
-  const sub = await prisma.subOrder.findUnique({ where: { id: subOrderId }, select: { orderId: true } });
+  const sub = await prisma.subOrder.findUnique({
+    where: { id: subOrderId },
+    select: { orderId: true },
+  });
   return D.str(sub?.orderId);
 };
 
@@ -345,22 +351,16 @@ const findOrderIdForSub = async (subOrderId: string): Promise<string> => {
  *       422: { description: Transition not allowed }
  */
 export const updateStatus = asyncHandler(async (req, res) => {
-  const order = await service.updateOrderStatus(D.str(req.params.id), req.body, req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.STATUS_UPDATED, result: serializeOrder(order) });
-});
-
-/**
- * @openapi
- * /orders/adminGetById/:id:
- *   get:
- *     tags: [Orders]
- *     summary: Any order, ignoring ownership (admin)
- *     responses:
- *       200: { description: Order detail }
- */
-export const adminGetById = asyncHandler(async (req, res) => {
-  const order = await service.getOrderById(D.str(req.params.id));
-  return ApiResponse.success(res, { message: SUCCESS.ORDER.FETCHED, result: serializeOrder(order) });
+  const order = await service.updateOrderStatus(
+    D.str(req.params.id),
+    req.body,
+    req.auth!.userId,
+    req,
+  );
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.STATUS_UPDATED,
+    result: serializeOrder(order),
+  });
 });
 
 /**
@@ -389,20 +389,174 @@ export const assignDeliveryBoy = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
- * /orders/confirmDelivery/:id:
+ * /orders/verifyDeliveryOtp/:subOrderId:
  *   post:
  *     tags: [Orders]
  *     summary: Confirm a sub-order was delivered
- *     description: COD orders settle here; pass `collectedAmount` for the cash taken.
+ *     description: >
+ *       Pass the OTP the customer was given; COD orders settle here, so also pass
+ *       `collectedAmount` for the cash taken.
  *     responses:
  *       200: { description: Delivery confirmed }
- *       422: { description: Already delivered or transition not allowed }
+ *       422: { description: Already delivered, wrong OTP, or transition not allowed }
  */
-export const confirmDelivery = asyncHandler(async (req, res) => {
-  const sub = await service.confirmDelivery(D.str(req.params.id), req.body, req.auth!.userId, req);
+export const verifyDeliveryOtp = asyncHandler(async (req, res) => {
+  const sub = await service.confirmDelivery(
+    D.str(req.params.subOrderId),
+    req.body,
+    req.auth!.userId,
+    req,
+  );
 
   return ApiResponse.success(res, {
     message: SUCCESS.ORDER.DELIVERY_VERIFIED,
     result: serializeSubOrder(sub),
+  });
+});
+
+/**
+ * @openapi
+ * /orders/getPackingSlip/:id:
+ *   get:
+ *     tags: [Orders]
+ *     summary: Packing slip PDF for a sub-order (vendor)
+ *     responses:
+ *       200: { description: PDF, or JSON with ?format=json }
+ */
+export const getPackingSlip = asyncHandler(async (req, res) => {
+  const subOrderId = D.str(req.params.id);
+
+  const sub = await service.getSubOrderForVendor(subOrderId, vendorId(req));
+
+  if (D.str(req.query.format as string) === 'json') {
+    return ApiResponse.success(res, {
+      message: SUCCESS.ORDER.PACKING_SLIP_GENERATED,
+      result: serializeSubOrder(sub),
+    });
+  }
+
+  const { generatePackingSlipPdf, pdfFileName } = await import('../../services/pdf.service');
+
+  const pdf = await generatePackingSlipPdf({
+    orderNumber: D.str(sub.order?.orderNumber),
+    status: D.str(sub.status),
+    createdAt: sub.createdAt,
+    vendor: sub.vendor,
+    address: sub.order?.address,
+    items: sub.items,
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${pdfFileName('PACKING_SLIP', D.str(sub.order?.orderNumber))}"`,
+  );
+
+  return res.send(pdf);
+});
+
+/**
+ * @openapi
+ * /orders/getShippingLabel/:subOrderId:
+ *   get:
+ *     tags: [Orders]
+ *     summary: Shipping label PDF for a sub-order (vendor)
+ *     responses:
+ *       200: { description: PDF, or JSON with ?format=json }
+ */
+export const getShippingLabel = asyncHandler(async (req, res) => {
+  const subOrderId = D.str(req.params.subOrderId);
+
+  const sub = await service.getSubOrderForVendor(subOrderId, vendorId(req));
+  const shipment: any = D.arr(sub.shipments)[0];
+
+  if (D.str(req.query.format as string) === 'json') {
+    return ApiResponse.success(res, {
+      message: SUCCESS.ORDER.SHIPPING_LABEL_GENERATED,
+      result: {
+        subOrderId,
+        hasLabel: Boolean(shipment),
+        awb: D.str(shipment?.awb),
+      },
+    });
+  }
+
+  const { generateShippingLabelPdf, pdfFileName } = await import('../../services/pdf.service');
+
+  const pdf = await generateShippingLabelPdf({
+    subOrderId,
+    orderNumber: D.str(sub.order?.orderNumber),
+    awbNumber: D.str(shipment?.awb),
+    remarks: D.str(shipment?.remarks),
+    vendor: sub.vendor,
+    address: sub.order?.address,
+    items: sub.items,
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${pdfFileName('SHIPPING_LABEL', D.str(sub.order?.orderNumber))}"`,
+  );
+
+  return res.send(pdf);
+});
+
+/**
+ * @openapi
+ * /orders/returnRequest/:id:
+ *   post:
+ *     tags: [Orders]
+ *     summary: Raise a return against a delivered order
+ *     responses:
+ *       201: { description: Return requested }
+ *       422: { description: Window passed, item not purchased, or reason missing }
+ */
+export const returnRequest = asyncHandler(async (req, res) => {
+  const row = await service.requestReturnForOrder(
+    userId(req),
+    {
+      ...req.body,
+      orderId: D.str(req.params.id),
+    },
+    req,
+  );
+
+  return ApiResponse.created(res, SUCCESS.RETURN.REQUESTED, {
+    returnId: D.str(row.id),
+    returnNumber: D.str(row.returnNumber),
+    status: D.str(row.status),
+  });
+});
+
+/** PATCH /orders/approveReturn/:returnId — vendor or admin */
+export const approveReturn = asyncHandler(async (req, res) => {
+  const row = await service.decideReturnForOrder(
+    D.str(req.params.returnId),
+    'APPROVED',
+    req.auth!.userId,
+    req.auth!.role === ROLES.VENDOR ? vendorId(req) : undefined,
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.RETURN.APPROVED,
+    result: { returnId: D.str(row.id), status: D.str(row.status) },
+  });
+});
+
+/** PATCH /orders/rejectReturn/:returnId — vendor or admin */
+export const rejectReturn = asyncHandler(async (req, res) => {
+  const row = await service.decideReturnForOrder(
+    D.str(req.params.returnId),
+    'REJECTED',
+    req.auth!.userId,
+    req.auth!.role === ROLES.VENDOR ? vendorId(req) : undefined,
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.RETURN.REJECTED,
+    result: { returnId: D.str(row.id), status: D.str(row.status) },
   });
 });

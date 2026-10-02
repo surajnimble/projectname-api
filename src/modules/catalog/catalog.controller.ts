@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
@@ -23,14 +24,17 @@ import {
 } from './catalog.serializer';
 
 export const guards = {
-  brand: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.BRAND_MANAGE)],
-  tag: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.TAG_MANAGE)],
+  brand: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.BRAND_MANAGE),
+  ],
+  tag: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), requirePermission(PERMISSION.TAG_MANAGE)],
   attribute: [
-    requireRole('SUPER_ADMIN', 'SUB_ADMIN'),
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
     requirePermission(PERMISSION.ATTRIBUTE_MANAGE),
   ],
   collection: [
-    requireRole('SUPER_ADMIN', 'SUB_ADMIN'),
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
     requirePermission(PERMISSION.COLLECTION_MANAGE),
   ],
 };

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
@@ -16,7 +17,10 @@ import {
 } from './category.serializer';
 
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.CATEGORY_MANAGE)],
+  admin: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.CATEGORY_MANAGE),
+  ],
 };
 
 // ══ Public ═══════════════════════════════════════════════════════════════════

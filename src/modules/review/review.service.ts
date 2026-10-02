@@ -51,7 +51,12 @@ export const addReview = async (
 ): Promise<any> => {
   const product = await prisma.product.findFirst({
     where: { id: D.str(input.productId), deletedAt: null },
-    select: { id: true, name: true, vendorId: true, vendor: { select: { userId: true, status: true } } },
+    select: {
+      id: true,
+      name: true,
+      vendorId: true,
+      vendor: { select: { userId: true, status: true } },
+    },
   });
 
   if (!product) throw AppError.notFound(ERROR.PRODUCT.NOT_FOUND);
@@ -87,8 +92,10 @@ export const addReview = async (
       comment: D.str(input.comment),
       images: D.arr(input.images).map(String),
       isVerified: true,
-      // Public listings show APPROVED reviews only, so a new one waits for
-      // moderation unless the shop has no other reviews yet.
+      /**
+       * Public listings show APPROVED reviews only, so a new one waits for moderation unless the
+       * shop has no other reviews yet.
+       */
       status: ReviewStatus.PENDING,
     },
     include: REVIEW_INCLUDE,
@@ -136,7 +143,13 @@ export const updateReview = async (
 
   await recalcProductRating(review.productId);
 
-  void writeActivityLog({ req, userId, action: 'REVIEW_UPDATED', entity: 'Review', entityId: review.id });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'REVIEW_UPDATED',
+    entity: 'Review',
+    entityId: review.id,
+  });
 
   return updated;
 };
@@ -196,7 +209,9 @@ export const listReviews = async (
   ]);
 
   const filtered = withImages ? all.filter((r) => D.arr(r.images).length > 0) : all;
-  const rows = withImages ? filtered.slice(D.num(query.skip), D.num(query.skip) + D.num(query.take)) : filtered;
+  const rows = withImages
+    ? filtered.slice(D.num(query.skip), D.num(query.skip) + D.num(query.take))
+    : filtered;
 
   return { rows, total: withImages ? filtered.length : total };
 };
@@ -228,14 +243,16 @@ export const getReviewSummary = async (productId: string): Promise<Record<string
 
   return {
     productId,
-    averageRating: total > 0 ? D.float(Math.round((weighted / total) * 100) / 100) : D.float(product?.rating),
+    averageRating:
+      total > 0 ? D.float(Math.round((weighted / total) * 100) / 100) : D.float(product?.rating),
     totalCount: total,
     verifiedCount: total,
 
     distributionList: [5, 4, 3, 2, 1].map((star) => ({
       rating: star,
       count: D.num(buckets[String(star)]),
-      percentage: total > 0 ? D.float(Math.round((D.num(buckets[String(star)]) / total) * 1000) / 10) : 0,
+      percentage:
+        total > 0 ? D.float(Math.round((D.num(buckets[String(star)]) / total) * 1000) / 10) : 0,
     })),
   };
 };
@@ -347,7 +364,13 @@ export const replyReview = async (
     include: REVIEW_INCLUDE,
   });
 
-  void writeActivityLog({ req, userId: actorId, action: 'REVIEW_REPLIED', entity: 'Review', entityId: review.id });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'REVIEW_REPLIED',
+    entity: 'Review',
+    entityId: review.id,
+  });
 
   return updated;
 };
@@ -374,7 +397,10 @@ export const markHelpful = async (reviewId: string, userId: string): Promise<any
 
 const QUESTION_INCLUDE = {
   user: { select: { id: true, name: true } },
-  answers: { include: { user: { select: { id: true, name: true, avatarUrl: true } } }, orderBy: { createdAt: 'asc' } },
+  answers: {
+    include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.QuestionInclude;
 
 export const askQuestion = async (
@@ -389,8 +415,10 @@ export const askQuestion = async (
 
   if (!product) throw AppError.notFound(ERROR.PRODUCT.NOT_FOUND);
 
-  // Questions auto-approve so a shopper is not left waiting; the shop can hide
-  // anything it does not want public.
+  /**
+   * Questions auto-approve so a shopper is not left waiting; the shop can hide anything it does
+   * not want public.
+   */
   const isApproved = product.vendor?.status === 'APPROVED';
 
   const row = await prisma.question.create({
@@ -454,7 +482,11 @@ export const answerQuestion = async (
 ): Promise<any> => {
   const question = await prisma.question.findUnique({
     where: { id: questionId },
-    select: { id: true, vendorId: true, product: { select: { vendor: { select: { userId: true } } } } },
+    select: {
+      id: true,
+      vendorId: true,
+      product: { select: { vendor: { select: { userId: true } } } },
+    },
   });
 
   if (!question) throw AppError.notFound(ERROR.QUESTION.NOT_FOUND);
@@ -469,7 +501,13 @@ export const answerQuestion = async (
     data: { questionId: question.id, userId, answer: D.str(answer), isApproved: true },
   });
 
-  void writeActivityLog({ req, userId, action: 'QUESTION_ANSWERED', entity: 'Answer', entityId: row.id });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'QUESTION_ANSWERED',
+    entity: 'Answer',
+    entityId: row.id,
+  });
 
   return row;
 };
@@ -480,7 +518,10 @@ export const moderateQuestion = async (
   actorId?: string,
   req?: any,
 ): Promise<any> => {
-  const question = await prisma.question.findUnique({ where: { id: questionId }, select: { id: true } });
+  const question = await prisma.question.findUnique({
+    where: { id: questionId },
+    select: { id: true },
+  });
 
   if (!question) throw AppError.notFound(ERROR.QUESTION.NOT_FOUND);
 
@@ -526,7 +567,9 @@ export const deleteQuestion = async (
 
 // ═══ Coupon (admin) ═══════════════════════════════════════════════════════════
 
-export const listCoupons = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listCoupons = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.CouponWhereInput = { deletedAt: null };
 
   if (D.str(query.type)) where.type = query.type as CouponType;
@@ -555,7 +598,19 @@ export const listCoupons = async (query: Record<string, any>): Promise<{ rows: a
   return { rows, total };
 };
 
-export const createCoupon = async (input: Record<string, any>, actorId?: string, req?: any): Promise<any> => {
+export const getCouponById = async (id: string): Promise<any> => {
+  const row = await prisma.coupon.findFirst({ where: { id, deletedAt: null } });
+
+  if (!row) throw AppError.notFound('Coupon not found.', ERROR_CODE.NOT_FOUND);
+
+  return row;
+};
+
+export const createCoupon = async (
+  input: Record<string, any>,
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
   const code = D.str(input.code).toUpperCase();
 
   const existing = await prisma.coupon.findFirst({ where: { code }, select: { id: true } });
@@ -567,7 +622,10 @@ export const createCoupon = async (input: Record<string, any>, actorId?: string,
   // Referenced ids must exist, or the coupon silently never matches.
   const [vendor, products, categories] = await Promise.all([
     D.str(input.vendorId)
-      ? prisma.vendorProfile.findUnique({ where: { id: D.str(input.vendorId) }, select: { id: true } })
+      ? prisma.vendorProfile.findUnique({
+          where: { id: D.str(input.vendorId) },
+          select: { id: true },
+        })
       : null,
     D.arr(input.productIds).length
       ? prisma.product.count({ where: { id: { in: D.arr(input.productIds).map(String) } } })
@@ -607,7 +665,14 @@ export const createCoupon = async (input: Record<string, any>, actorId?: string,
     },
   });
 
-  void writeActivityLog({ req, userId: actorId, action: 'COUPON_CREATED', entity: 'Coupon', entityId: row.id, meta: { code } });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'COUPON_CREATED',
+    entity: 'Coupon',
+    entityId: row.id,
+    meta: { code },
+  });
 
   return row;
 };
@@ -618,7 +683,10 @@ export const updateCoupon = async (
   actorId?: string,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.coupon.findFirst({ where: { id: couponId, deletedAt: null }, select: { id: true, code: true } });
+  const existing = await prisma.coupon.findFirst({
+    where: { id: couponId, deletedAt: null },
+    select: { id: true, code: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.COUPON.NOT_FOUND);
 
@@ -641,42 +709,88 @@ export const updateCoupon = async (
       ...(input.type === undefined ? {} : { type: input.type as CouponType }),
       ...(input.value === undefined ? {} : { value: D.float(input.value) }),
       ...(input.maxDiscount === undefined ? {} : { maxDiscount: D.float(input.maxDiscount) }),
-      ...(input.minOrderAmount === undefined ? {} : { minOrderAmount: D.float(input.minOrderAmount) }),
+      ...(input.minOrderAmount === undefined
+        ? {}
+        : { minOrderAmount: D.float(input.minOrderAmount) }),
       ...(input.maxUsage === undefined ? {} : { maxUsage: D.num(input.maxUsage) }),
-      ...(input.maxUsagePerUser === undefined ? {} : { maxUsagePerUser: D.num(input.maxUsagePerUser) }),
+      ...(input.maxUsagePerUser === undefined
+        ? {}
+        : { maxUsagePerUser: D.num(input.maxUsagePerUser) }),
       ...(input.vendorId === undefined ? {} : { vendorId: D.str(input.vendorId) || null }),
-      ...(input.productIds === undefined ? {} : { productIds: D.arr(input.productIds).map(String) }),
-      ...(input.categoryIds === undefined ? {} : { categoryIds: D.arr(input.categoryIds).map(String) }),
+      ...(input.productIds === undefined
+        ? {}
+        : { productIds: D.arr(input.productIds).map(String) }),
+      ...(input.categoryIds === undefined
+        ? {}
+        : { categoryIds: D.arr(input.categoryIds).map(String) }),
       ...(input.startsAt === undefined ? {} : { startsAt: new Date(D.str(input.startsAt)) }),
-      ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt ? new Date(D.str(input.expiresAt)) : null }),
+      ...(input.expiresAt === undefined
+        ? {}
+        : { expiresAt: input.expiresAt ? new Date(D.str(input.expiresAt)) : null }),
       ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
     },
   });
 
-  void writeActivityLog({ req, userId: actorId, action: 'COUPON_UPDATED', entity: 'Coupon', entityId: couponId });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'COUPON_UPDATED',
+    entity: 'Coupon',
+    entityId: couponId,
+  });
 
   return row;
 };
 
 /** Coupons are soft-deleted so historical usage stays traceable. */
-export const deleteCoupon = async (couponId: string, actorId?: string, req?: any): Promise<void> => {
-  const existing = await prisma.coupon.findFirst({ where: { id: couponId, deletedAt: null }, select: { id: true } });
+export const deleteCoupon = async (
+  couponId: string,
+  actorId?: string,
+  req?: any,
+): Promise<void> => {
+  const existing = await prisma.coupon.findFirst({
+    where: { id: couponId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.COUPON.NOT_FOUND);
 
-  await prisma.coupon.update({ where: { id: couponId }, data: { deletedAt: new Date(), isActive: false } });
+  await prisma.coupon.update({
+    where: { id: couponId },
+    data: { deletedAt: new Date(), isActive: false },
+  });
 
-  void writeActivityLog({ req, userId: actorId, action: 'COUPON_DELETED', entity: 'Coupon', entityId: couponId });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'COUPON_DELETED',
+    entity: 'Coupon',
+    entityId: couponId,
+  });
 };
 
-export const toggleCoupon = async (couponId: string, isActive: boolean, actorId?: string, req?: any): Promise<any> => {
-  const existing = await prisma.coupon.findFirst({ where: { id: couponId, deletedAt: null }, select: { id: true } });
+export const toggleCoupon = async (
+  couponId: string,
+  isActive: boolean,
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.coupon.findFirst({
+    where: { id: couponId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.COUPON.NOT_FOUND);
 
   const row = await prisma.coupon.update({ where: { id: couponId }, data: { isActive } });
 
-  void writeActivityLog({ req, userId: actorId, action: 'COUPON_TOGGLED', entity: 'Coupon', entityId: couponId });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'COUPON_TOGGLED',
+    entity: 'Coupon',
+    entityId: couponId,
+  });
 
   return row;
 };
@@ -708,7 +822,8 @@ export const validateCouponOnly = async (
 
   if (!coupon.isActive) throw AppError.unprocessable(ERROR.COUPON.INVALID);
   if (isFuture(coupon.startsAt)) throw AppError.unprocessable(ERROR.COUPON.INVALID);
-  if (coupon.expiresAt && isPast(coupon.expiresAt)) throw AppError.unprocessable(ERROR.COUPON.EXPIRED);
+  if (coupon.expiresAt && isPast(coupon.expiresAt))
+    throw AppError.unprocessable(ERROR.COUPON.EXPIRED);
 
   if (coupon.maxUsage > 0 && coupon.usedCount >= coupon.maxUsage) {
     throw AppError.unprocessable(ERROR.COUPON.USAGE_LIMIT);
@@ -740,7 +855,9 @@ export const validateCouponOnly = async (
   };
 };
 
-export const listCouponUsages = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listCouponUsages = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.CouponUsageWhereInput = {};
   if (D.str(query.couponId)) where.couponId = D.str(query.couponId);
   if (D.str(query.userId)) where.userId = D.str(query.userId);
@@ -840,7 +957,11 @@ export const getFlashSaleBySlug = async (slug: string): Promise<any> => {
   return sale;
 };
 
-export const createFlashSale = async (input: Record<string, any>, actorId?: string, req?: any): Promise<any> => {
+export const createFlashSale = async (
+  input: Record<string, any>,
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
   const startsAt = new Date(D.str(input.startsAt));
   const endsAt = new Date(D.str(input.endsAt));
 
@@ -894,7 +1015,13 @@ export const createFlashSale = async (input: Record<string, any>, actorId?: stri
     include: SALE_INCLUDE,
   });
 
-  void writeActivityLog({ req, userId: actorId, action: 'FLASH_SALE_CREATED', entity: 'FlashSale', entityId: row.id });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'FLASH_SALE_CREATED',
+    entity: 'FlashSale',
+    entityId: row.id,
+  });
 
   return row;
 };
@@ -905,17 +1032,27 @@ export const updateFlashSale = async (
   actorId?: string,
   req?: any,
 ): Promise<any> => {
-  const sale = await prisma.flashSale.findUnique({ where: { id: saleId }, select: { id: true, discountType: true, discountValue: true } });
+  const sale = await prisma.flashSale.findUnique({
+    where: { id: saleId },
+    select: { id: true, discountType: true, discountValue: true },
+  });
 
   if (!sale) throw AppError.notFound(ERROR.FLASH_SALE.NOT_FOUND);
 
-  if (input.startsAt && input.endsAt && new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))) {
+  if (
+    input.startsAt &&
+    input.endsAt &&
+    new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))
+  ) {
     throw AppError.unprocessable(ERROR.FLASH_SALE.INVALID_WINDOW);
   }
 
   if (D.arr(input.items).length) {
     const products = await prisma.product.findMany({
-      where: { id: { in: D.arr(input.items).map((i: any) => D.str(i.productId)) }, deletedAt: null },
+      where: {
+        id: { in: D.arr(input.items).map((i: any) => D.str(i.productId)) },
+        deletedAt: null,
+      },
       select: { id: true, price: true },
     });
 
@@ -962,19 +1099,35 @@ export const updateFlashSale = async (
     include: SALE_INCLUDE,
   });
 
-  void writeActivityLog({ req, userId: actorId, action: 'FLASH_SALE_UPDATED', entity: 'FlashSale', entityId: saleId });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'FLASH_SALE_UPDATED',
+    entity: 'FlashSale',
+    entityId: saleId,
+  });
 
   return row;
 };
 
-export const deleteFlashSale = async (saleId: string, actorId?: string, req?: any): Promise<void> => {
+export const deleteFlashSale = async (
+  saleId: string,
+  actorId?: string,
+  req?: any,
+): Promise<void> => {
   const sale = await prisma.flashSale.findUnique({ where: { id: saleId }, select: { id: true } });
 
   if (!sale) throw AppError.notFound(ERROR.FLASH_SALE.NOT_FOUND);
 
   await prisma.flashSale.delete({ where: { id: saleId } });
 
-  void writeActivityLog({ req, userId: actorId, action: 'FLASH_SALE_DELETED', entity: 'FlashSale', entityId: saleId });
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'FLASH_SALE_DELETED',
+    entity: 'FlashSale',
+    entityId: saleId,
+  });
 };
 
 export { salePriceFor };

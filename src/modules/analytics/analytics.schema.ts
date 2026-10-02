@@ -68,6 +68,151 @@ export const registerDeviceSchema = z
 
 export const deviceIdParamSchema = z.object({ deviceId: z.string().trim().min(4).max(120) });
 
+// ─── Session lifecycle ────────────────────────────────────────────────────────
+
+export const startSessionSchema = z
+  .object({
+    sessionKey: z.string().trim().max(120).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    referrer: z.string().trim().max(500).optional(),
+    utm: z.record(z.string().max(120)).optional(),
+  })
+  .strict();
+
+export const endSessionSchema = z
+  .object({
+    sessionKey: z.string().trim().max(120).optional(),
+    /** Client-measured duration; the server computes it when omitted. */
+    durationSec: z.coerce.number().int().min(0).max(86_400).optional(),
+  })
+  .strict();
+
+export const appInstallSchema = z
+  .object({
+    deviceId: z.string().trim().max(120).optional(),
+    platform: z.nativeEnum(Platform).optional(),
+    appVersion: z.string().trim().min(1, VALIDATION.REQUIRED('appVersion')).max(30),
+    referrer: z.string().trim().max(500).optional(),
+    campaign: z.string().trim().max(120).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const appOpenSchema = z
+  .object({
+    appVersion: z.string().trim().max(30).optional(),
+    isFromBackground: z.boolean().optional(),
+    durationSec: z.coerce.number().int().min(0).max(86_400).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const performanceSchema = z
+  .object({
+    metric: z.enum(['load', 'render', 'network', 'fcp', 'lcp', 'cls', 'inp', 'ttfb', 'memory']),
+    value: z.coerce.number().min(0),
+    unit: z.string().trim().max(20).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    appVersion: z.string().trim().max(30).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const clientErrorSchema = z
+  .object({
+    message: z.string().trim().min(1, VALIDATION.REQUIRED('message')).max(1000),
+    type: z.string().trim().max(200).optional(),
+    stack: z.string().trim().max(4000).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    meta: z.record(z.unknown()).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const funnelStepSchema = z
+  .object({
+    funnelId: z.string().trim().min(1, VALIDATION.REQUIRED('funnelId')).max(140),
+    stepId: z.string().trim().max(140).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const conversionSchema = funnelStepSchema
+  .extend({
+    value: z.coerce.number().min(0).optional(),
+    currency: z.string().trim().max(8).optional(),
+    orderId: id.optional(),
+  })
+  .strict();
+
+export const clickSchema = z
+  .object({
+    x: z.coerce.number().int().min(0).optional(),
+    y: z.coerce.number().int().min(0).optional(),
+    element: z.string().trim().max(80).optional(),
+    target: z.string().trim().max(200).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const scrollSchema = z
+  .object({
+    depth: z.coerce.number().int().min(0).max(100),
+    pageUrl: z.string().trim().max(500).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const trackSearchSchema = z
+  .object({
+    term: z.string().trim().min(1, VALIDATION.REQUIRED('term')).max(120),
+    resultCount: z.coerce.number().int().min(0).optional(),
+    filters: z.record(z.unknown()).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const utmSchema = z
+  .object({
+    source: z.string().trim().min(1, VALIDATION.REQUIRED('source')).max(120),
+    medium: z.string().trim().max(120).optional(),
+    campaign: z.string().trim().max(120).optional(),
+    term: z.string().trim().max(120).optional(),
+    content: z.string().trim().max(120).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const referrerSchema = z
+  .object({
+    referrer: z.string().trim().max(500).optional(),
+    pageUrl: z.string().trim().max(500).optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const heartbeatSchema = z
+  .object({
+    screenName: z.string().trim().max(80).optional(),
+    isForeground: z.boolean().optional(),
+    sessionKey: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+// ─── Devices ─────────────────────────────────────────────────────────────────
+
+export const listDevicesSchema = z
+  .object({
+    platform: z.nativeEnum(Platform).optional(),
+    isBlocked: z.enum(['true', 'false']).optional(),
+  })
+  .merge(paginationSchema)
+  .strict();
+
+export const deviceUserParamSchema = z.object({ userId: id });
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 
 /** Analytics ranges are bounded so one request cannot scan the whole table. */
@@ -127,6 +272,40 @@ export const abandonedCartsSchema = z
   .merge(paginationSchema)
   .strict();
 
+export const sessionsListSchema = rangeSchema
+  .extend({
+    platform: z.nativeEnum(Platform).optional(),
+    isActive: z.enum(['true', 'false']).optional(),
+  })
+  .merge(paginationSchema)
+  .strict();
+
+export const sessionIdParamSchema = z.object({ id: common.cuid });
+
+export const crashesListSchema = rangeSchema
+  .extend({
+    platform: z.nativeEnum(Platform).optional(),
+    appVersion: z.string().trim().max(30).optional(),
+  })
+  .merge(paginationSchema)
+  .strict();
+
+export const exportAnalyticsSchema = rangeSchema
+  .extend({
+    limit: z.coerce.number().int().min(1).max(50_000).optional(),
+  })
+  .strict();
+
+export const funnelReportSchema = rangeSchema
+  .extend({
+    /** Funnel slug or id; slug is what a dashboard URL naturally carries. */
+    slug: z.string().trim().max(140).optional(),
+    funnel: z.string().trim().max(140).optional(),
+  })
+  .strict();
+
+export { paginationSchema };
+
 // ─── Funnels ─────────────────────────────────────────────────────────────────
 
 export const listFunnelsSchema = z
@@ -138,11 +317,7 @@ export const listFunnelsSchema = z
 
 export const createFunnelSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
     description: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
     isActive: z.boolean().optional().default(true),
     steps: z

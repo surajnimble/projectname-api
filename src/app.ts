@@ -17,6 +17,9 @@ import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
 import { globalRateLimit } from './middlewares/rateLimit.middleware';
 import { apiRoutes } from './routes';
 import { isEncryptionReady } from './config/encryption.config';
+import { AppError } from './utils/AppError';
+import { ERROR } from './messages/error';
+import { ERROR_CODE, HTTP_STATUS } from './constants/http';
 
 /** CORS is an explicit whitelist — never a wildcard, especially with credentials. */
 const buildCorsOptions = (): CorsOptions => {
@@ -27,7 +30,13 @@ const buildCorsOptions = (): CorsOptions => {
       if (!origin) return callback(null, true);
       if (!isProduction) return callback(null, true);
       if (whitelist.includes(origin)) return callback(null, true);
-      return callback(new Error('Origin not allowed by CORS'));
+      /**
+       * A plain Error here would fall through to the generic 500 handler and pollute the logs; a 403
+       * makes a misconfigured CORS_ORIGINS obvious.
+       */
+      return callback(
+        new AppError(ERROR.COMMON.CORS_ORIGIN_DENIED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.FORBIDDEN),
+      );
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -43,7 +52,12 @@ const buildCorsOptions = (): CorsOptions => {
       'X-Signature',
       HEADER.ENCRYPTED,
     ],
-    exposedHeaders: [HEADER.RESPONSE_REQUEST_ID, 'Retry-After', 'RateLimit-Limit', 'RateLimit-Remaining'],
+    exposedHeaders: [
+      HEADER.RESPONSE_REQUEST_ID,
+      'Retry-After',
+      'RateLimit-Limit',
+      'RateLimit-Remaining',
+    ],
     maxAge: 86400,
   };
 };
@@ -86,7 +100,12 @@ export const createApp = (): Application => {
         }),
         res: (res: any) => ({ statusCode: res.statusCode }),
       },
-      redact: ['req.headers.authorization', 'req.headers.cookie', 'req.body.password', 'req.body.otp'],
+      redact: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.body.password',
+        'req.body.otp',
+      ],
     }),
   );
 

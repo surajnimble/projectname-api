@@ -19,13 +19,28 @@ import { uniqueVendorSlug } from '../../utils/slug';
 import { AppError } from '../../utils/AppError';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE, HTTP_STATUS } from '../../constants/http';
-import { ROLES, OTP_TYPE, SOCIAL_PROVIDER, OtpType, Role, VENDOR_STATUS } from '../../constants/roles';
+import {
+  ROLES,
+  OTP_TYPE,
+  OTP_CHANNEL,
+  SOCIAL_PROVIDER,
+  OtpType,
+  Role,
+  VENDOR_STATUS,
+} from '../../constants/roles';
 import { OTP } from '../../config/otp.config';
+import { isOtpEnforceable } from '../../config/otp-policy';
+import { ENV, isProduction } from '../../config/env.config';
 import { JWT, REFRESH_TOKEN_TTL_SEC, ACCESS_TOKEN_TTL_SEC } from '../../config/jwt.config';
-import { getCommissionDefault, getVendorAutoApprove, getSecurityConfig } from '../../services/settings.service';
+import {
+  getCommissionDefault,
+  getVendorAutoApprove,
+  getSecurityConfig,
+} from '../../services/settings.service';
 import { REDIS_KEYS } from '../../config/tracking.config';
 import { incr, cacheDel, getRedis } from '../../services/redis.service';
 import { sendOtpEmail } from '../../services/email.service';
+import { sendOtpSms } from '../../services/sms/sms.service';
 import { enqueueEmail } from '../../jobs/queues';
 import { writeAuditLog, writeActivityLog } from '../../services/audit.service';
 import { D } from '../../utils/defaults';
@@ -65,6 +80,12 @@ export const registerCustomer = async (
 
   const passwordHash = await hashPassword(input.password);
 
+  /**
+   * Proof of control of the contact being registered. Runs before the insert so no unverified
+   * account is ever created, and before any token is issued.
+   */
+  const verified = await consumeOtpForRegistration({ email, phone }, input.otp, input.otpChannel);
+
   const user = await prisma.user.create({
     data: {
       name: D.str(input.name),
@@ -73,6 +94,8 @@ export const registerCustomer = async (
       passwordHash,
       role: ROLES.CUSTOMER,
       isActive: true,
+      isEmailVerified: verified.email,
+      isPhoneVerified: verified.phone,
     },
     select: AUTH_USER_SELECT,
   });
@@ -120,6 +143,8 @@ export const registerVendor = async (
   const slug = await uniqueVendorSlug(D.str(input.slug) || D.str(input.shopName));
   const passwordHash = await hashPassword(input.password);
 
+  const verified = await consumeOtpForRegistration({ email, phone }, input.otp, input.otpChannel);
+
   const user = await prisma.$transaction(async (tx) => {
     const created = await tx.user.create({
       data: {
@@ -129,6 +154,8 @@ export const registerVendor = async (
         passwordHash,
         role: ROLES.VENDOR,
         isActive: true,
+        isEmailVerified: verified.email,
+        isPhoneVerified: verified.phone,
       },
       select: AUTH_USER_SELECT,
     });
@@ -209,7 +236,7 @@ export const issueTokens = async (userId: string, device: DeviceContext): Promis
       deviceId: D.str(device.deviceId),
       ip: D.str(device.ip),
       userAgent: D.str(device.userAgent).slice(0, 400),
-      expiresAt: addMinutes(Math.round((REFRESH_TOKEN_TTL_SEC / 60))),
+      expiresAt: addMinutes(Math.round(REFRESH_TOKEN_TTL_SEC / 60)),
     },
     select: { id: true },
   });
@@ -234,13 +261,21 @@ export const rotateRefreshToken = async (
   });
 
   if (!record || record.revokedAt || record.expiresAt < new Date()) {
-    throw new AppError(ERROR.AUTH.SESSION_EXPIRED, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.SESSION_EXPIRED);
+    throw new AppError(
+      ERROR.AUTH.SESSION_EXPIRED,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.SESSION_EXPIRED,
+    );
   }
 
   // Refresh token reuse: revoke every token for this user.
   if (record.userId !== payload.sub) {
     await revokeAllTokens(payload.sub);
-    throw new AppError(ERROR.AUTH.SESSION_EXPIRED, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.SESSION_EXPIRED);
+    throw new AppError(
+      ERROR.AUTH.SESSION_EXPIRED,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.SESSION_EXPIRED,
+    );
   }
 
   await prisma.refreshToken.update({
@@ -358,14 +393,28 @@ export const loginWithPassword = async (
     });
     if (shouldLock) {
       void writeActivityLog({ req, userId: user.id, action: 'LOGIN_LOCKED', entity: 'User' });
-      throw new AppError(ERROR.AUTH.ACCOUNT_LOCKED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.ACCOUNT_LOCKED);
+      throw new AppError(
+        ERROR.AUTH.ACCOUNT_LOCKED,
+        HTTP_STATUS.FORBIDDEN,
+        ERROR_CODE.ACCOUNT_LOCKED,
+      );
     }
     throw invalid;
   }
 
   if (!user.isActive) {
-    throw new AppError(ERROR.AUTH.ACCOUNT_SUSPENDED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.ACCOUNT_SUSPENDED);
+    throw new AppError(
+      ERROR.AUTH.ACCOUNT_SUSPENDED,
+      HTTP_STATUS.FORBIDDEN,
+      ERROR_CODE.ACCOUNT_SUSPENDED,
+    );
   }
+
+  /**
+   * A password alone proves nothing about the address on the account, so an unverified account
+   * must not get a session.
+   */
+  assertVerified(user);
 
   if (user.twoFactorEnabled && security.twoFactorEnabled) {
     await prisma.user.update({
@@ -420,7 +469,11 @@ export const completeTwoFactorLogin = async (
 
   if (!user) throw AppError.unauthorized();
   if (!user.twoFactorEnabled) {
-    throw new AppError(ERROR.AUTH.TWO_FA_NOT_ENABLED, HTTP_STATUS.BAD_REQUEST, ERROR_CODE.TWO_FA_INVALID);
+    throw new AppError(
+      ERROR.AUTH.TWO_FA_NOT_ENABLED,
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODE.TWO_FA_INVALID,
+    );
   }
 
   const otpValid = verifyTotp(D.str(user.twoFactorSecret), D.str(otp));
@@ -428,7 +481,11 @@ export const completeTwoFactorLogin = async (
   const backupIndex = backupCodes.findIndex((code) => bcrypt.compareSync(otp, code));
 
   if (!otpValid && backupIndex < 0) {
-    throw new AppError(ERROR.AUTH.TWO_FA_INVALID, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.TWO_FA_INVALID);
+    throw new AppError(
+      ERROR.AUTH.TWO_FA_INVALID,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.TWO_FA_INVALID,
+    );
   }
 
   if (backupIndex >= 0) {
@@ -463,10 +520,18 @@ export const loginWithOtp = async (
     select: AUTH_USER_SELECT,
   });
 
-  if (!user) throw AppError.unauthorized(ERROR.AUTH.INVALID_CREDENTIALS, ERROR_CODE.INVALID_CREDENTIALS);
+  if (!user)
+    throw AppError.unauthorized(ERROR.AUTH.INVALID_CREDENTIALS, ERROR_CODE.INVALID_CREDENTIALS);
   if (!user.isActive) {
-    throw new AppError(ERROR.AUTH.ACCOUNT_SUSPENDED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.ACCOUNT_SUSPENDED);
+    throw new AppError(
+      ERROR.AUTH.ACCOUNT_SUSPENDED,
+      HTTP_STATUS.FORBIDDEN,
+      ERROR_CODE.ACCOUNT_SUSPENDED,
+    );
   }
+
+  // An OTP proves control of the identifier, not of the account's other contact.
+  assertVerified(user);
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
@@ -541,11 +606,27 @@ export const sendOtp = async (
       select: { twoFactorEnabled: true },
     });
     if (!user?.twoFactorEnabled) {
-      throw new AppError(ERROR.AUTH.TWO_FA_INVALID, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.TWO_FA_INVALID);
+      throw new AppError(
+        ERROR.AUTH.TWO_FA_INVALID,
+        HTTP_STATUS.UNAUTHORIZED,
+        ERROR_CODE.TWO_FA_INVALID,
+      );
     }
   }
 
-  // Resend cooldown + daily cap
+  /**
+   * With OTP_STATIC_CODE set (local/testing only — the env schema refuses it in production)
+   * every request resolves to the same code. It still goes through hashing, expiry and the
+   * attempt limit, so the real flow is what is tested.
+   */
+  const code = OTP.staticCode || randomNumericCode(OTP.LENGTH);
+  const otpHash = await bcrypt.hash(code, OTP.BCRYPT_ROUNDS);
+  const expiresAt = addMinutes(OTP.EXPIRY_MIN);
+
+  /**
+   * Resend cooldown + daily cap. Counted per channel actually delivered on, so a caller cannot
+   * burn another channel's budget.
+   */
   const redis = getRedis();
   if (redis) {
     const cooldownKey = REDIS_KEYS.OTP_RESEND(identifier, type);
@@ -570,16 +651,25 @@ export const sendOtp = async (
     }
   }
 
-  const code = randomNumericCode(OTP.LENGTH);
-  const otpHash = await bcrypt.hash(code, OTP.BCRYPT_ROUNDS);
-  const expiresAt = addMinutes(OTP.EXPIRY_MIN);
+  /**
+   * The record is keyed by the channel the code was actually delivered on, and consumeOtp
+   * filters on the same value, so a code sent by SMS can never be redeemed as if it had arrived
+   * by email.
+   */
+  const effectiveChannel = isEmail ? OTP_CHANNEL.EMAIL : OTP_CHANNEL.SMS;
 
   await prisma.otp.upsert({
-    where: { identifier_type_channel: { identifier, type: type as any, channel: channel as any } },
+    where: {
+      identifier_type_channel: {
+        identifier,
+        type: type as any,
+        channel: effectiveChannel as any,
+      },
+    },
     create: {
       identifier,
       type: type as any,
-      channel: channel as any,
+      channel: effectiveChannel as any,
       otpHash,
       expiresAt,
       attempts: 0,
@@ -588,24 +678,37 @@ export const sendOtp = async (
   });
 
   // In production the code is delivered out of band and never returned in the body.
-  if (process.env.NODE_ENV !== 'production' && isEmail) {
+  if (!isProduction && isEmail) {
     logger.info({ identifier, type, code }, '[otp] dev code issued');
   }
 
+  /**
+   * Deliver on the channel that matches the identifier. An email code always goes by email; a
+   * phone code goes by SMS when enabled, and otherwise is logged so a developer with no provider
+   * can still complete the flow.
+   */
   if (isEmail) {
-    void enqueueEmail({ to: identifier, templateKey: 'reset_password', templateData: { otp: code, type } });
-    if (redis) {
-      // Dev convenience only.
-      void sendOtpEmail(identifier, code, type).catch(() => undefined);
-    }
+    void sendOtpEmail(identifier, code, type).catch(() => undefined);
+  } else if (ENV.OTP_SMS_ENABLED) {
+    void sendOtpSms(identifier, code, ENV.APP_NAME).catch(() => undefined);
+  } else {
+    logger.warn(
+      { identifier, type },
+      '[otp] phone number but OTP_SMS_ENABLED=false — code was not delivered',
+    );
   }
 
-  void writeActivityLog({ req, action: 'OTP_SENT', entity: 'Otp', meta: { type, channel } });
+  void writeActivityLog({
+    req,
+    action: 'OTP_SENT',
+    entity: 'Otp',
+    meta: { type, channel: effectiveChannel },
+  });
 
   return {
     expiresIn: OTP.EXPIRY_MIN * 60,
     identifier,
-    channel,
+    channel: effectiveChannel,
     isNewUser: false,
   };
 };
@@ -627,7 +730,11 @@ export const consumeOtp = async (
     orderBy: { createdAt: 'desc' },
   });
 
-  const invalid = new AppError(ERROR.AUTH.OTP_INVALID, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.OTP_INVALID);
+  const invalid = new AppError(
+    ERROR.AUTH.OTP_INVALID,
+    HTTP_STATUS.UNAUTHORIZED,
+    ERROR_CODE.OTP_INVALID,
+  );
 
   if (!record) throw invalid;
   if (record.isVerified) throw invalid;
@@ -665,6 +772,78 @@ export const consumeOtp = async (
   return true;
 };
 
+/**
+ * Verifies the OTP supplied to `/auth/register` and reports which contact it
+ * actually proved.
+ *
+ * A caller may register with a phone, an email, or both. Only the contact that
+ * was proven gets its `is*Verified` flag set, so a registration can never claim
+ * to own an address nobody checked. The identifier is chosen server-side from
+ * what the caller proved, and the OTP type is fixed to REGISTER — the client
+ * cannot nominate a different purpose.
+ *
+ * With `OTP_REQUIRED=false` there is nothing to prove, so registration proceeds
+ * and the account is created unverified. The user row is only written after
+ * this function returns, so a pending registration never leaves a half-made
+ * account behind.
+ */
+const consumeOtpForRegistration = async (
+  contacts: { email: string; phone: string },
+  otp: string,
+  channel?: string,
+): Promise<{ email: boolean; phone: boolean }> => {
+  if (!isOtpEnforceable()) {
+    logger.warn({ contacts }, '[auth] registering without OTP verification — OTP_REQUIRED is off');
+    return { email: false, phone: false };
+  }
+
+  const invalid = new AppError(
+    ERROR.AUTH.OTP_REQUIRED,
+    HTTP_STATUS.UNAUTHORIZED,
+    ERROR_CODE.OTP_INVALID,
+  );
+
+  const candidates = [contacts.phone, contacts.email].filter(Boolean);
+
+  if (!candidates.length) throw invalid;
+
+  let lastError: unknown = invalid;
+  for (const identifier of candidates) {
+    try {
+      /**
+       * No channel argument: the record was written with the channel matching the identifier, and
+       * forcing one here would let a phone code be redeemed as though it had arrived by email.
+       */
+      await consumeOtp(identifier, OTP_TYPE.REGISTER, otp);
+      return {
+        email: EMAIL_REGEX.test(identifier),
+        phone: !EMAIL_REGEX.test(identifier),
+      };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError instanceof AppError ? lastError : invalid;
+};
+
+/** Throws unless the account has proven at least one contact. */
+const assertVerified = (user: {
+  email?: string;
+  phone?: string;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
+}): void => {
+  // With OTP_REQUIRED=false nothing is ever verified, so it must not gate login.
+  if (!isOtpEnforceable()) return;
+  if (user.isEmailVerified || user.isPhoneVerified) return;
+  throw new AppError(
+    ERROR.AUTH.ACCOUNT_UNVERIFIED,
+    HTTP_STATUS.FORBIDDEN,
+    ERROR_CODE.ACCOUNT_UNVERIFIED,
+  );
+};
+
 export const resetPassword = async (input: {
   email?: string;
   phone?: string;
@@ -684,7 +863,11 @@ export const resetPassword = async (input: {
   });
 
   if (!user) {
-    throw new AppError(ERROR.AUTH.INVALID_CREDENTIALS, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.INVALID_CREDENTIALS);
+    throw new AppError(
+      ERROR.AUTH.INVALID_CREDENTIALS,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.INVALID_CREDENTIALS,
+    );
   }
 
   const passwordHash = await hashPassword(input.newPassword);
@@ -709,19 +892,46 @@ export const changePassword = async (
   currentPassword: string,
   newPassword: string,
   logoutOtherDevices: boolean,
+  otp?: string,
 ): Promise<boolean> => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { passwordHash: true },
+    select: {
+      passwordHash: true,
+      email: true,
+      phone: true,
+      isEmailVerified: true,
+      isPhoneVerified: true,
+    },
   });
 
   if (!user?.passwordHash) {
-    throw new AppError(ERROR.AUTH.INVALID_CREDENTIALS, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.INVALID_CREDENTIALS);
+    throw new AppError(
+      ERROR.AUTH.INVALID_CREDENTIALS,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.INVALID_CREDENTIALS,
+    );
+  }
+
+  /**
+   * A stolen session should not be enough to take the account over, so a change also needs a
+   * code sent to the account's own verified contact.
+   */
+  if (isOtpEnforceable() && (user.isEmailVerified || user.isPhoneVerified)) {
+    const identifier = user.isEmailVerified ? user.email : user.phone;
+    if (!otp) {
+      throw new AppError(ERROR.AUTH.OTP_REQUIRED, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.OTP_INVALID);
+    }
+    await consumeOtp(identifier, OTP_TYPE.LOGIN, otp);
   }
 
   const matches = await comparePassword(currentPassword, user.passwordHash);
   if (!matches) {
-    throw new AppError(ERROR.AUTH.PASSWORD_MISMATCH, HTTP_STATUS.BAD_REQUEST, ERROR_CODE.VALIDATION_ERROR);
+    throw new AppError(
+      ERROR.AUTH.PASSWORD_MISMATCH,
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODE.VALIDATION_ERROR,
+    );
   }
 
   const passwordHash = await hashPassword(newPassword);
@@ -744,29 +954,47 @@ export const verifyContact = async (
   const identifier = normaliseIdentifier(D.str(input.email || input.phone));
   const isEmail = EMAIL_REGEX.test(identifier);
 
-  const type = isEmail ? OTP_TYPE.EMAIL_VERIFY : OTP_TYPE.PHONE_VERIFY;
-  await consumeOtp(identifier, type, input.otp, input.channel);
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, isEmailVerified: true, isPhoneVerified: true },
+    select: { id: true, email: true, phone: true, isEmailVerified: true, isPhoneVerified: true },
   });
 
   if (!user) throw AppError.unauthorized();
+
+  /**
+   * The OTP must have been sent to a contact this account actually owns. Otherwise proving
+   * control of an unrelated address would flip the flag.
+   */
+  const owned = normaliseIdentifier(isEmail ? user.email : user.phone);
+  if (!owned || owned !== identifier) {
+    throw new AppError(
+      ERROR.AUTH.CONTACT_MISMATCH,
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODE.VALIDATION_ERROR,
+    );
+  }
+
+  const type = isEmail ? OTP_TYPE.EMAIL_VERIFY : OTP_TYPE.PHONE_VERIFY;
+  await consumeOtp(identifier, type, input.otp, input.channel);
 
   await prisma.user.update({
     where: { id: userId },
     data: isEmail ? { isEmailVerified: true } : { isPhoneVerified: true },
   });
 
-  return { emailVerified: isEmail || user.isEmailVerified, phoneVerified: !isEmail || user.isPhoneVerified };
+  return {
+    emailVerified: isEmail || user.isEmailVerified,
+    phoneVerified: !isEmail || user.isPhoneVerified,
+  };
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  2FA
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const enableTwoFactor = async (userId: string): Promise<{
+export const enableTwoFactor = async (
+  userId: string,
+): Promise<{
   qrCodeUrl: string;
   otpauthUrl: string;
   manualEntryKey: string;
@@ -812,11 +1040,19 @@ export const disableTwoFactor = async (userId: string, otp: string): Promise<boo
   });
 
   if (!user?.twoFactorEnabled) {
-    throw new AppError(ERROR.AUTH.TWO_FA_NOT_ENABLED, HTTP_STATUS.BAD_REQUEST, ERROR_CODE.TWO_FA_INVALID);
+    throw new AppError(
+      ERROR.AUTH.TWO_FA_NOT_ENABLED,
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODE.TWO_FA_INVALID,
+    );
   }
 
   if (!verifyTotp(D.str(user.twoFactorSecret), D.str(otp))) {
-    throw new AppError(ERROR.AUTH.TWO_FA_INVALID, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.TWO_FA_INVALID);
+    throw new AppError(
+      ERROR.AUTH.TWO_FA_INVALID,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.TWO_FA_INVALID,
+    );
   }
 
   await prisma.user.update({
@@ -841,7 +1077,11 @@ export const verifyTwoFactor = async (
   });
 
   if (!user?.twoFactorEnabled) {
-    throw new AppError(ERROR.AUTH.TWO_FA_INVALID, HTTP_STATUS.UNAUTHORIZED, ERROR_CODE.TWO_FA_INVALID);
+    throw new AppError(
+      ERROR.AUTH.TWO_FA_INVALID,
+      HTTP_STATUS.UNAUTHORIZED,
+      ERROR_CODE.TWO_FA_INVALID,
+    );
   }
 
   return completeTwoFactorLogin(user.id, otp, device);
@@ -909,7 +1149,11 @@ export const socialLogin = async (
     });
     if (!user) throw AppError.unauthorized();
     if (!user.isActive) {
-      throw new AppError(ERROR.AUTH.ACCOUNT_SUSPENDED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.ACCOUNT_SUSPENDED);
+      throw new AppError(
+        ERROR.AUTH.ACCOUNT_SUSPENDED,
+        HTTP_STATUS.FORBIDDEN,
+        ERROR_CODE.ACCOUNT_SUSPENDED,
+      );
     }
     const tokens = await issueTokens(user.id, device);
     await linkDeviceToUser(user.id, device);
@@ -938,7 +1182,9 @@ export const socialLogin = async (
   }
 
   await prisma.socialAccount.upsert({
-    where: { provider_providerId: { provider: input.provider as any, providerId: profile.providerId } },
+    where: {
+      provider_providerId: { provider: input.provider as any, providerId: profile.providerId },
+    },
     create: {
       userId,
       provider: input.provider as any,
@@ -948,7 +1194,24 @@ export const socialLogin = async (
     update: { userId },
   });
 
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: AUTH_USER_SELECT });
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: AUTH_USER_SELECT,
+  });
+
+  /**
+   * The email fallback above can land on a suspended or soft-deleted account, and `authenticate`
+   * refuses those on every other path. Keep social login from being the way around that.
+   */
+  if (!user.isActive) {
+    throw new AppError(
+      ERROR.AUTH.ACCOUNT_SUSPENDED,
+      HTTP_STATUS.FORBIDDEN,
+      ERROR_CODE.ACCOUNT_SUSPENDED,
+    );
+  }
+  assertVerified(user);
+
   const tokens = await issueTokens(userId, device);
   await linkDeviceToUser(userId, device);
 
@@ -972,7 +1235,9 @@ export const linkSocial = async (userId: string, input: { provider: string; idTo
   }
 
   return prisma.socialAccount.upsert({
-    where: { provider_providerId: { provider: input.provider as any, providerId: profile.providerId } },
+    where: {
+      provider_providerId: { provider: input.provider as any, providerId: profile.providerId },
+    },
     create: {
       userId,
       provider: input.provider as any,
@@ -1020,31 +1285,41 @@ export const logout = async (userId: string, refreshToken: string): Promise<bool
 
 export const logoutAllDevices = async (userId: string): Promise<number> => {
   const revoked = await revokeAllTokens(userId);
-  await prisma.session.updateMany({ where: { userId, isActive: true }, data: { isActive: false, endedAt: new Date() } });
+  await prisma.session.updateMany({
+    where: { userId, isActive: true },
+    data: { isActive: false, endedAt: new Date() },
+  });
   await prisma.device.updateMany({ where: { userId }, data: { isTrusted: false } });
-  void writeActivityLog({ action: 'LOGOUT', entity: 'User', entityId: userId, meta: { allDevices: true } });
+  void writeActivityLog({
+    action: 'LOGOUT',
+    entity: 'User',
+    entityId: userId,
+    meta: { allDevices: true },
+  });
   return revoked;
 };
 
 export const listSessions = async (userId: string, currentSessionKey: string): Promise<any[]> => {
-  return prisma.session.findMany({
-    where: { userId, isActive: true },
-    orderBy: { lastSeenAt: 'desc' },
-    take: 50,
-    select: {
-      id: true,
-      sessionKey: true,
-      deviceId: true,
-      platform: true,
-      ip: true,
-      userAgent: true,
-      geo: true,
-      startedAt: true,
-      lastSeenAt: true,
-      endedAt: true,
-      isActive: true,
-    },
-  }).then((rows) => rows.map((r) => ({ ...r, isCurrent: r.sessionKey === currentSessionKey })));
+  return prisma.session
+    .findMany({
+      where: { userId, isActive: true },
+      orderBy: { lastSeenAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        sessionKey: true,
+        deviceId: true,
+        platform: true,
+        ip: true,
+        userAgent: true,
+        geo: true,
+        startedAt: true,
+        lastSeenAt: true,
+        endedAt: true,
+        isActive: true,
+      },
+    })
+    .then((rows) => rows.map((r) => ({ ...r, isCurrent: r.sessionKey === currentSessionKey })));
 };
 
 export const revokeSession = async (userId: string, sessionKey: string): Promise<boolean> => {

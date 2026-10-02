@@ -2,6 +2,7 @@ import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { isAdminRole, ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { AppError } from '../../utils/AppError';
@@ -28,12 +29,12 @@ import {
 const userId = (req: Request): string => req.auth!.userId;
 
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
-  superAdmin: [requireRole('SUPER_ADMIN')],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
+  superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
 };
 
 /** Unpublished rows are only ever exposed to staff. */
-const isStaff = (req: Request): boolean => D.str(req.auth?.role).includes('ADMIN');
+const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth?.role));
 
 /** A vendor may only import into its own catalogue. */
 const ownVendorId = (req: Request): string => {
@@ -58,7 +59,10 @@ const ownVendorId = (req: Request): string => {
 export const listPages = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listPages({ ...(req.query as any), skip, take }, isStaff(req));
+  const { rows, total } = await service.listPages(
+    { ...(req.query as any), skip, take },
+    isStaff(req),
+  );
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.CONTENT.PAGE_FETCHED,
@@ -81,7 +85,10 @@ export const listPages = asyncHandler(async (req, res) => {
 export const getPageBySlug = asyncHandler(async (req, res) => {
   const page = await service.getPageBySlug(req.params.slug, isStaff(req));
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.PAGE_FETCHED, result: serializePage(page) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.PAGE_FETCHED,
+    result: serializePage(page),
+  });
 });
 
 /**
@@ -111,7 +118,10 @@ export const createPage = asyncHandler(async (req, res) => {
 export const updatePage = asyncHandler(async (req, res) => {
   const page = await service.updatePage(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.PAGE_UPDATED, result: serializePage(page) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.PAGE_UPDATED,
+    result: serializePage(page),
+  });
 });
 
 /**
@@ -146,7 +156,10 @@ export const deletePage = asyncHandler(async (req, res) => {
 export const listBlogs = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listBlogs({ ...(req.query as any), skip, take }, isStaff(req));
+  const { rows, total } = await service.listBlogs(
+    { ...(req.query as any), skip, take },
+    isStaff(req),
+  );
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.CONTENT.BLOG_FETCHED,
@@ -169,7 +182,10 @@ export const listBlogs = asyncHandler(async (req, res) => {
 export const getBlogBySlug = asyncHandler(async (req, res) => {
   const post = await service.getBlogBySlug(req.params.slug, isStaff(req));
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.BLOG_FETCHED, result: serializeBlog(post) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.BLOG_FETCHED,
+    result: serializeBlog(post),
+  });
 });
 
 /**
@@ -199,7 +215,10 @@ export const createBlog = asyncHandler(async (req, res) => {
 export const updateBlog = asyncHandler(async (req, res) => {
   const post = await service.updateBlog(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.BLOG_UPDATED, result: serializeBlog(post) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.BLOG_UPDATED,
+    result: serializeBlog(post),
+  });
 });
 
 /**
@@ -272,7 +291,10 @@ export const createFaq = asyncHandler(async (req, res) => {
 export const updateFaq = asyncHandler(async (req, res) => {
   const faq = await service.updateFaq(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.FAQ_UPDATED, result: serializeFaq(faq) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.FAQ_UPDATED,
+    result: serializeFaq(faq),
+  });
 });
 
 /**
@@ -345,7 +367,10 @@ export const createBanner = asyncHandler(async (req, res) => {
 export const updateBanner = asyncHandler(async (req, res) => {
   const banner = await service.updateBanner(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.CONTENT.BANNER_UPDATED, result: serializeBanner(banner) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CONTENT.BANNER_UPDATED,
+    result: serializeBanner(banner),
+  });
 });
 
 /**
@@ -640,7 +665,10 @@ export const createCurrency = asyncHandler(async (req, res) => {
 export const updateCurrency = asyncHandler(async (req, res) => {
   const row = await service.updateCurrency(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.CURRENCY.UPDATED, result: serializeCurrency(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CURRENCY.UPDATED,
+    result: serializeCurrency(row),
+  });
 });
 
 /**
@@ -671,7 +699,10 @@ export const deleteCurrency = asyncHandler(async (req, res) => {
  *       200: { description: The converted amount plus the rate used }
  */
 export const convertCurrency = asyncHandler(async (req, res) => {
-  const result = await service.convertCurrency(D.float((req.query as any).amount), D.str((req.query as any).to));
+  const result = await service.convertCurrency(
+    D.float((req.query as any).amount),
+    D.str((req.query as any).to),
+  );
 
   return ApiResponse.success(res, { message: SUCCESS.CURRENCY.FETCHED, result });
 });
@@ -723,7 +754,10 @@ export const createTaxConfig = asyncHandler(async (req, res) => {
 export const updateTaxConfig = asyncHandler(async (req, res) => {
   const row = await service.updateTaxConfig(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.TAX.UPDATED, result: serializeTaxConfig(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.TAX.UPDATED,
+    result: serializeTaxConfig(row),
+  });
 });
 
 /**
@@ -756,7 +790,10 @@ export const deleteTaxConfig = asyncHandler(async (req, res) => {
  *       200: { description: The translation list }
  */
 export const listTranslations = asyncHandler(async (req, res) => {
-  const rows = await service.listTranslations(D.str((req.query as any).locale), D.str((req.query as any).namespace));
+  const rows = await service.listTranslations(
+    D.str((req.query as any).locale),
+    D.str((req.query as any).namespace),
+  );
 
   return ApiResponse.success(res, {
     message: SUCCESS.I18N.TRANSLATIONS_FETCHED,
@@ -778,7 +815,11 @@ export const upsertTranslations = asyncHandler(async (req, res) => {
 
   return ApiResponse.success(res, {
     message: SUCCESS.I18N.BULK_UPSERTED,
-    result: { upsertedCount: D.num(count), locale: D.str(req.body.locale), namespace: D.str(req.body.namespace) },
+    result: {
+      upsertedCount: D.num(count),
+      locale: D.str(req.body.locale),
+      namespace: D.str(req.body.namespace),
+    },
   });
 });
 
@@ -939,7 +980,10 @@ export const registerWebhook = asyncHandler(async (req, res) => {
 export const updateWebhook = asyncHandler(async (req, res) => {
   const row = await service.updateWebhook(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.WEBHOOK.UPDATED, result: serializeWebhookEndpoint(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.WEBHOOK.UPDATED,
+    result: serializeWebhookEndpoint(row),
+  });
 });
 
 /**
@@ -989,7 +1033,9 @@ export const receiveWebhook = asyncHandler(async (req, res) => {
   const signature = D.str(req.headers['x-webhook-signature'] as string);
   const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
 
-  const isValid = endpointId ? await service.verifyWebhookSignature(endpointId, rawBody, signature) : false;
+  const isValid = endpointId
+    ? await service.verifyWebhookSignature(endpointId, rawBody, signature)
+    : false;
 
   const row = await service.recordWebhook(
     {
@@ -1089,7 +1135,10 @@ export const listBulkJobs = asyncHandler(async (req, res) => {
 export const getBulkJobStatus = asyncHandler(async (req, res) => {
   const job = await service.getBulkJob(req.params.jobId);
 
-  return ApiResponse.success(res, { message: SUCCESS.BULK.STATUS_FETCHED, result: serializeBulkJob(job) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.BULK.STATUS_FETCHED,
+    result: serializeBulkJob(job),
+  });
 });
 
 // ═══ Reports ══════════════════════════════════════════════════════════════════
@@ -1105,7 +1154,10 @@ export const getBulkJobStatus = asyncHandler(async (req, res) => {
  */
 export const runReport = asyncHandler(async (req, res) => {
   const type = D.str(req.params.type).toUpperCase();
-  const result = await service.runReport(type, { ...(req.query as any), vendorId: D.str((req.query as any).vendorId) });
+  const result = await service.runReport(type, {
+    ...(req.query as any),
+    vendorId: D.str((req.query as any).vendorId),
+  });
 
   const messages: Record<string, string> = {
     SALES: SUCCESS.REPORT.SALES_FETCHED,
@@ -1121,7 +1173,10 @@ export const runReport = asyncHandler(async (req, res) => {
 
   return ApiResponse.success(res, {
     message: messages[type] ?? SUCCESS.REPORT.EXPORTED,
-    result: D.str((req.query as any).format) === 'csv' ? { csv: D.str(result.csv), totalRecord: D.num(result.totalRecord) } : result,
+    result:
+      D.str((req.query as any).format) === 'csv'
+        ? { csv: D.str(result.csv), totalRecord: D.num(result.totalRecord) }
+        : result,
   });
 });
 
@@ -1175,7 +1230,10 @@ export const createSchedule = asyncHandler(async (req, res) => {
 export const updateSchedule = asyncHandler(async (req, res) => {
   const row = await service.updateReportSchedule(req.params.id, req.body, req);
 
-  return ApiResponse.success(res, { message: SUCCESS.REPORT.SCHEDULE_UPDATED, result: serializeReportSchedule(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.REPORT.SCHEDULE_UPDATED,
+    result: serializeReportSchedule(row),
+  });
 });
 
 /**
@@ -1195,3 +1253,196 @@ export const deleteSchedule = asyncHandler(async (req, res) => {
     result: { scheduleId: D.str(req.params.id), isDeleted: true },
   });
 });
+
+/** POST /reports/schedule — admin */
+export const scheduleReport = asyncHandler(async (req, res) => {
+  const row = await service.createReportSchedule(req.body, userId(req), req);
+
+  return ApiResponse.created(res, SUCCESS.REPORT.SCHEDULE_CREATED, serializeReportSchedule(row));
+});
+
+/** GET /reports/export/:type — admin */
+export const exportReport = asyncHandler(async (req, res) => {
+  const result = await service.runReport(D.str(req.params.type).toUpperCase(), req.query as any);
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${D.str(req.params.type).toLowerCase()}-report.csv"`,
+  );
+
+  return res.status(200).send(D.str(result.csv));
+});
+
+// ═══ Newsletter campaign ══════════════════════════════════════════════════════
+
+/** POST /newsletter/sendCampaign — admin */
+export const sendCampaign = asyncHandler(async (req, res) => {
+  const result = await service.sendCampaign(req.body, userId(req), req);
+  return ApiResponse.created(res, SUCCESS.NEWSLETTER.CAMPAIGN_SENT, result);
+});
+
+// ═══ Bulk import of orders and users ══════════════════════════════════════════
+
+/** POST /bulk/importOrders — admin */
+export const importOrders = asyncHandler(async (req, res) => {
+  const result = await service.bulkImportOrders(req.body, userId(req), req);
+  return ApiResponse.created(res, SUCCESS.BULK.ORDERS_IMPORTED, result);
+});
+
+/** POST /bulk/importUsers — admin */
+export const importUsers = asyncHandler(async (req, res) => {
+  const result = await service.bulkImportUsers(req.body, userId(req), req);
+  return ApiResponse.created(res, SUCCESS.BULK.USERS_IMPORTED, result);
+});
+
+// ═══ API keys ═════════════════════════════════════════════════════════════════
+
+/** GET /apiKeys/getAll — admin; secrets are never listed */
+export const listApiKeys = asyncHandler(async (_req, res) => {
+  const rows = await service.listApiKeys();
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.API_KEY.FETCHED,
+    result: { itemCount: rows.length, itemList: rows },
+  });
+});
+
+/** POST /apiKeys/create — admin; the secret is returned exactly once */
+export const createApiKey = asyncHandler(async (req, res) => {
+  const row = await service.createApiKey(req.body, userId(req), req);
+  return ApiResponse.created(res, SUCCESS.API_KEY.CREATED, row);
+});
+
+/** PATCH /apiKeys/revoke/:id — admin */
+export const revokeApiKey = asyncHandler(async (req, res) => {
+  const row = await service.revokeApiKey(D.str(req.params.id), userId(req), req);
+  return ApiResponse.success(res, { message: SUCCESS.API_KEY.REVOKED, result: row });
+});
+
+/** DELETE /apiKeys/delete/:id — admin */
+export const deleteApiKey = asyncHandler(async (req, res) => {
+  await service.deleteApiKey(D.str(req.params.id), userId(req), req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.API_KEY.DELETED,
+    result: { apiKeyId: D.str(req.params.id), isDeleted: true },
+  });
+});
+
+/** GET /apiKeys/getUsage/:id — admin */
+export const getApiKeyUsage = asyncHandler(async (req, res) => {
+  const result = await service.getApiKeyUsage(D.str(req.params.id));
+  return ApiResponse.success(res, { message: SUCCESS.API_KEY.USAGE_FETCHED, result });
+});
+
+// ═══ Translations ═════════════════════════════════════════════════════════════
+
+/** GET /i18n/getLocales */
+export const listLocales = asyncHandler(async (_req, res) => {
+  const rows = await service.listLocales();
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.I18N.LOCALES_FETCHED,
+    result: { itemCount: rows.length, itemList: rows },
+  });
+});
+
+/** GET /i18n/getTranslations/:locale */
+export const getTranslations = asyncHandler(async (req, res) => {
+  const result = await service.getTranslationsByLocale(D.str(req.params.locale));
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.I18N.TRANSLATIONS_FETCHED,
+    result,
+  });
+});
+
+/** POST /i18n/create — admin */
+export const createTranslation = asyncHandler(async (req, res) => {
+  const row = await service.createTranslation(req.body, userId(req), req);
+  return ApiResponse.created(res, SUCCESS.I18N.CREATED, serializeTranslation(row));
+});
+
+/** PATCH /i18n/update/:id — admin */
+export const updateTranslation = asyncHandler(async (req, res) => {
+  const row = await service.updateTranslation(D.str(req.params.id), req.body, userId(req), req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.I18N.UPDATED,
+    result: serializeTranslation(row),
+  });
+});
+
+/** DELETE /i18n/delete/:id — admin */
+export const deleteTranslation = asyncHandler(async (req, res) => {
+  await service.deleteTranslation(D.str(req.params.id), req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.I18N.DELETED,
+    result: { translationId: D.str(req.params.id), isDeleted: true },
+  });
+});
+
+/** POST /i18n/bulkUpsert — admin */
+export const bulkUpsertTranslations = asyncHandler(async (req, res) => {
+  const count = await service.upsertTranslations(req.body, req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.I18N.BULK_UPSERTED,
+    result: {
+      upsertedCount: D.num(count),
+      locale: D.str(req.body.locale),
+      namespace: D.str(req.body.namespace),
+    },
+  });
+});
+
+// ═══ Provider webhooks ═════════════════════════════════════════════════════════
+
+/**
+ * One receiver for every inbound provider.
+ *
+ * The provider is known before the body is read so the signature can be checked against that
+ * provider's own secret, and a delivery is always recorded even when verification fails.
+ */
+const handleProviderWebhook = async (
+  provider: string,
+  req: Request,
+  res: any,
+): Promise<unknown> => {
+  const signature = D.str(
+    (req.headers['x-signature'] ?? req.headers['x-webhook-signature']) as string,
+  );
+
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+
+  const isValid = await service.verifyProviderSignature(provider, rawBody, signature);
+
+  const row = await service.recordWebhook(
+    {
+      endpointId: D.str(req.body.endpointId),
+      event: D.str(req.body.event) || provider.toLowerCase(),
+      eventId: D.str(req.body.eventId ?? req.body.id),
+      payload: req.body,
+      signature,
+      direction: 'INBOUND',
+    },
+    isValid,
+  );
+
+  return ApiResponse.success(res, { message: SUCCESS.WEBHOOK.RECEIVED, result: row });
+};
+
+/** POST /webhooks/razorpay */
+export const receiveRazorpayWebhook = asyncHandler(async (req, res) =>
+  handleProviderWebhook('razorpay', req, res),
+);
+
+/** POST /webhooks/shipping */
+export const receiveShippingWebhook = asyncHandler(async (req, res) =>
+  handleProviderWebhook('shipping', req, res),
+);
+
+/** POST /webhooks/payment-gateway/:provider */
+export const receivePaymentGatewayWebhook = asyncHandler(async (req, res) =>
+  handleProviderWebhook(D.str(req.params.provider).toLowerCase(), req, res),
+);

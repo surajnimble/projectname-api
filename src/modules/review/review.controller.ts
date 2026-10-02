@@ -2,10 +2,13 @@ import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { isAdminRole, ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
 import * as service from './review.service';
+import * as cartService from '../cart/cart.service';
+import { serializeCartDetail } from '../cart/cart.serializer';
 import {
   serializeReviewDetail,
   serializeQuestion,
@@ -14,12 +17,23 @@ import {
   serializeFlashSaleDetail,
 } from './review.serializer';
 
+/** Coupon details attached to a totals object, for the `couponData` block. */
+const couponExtras = (totals: any): Record<string, any> => ({
+  couponCode: D.str(totals?.couponCode),
+  couponTitle: D.str(totals?.couponTitle),
+  couponType: D.str(totals?.couponType),
+  couponDiscount: D.float(totals?.couponDiscount),
+  freeShipping: D.bool(totals?.couponFreeShipping),
+  couponInvalid: D.bool(totals?.couponInvalid),
+});
+
 const userId = (req: Request): string => req.auth!.userId;
 const vendorId = (req: Request): string => req.auth!.vendorId;
 
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
   vendor: [requireRole('VENDOR')],
+  customer: [requireRole('CUSTOMER')],
 };
 
 // ═══ Reviews ═════════════════════════════════════════════════════════════════
@@ -66,23 +80,6 @@ export const getSummary = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
- * /reviews/getDistribution/:productId:
- *   get:
- *     tags: [Reviews]
- *     summary: Per-star counts for a product
- *     responses:
- *       200: { description: Star distribution }
- */
-export const getDistribution = asyncHandler(async (req, res) => {
-  const summary = await service.getReviewSummary(D.str(req.params.productId));
-  return ApiResponse.success(res, {
-    message: SUCCESS.REVIEW.SUMMARY_FETCHED,
-    result: { productId: summary.productId, distributionList: summary.distributionList },
-  });
-});
-
-/**
- * @openapi
  * /reviews/addReview:
  *   post:
  *     tags: [Reviews]
@@ -111,7 +108,10 @@ export const addReview = asyncHandler(async (req, res) => {
  */
 export const updateReview = asyncHandler(async (req, res) => {
   const review = await service.updateReview(userId(req), D.str(req.params.id), req.body, req);
-  return ApiResponse.success(res, { message: SUCCESS.REVIEW.UPDATED, result: serializeReviewDetail(review) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.REVIEW.UPDATED,
+    result: serializeReviewDetail(review),
+  });
 });
 
 /**
@@ -124,9 +124,12 @@ export const updateReview = asyncHandler(async (req, res) => {
  *       200: { description: Review deleted }
  */
 export const deleteReview = asyncHandler(async (req, res) => {
-  const isAdmin = D.str(req.auth!.role).includes('ADMIN');
+  const isAdmin = isAdminRole(D.str(req.auth!.role));
   await service.deleteReview(D.str(req.params.id), isAdmin ? null : userId(req), req);
-  return ApiResponse.success(res, { message: SUCCESS.REVIEW.DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.REVIEW.DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });
 
 /**
@@ -185,8 +188,29 @@ export const reply = asyncHandler(async (req, res) => {
  */
 export const markHelpful = asyncHandler(async (req, res) => {
   const review = await service.markHelpful(D.str(req.params.id), userId(req));
-  return ApiResponse.success(res, { message: SUCCESS.REVIEW.VOTED, result: serializeReviewDetail(review) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.REVIEW.VOTED,
+    result: serializeReviewDetail(review),
+  });
 });
+
+// ═══ Moderation shortcuts ═════════════════════════════════════════════════════
+
+/** Each of these pins the target status, so the route itself documents the intent. */
+const moderateReviewStatus = (status: string, message: string) =>
+  asyncHandler(async (req: Request, res: any) => {
+    const review = await service.moderateReview(
+      D.str(req.params.id),
+      status,
+      req.auth!.userId,
+      req,
+    );
+
+    return ApiResponse.success(res, { message, result: serializeReviewDetail(review) });
+  });
+
+export const approveReview = moderateReviewStatus('APPROVED', SUCCESS.REVIEW.APPROVED);
+export const rejectReview = moderateReviewStatus('REJECTED', SUCCESS.REVIEW.REJECTED);
 
 // ═══ Questions ════════════════════════════════════════════════════════════════
 
@@ -246,7 +270,12 @@ export const ask = asyncHandler(async (req, res) => {
  *       403: { description: Not this product's shop }
  */
 export const answer = asyncHandler(async (req, res) => {
-  const row = await service.answerQuestion(userId(req), D.str(req.params.id), D.str(req.body.answer), req);
+  const row = await service.answerQuestion(
+    userId(req),
+    D.str(req.params.id),
+    D.str(req.body.answer),
+    req,
+  );
   return ApiResponse.created(res, SUCCESS.QUESTION.ANSWERED, { answerId: D.str(row.id) });
 });
 
@@ -259,16 +288,14 @@ export const answer = asyncHandler(async (req, res) => {
  *     responses:
  *       200: { description: Question moderated }
  */
-export const moderateQuestion = asyncHandler(async (req, res) => {
-  const row = await service.moderateQuestion(
-    D.str(req.params.id),
-    Boolean(req.body.isApproved),
-    req.auth!.userId,
-    req,
-  );
+/** PATCH /questions/approve/:id — admin */
+export const approveQuestion = asyncHandler(async (req, res) => {
+  const row = await service.moderateQuestion(D.str(req.params.id), true, req.auth!.userId, req);
 
-  const message = req.body.isApproved ? SUCCESS.QUESTION.APPROVED : SUCCESS.QUESTION.DELETED;
-  return ApiResponse.success(res, { message, result: serializeQuestion(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.QUESTION.APPROVED,
+    result: serializeQuestion(row),
+  });
 });
 
 /**
@@ -281,9 +308,12 @@ export const moderateQuestion = asyncHandler(async (req, res) => {
  *       200: { description: Question deleted }
  */
 export const deleteQuestion = asyncHandler(async (req, res) => {
-  const isAdmin = D.str(req.auth!.role).includes('ADMIN');
+  const isAdmin = isAdminRole(D.str(req.auth!.role));
   await service.deleteQuestion(D.str(req.params.id), isAdmin ? undefined : userId(req), req);
-  return ApiResponse.success(res, { message: SUCCESS.QUESTION.DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.QUESTION.DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });
 
 // ═══ Coupons ══════════════════════════════════════════════════════════════════
@@ -336,7 +366,10 @@ export const couponCreate = asyncHandler(async (req, res) => {
  */
 export const couponUpdate = asyncHandler(async (req, res) => {
   const row = await service.updateCoupon(D.str(req.params.id), req.body, req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.COUPON.UPDATED, result: serializeCoupon(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.COUPON.UPDATED,
+    result: serializeCoupon(row),
+  });
 });
 
 /**
@@ -350,7 +383,10 @@ export const couponUpdate = asyncHandler(async (req, res) => {
  */
 export const couponDelete = asyncHandler(async (req, res) => {
   await service.deleteCoupon(D.str(req.params.id), req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.COUPON.DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.COUPON.DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });
 
 /**
@@ -363,8 +399,63 @@ export const couponDelete = asyncHandler(async (req, res) => {
  *       200: { description: Status changed }
  */
 export const couponToggle = asyncHandler(async (req, res) => {
-  const row = await service.toggleCoupon(D.str(req.params.id), Boolean(req.body.isActive), req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.COUPON.TOGGLED, result: serializeCoupon(row) });
+  const row = await service.toggleCoupon(
+    D.str(req.params.id),
+    Boolean(req.body.isActive),
+    req.auth!.userId,
+    req,
+  );
+  return ApiResponse.success(res, {
+    message: SUCCESS.COUPON.TOGGLED,
+    result: serializeCoupon(row),
+  });
+});
+
+/**
+ * @openapi
+ * /coupons/getById:
+ *   get:
+ *     tags: [Coupons]
+ *     summary: Single coupon
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Coupon }
+ *       404: { description: Not found }
+ */
+export const couponDetail = asyncHandler(async (req, res) => {
+  const row = await service.getCouponById(D.str(req.params.id));
+  return ApiResponse.success(res, {
+    message: SUCCESS.COUPON.FETCHED,
+    result: serializeCoupon(row),
+  });
+});
+
+/**
+ * @openapi
+ * /coupons/applyCoupon:
+ *   post:
+ *     tags: [Coupons]
+ *     summary: Apply a coupon to the caller's cart
+ *     responses:
+ *       200: { description: Cart with the coupon applied }
+ *       404: { description: Unknown code }
+ *       422: { description: Expired, exhausted, or minimum not met }
+ */
+export const couponApply = asyncHandler(async (req, res) => {
+  const { totals } = await cartService.applyCoupon(userId(req), D.str(req.body.code), req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.CART.COUPON_APPLIED,
+    result: serializeCartDetail(
+      await cartService.getCart(userId(req)),
+      totals,
+      couponExtras(totals),
+    ),
+  });
 });
 
 /**
@@ -459,7 +550,10 @@ export const flashLive = asyncHandler(async (req, res) => {
  */
 export const flashBySlug = asyncHandler(async (req, res) => {
   const row = await service.getFlashSaleBySlug(D.str(req.params.slug));
-  return ApiResponse.success(res, { message: SUCCESS.FLASH_SALE.FETCHED, result: serializeFlashSaleDetail(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.FLASH_SALE.FETCHED,
+    result: serializeFlashSaleDetail(row),
+  });
 });
 
 /**
@@ -489,7 +583,10 @@ export const flashCreate = asyncHandler(async (req, res) => {
  */
 export const flashUpdate = asyncHandler(async (req, res) => {
   const row = await service.updateFlashSale(D.str(req.params.id), req.body, req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.FLASH_SALE.UPDATED, result: serializeFlashSaleDetail(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.FLASH_SALE.UPDATED,
+    result: serializeFlashSaleDetail(row),
+  });
 });
 
 /**
@@ -503,5 +600,8 @@ export const flashUpdate = asyncHandler(async (req, res) => {
  */
 export const flashDelete = asyncHandler(async (req, res) => {
   await service.deleteFlashSale(D.str(req.params.id), req.auth!.userId, req);
-  return ApiResponse.success(res, { message: SUCCESS.FLASH_SALE.DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.FLASH_SALE.DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });

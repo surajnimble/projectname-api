@@ -910,8 +910,8 @@ CREATE TABLE "LoyaltyTransaction" (
 CREATE TABLE "Referral" (
     "id" TEXT NOT NULL,
     "referrerId" TEXT NOT NULL,
-    "refereeId" TEXT NOT NULL,
-    "referralCode" TEXT NOT NULL,
+    "refereeId" TEXT,
+    "referralCode" TEXT NOT NULL DEFAULT '',
     "status" "ReferralStatus" NOT NULL DEFAULT 'PENDING',
     "referrerReward" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "refereeReward" DOUBLE PRECISION NOT NULL DEFAULT 0.0,

@@ -1,7 +1,9 @@
-// Loads .env before Prisma reads DATABASE_URL. `dotenv/config` is idempotent, so
-// this is safe even when env.config has already loaded it — and it guarantees
-// DATABASE_URL exists for any entry point that imports this file directly
-// (scripts, workers, cron), not just through the app's import chain.
+/**
+ * Loads .env before Prisma reads DATABASE_URL. `dotenv/config` is idempotent, so this is safe
+ * even when env.config has already loaded it — and it guarantees DATABASE_URL exists for any
+ * entry point that imports this file directly (scripts, workers, cron), not just through the
+ * app's import chain.
+ */
 import 'dotenv/config';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { logger } from './logger.service';

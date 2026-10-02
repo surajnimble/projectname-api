@@ -16,9 +16,12 @@ import {
 import { writeActivityLog } from '../../services/audit.service';
 import { notifyUser } from '../../services/notification.service';
 import { generateReturnNumber } from '../../utils/slug';
-import { canTransitionReturn, RETURN_STATUS } from '../../constants/statuses';
+import { canTransitionReturn } from '../../constants/statuses';
 import { getReturnConfig } from '../../services/settings.service';
-import { addDays, daysBetween, isPast } from '../../utils/dates';
+import { addDays, daysBetween } from '../../utils/dates';
+import { ENV, isRazorpayConfigured, isStripeConfigured } from '../../config/env.config';
+import { GATEWAY } from '../../config/payment.config';
+import { verifyGatewaySignature } from '../../utils/crypto';
 
 /**
  * Payments, payouts, wallet and returns.
@@ -123,7 +126,13 @@ const outstanding = async (orderId: string): Promise<{ paid: number; due: number
  */
 export const verifyTokenPayment = async (
   userId: string,
-  input: { orderId: string; paymentId?: string; method?: string; reference?: string; providerRef?: string },
+  input: {
+    orderId: string;
+    paymentId?: string;
+    method?: string;
+    reference?: string;
+    providerRef?: string;
+  },
   req?: any,
 ): Promise<PaymentRow> => {
   const order = await prisma.order.findFirst({
@@ -153,20 +162,24 @@ export const verifyTokenPayment = async (
   const policy = await getTokenPolicy();
 
   if (D.str(input.method) && !policy.allowedMethods.includes(D.str(input.method))) {
-    throw AppError.unprocessable(`This method is not accepted for token payments (${policy.allowedMethods.join(', ')}).`);
+    throw AppError.unprocessable(
+      `This method is not accepted for token payments (${policy.allowedMethods.join(', ')}).`,
+    );
   }
 
-  const payment = await prisma.payment.update({
-    where: { id: D.str(input.paymentId) },
-    data: {
-      status: PaymentStatus.PENDING,
-      reference: D.str(input.reference) || D.str(input.providerRef),
-      providerRef: D.str(input.providerRef),
-    },
-    include: PAYMENT_INCLUDE,
-  }).catch(() => {
-    throw AppError.notFound(ERROR.PAYMENT.NOT_FOUND);
-  });
+  const payment = await prisma.payment
+    .update({
+      where: { id: D.str(input.paymentId) },
+      data: {
+        status: PaymentStatus.PENDING,
+        reference: D.str(input.reference) || D.str(input.providerRef),
+        providerRef: D.str(input.providerRef),
+      },
+      include: PAYMENT_INCLUDE,
+    })
+    .catch(() => {
+      throw AppError.notFound(ERROR.PAYMENT.NOT_FOUND);
+    });
 
   // The token is settled; the balance still stands unless the wallet covered it.
   const balanceDue = money(order.total - order.walletAmount);
@@ -200,7 +213,10 @@ export const verifyTokenPayment = async (
     meta: { amount: order.tokenAmount },
   });
 
-  const updated = await prisma.payment.findUnique({ where: { id: payment.id }, include: PAYMENT_INCLUDE });
+  const updated = await prisma.payment.findUnique({
+    where: { id: payment.id },
+    include: PAYMENT_INCLUDE,
+  });
 
   void notifyUser({
     userId,
@@ -371,14 +387,20 @@ export const initiateRefund = async (
   const payment = D.str(input.paymentId)
     ? await prisma.payment.findFirst({ where: { id: D.str(input.paymentId), orderId: order.id } })
     : await prisma.payment.findFirst({
-        where: { orderId: order.id, status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED] } },
+        where: {
+          orderId: order.id,
+          status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED] },
+        },
         orderBy: { createdAt: 'desc' },
       });
 
   if (!payment) throw AppError.notFound(ERROR.PAYMENT.NO_PAYMENT_RECORD);
 
   const alreadyRefunded = await prisma.refund.aggregate({
-    where: { paymentId: payment.id, status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED] } },
+    where: {
+      paymentId: payment.id,
+      status: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED] },
+    },
     _sum: { amount: true },
   });
 
@@ -471,7 +493,9 @@ export const processRefund = async (
 
       await tx.order.update({
         where: { id: refund.orderId },
-        data: { paymentStatus: total >= paid ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED },
+        data: {
+          paymentStatus: total >= paid ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+        },
       });
     }
 
@@ -534,7 +558,11 @@ export const listRefunds = async (
 export const getWalletBalance = async (userId: string): Promise<number> => {
   const [credits, debits] = await Promise.all([
     prisma.walletTransaction.aggregate({
-      where: { userId, status: 'SUCCESS', type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] } },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] },
+      },
       _sum: { amount: true },
     }),
     prisma.walletTransaction.aggregate({
@@ -552,7 +580,11 @@ export const getWalletSummary = async (userId: string): Promise<Record<string, a
 
   const [credited, debited] = await Promise.all([
     prisma.walletTransaction.aggregate({
-      where: { userId, status: 'SUCCESS', type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] } },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] },
+      },
       _sum: { amount: true },
     }),
     prisma.walletTransaction.aggregate({
@@ -614,9 +646,7 @@ export const adjustWallet = async (
   }
 
   if (next > cfg.maxBalance) {
-    throw AppError.unprocessable(
-      `${ERROR.WALLET.MAX_BALANCE} (${cfg.maxBalance})`,
-    );
+    throw AppError.unprocessable(`${ERROR.WALLET.MAX_BALANCE} (${cfg.maxBalance})`);
   }
 
   const row = await prisma.walletTransaction.create({
@@ -643,7 +673,9 @@ export const adjustWallet = async (
     userId,
     type: 'PAYMENT',
     title: next >= current ? 'Wallet credited' : 'Wallet debited',
-    body: D.str(input.description) || `${Math.abs(D.num(input.amount))} ${next >= current ? 'added to' : 'deducted from'} your wallet.`,
+    body:
+      D.str(input.description) ||
+      `${Math.abs(D.num(input.amount))} ${next >= current ? 'added to' : 'deducted from'} your wallet.`,
     data: { transactionId: row.id, balance: next },
   });
 
@@ -814,7 +846,18 @@ export const listPayouts = async (
   const [rows, total] = await Promise.all([
     prisma.payout.findMany({
       where,
-      include: { vendor: { select: { id: true, shopName: true, slug: true, bankHolderName: true, bankIfsc: true, upiId: true } } },
+      include: {
+        vendor: {
+          select: {
+            id: true,
+            shopName: true,
+            slug: true,
+            bankHolderName: true,
+            bankIfsc: true,
+            upiId: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       skip: D.num(query.skip),
       take: D.num(query.take),
@@ -976,7 +1019,13 @@ const RETURN_INCLUDE = {
   reason: true,
   vendor: { select: { id: true, shopName: true, slug: true } },
   order: { select: { id: true, orderNumber: true, total: true, userId: true, status: true } },
-  items: { include: { orderItem: { select: { id: true, productId: true, name: true, sku: true, image: true, price: true } } } },
+  items: {
+    include: {
+      orderItem: {
+        select: { id: true, productId: true, name: true, sku: true, image: true, price: true },
+      },
+    },
+  },
 } satisfies Prisma.ReturnRequestInclude;
 
 type ReturnRow = Prisma.ReturnRequestGetPayload<{ include: typeof RETURN_INCLUDE }>;
@@ -1055,7 +1104,8 @@ export const requestReturn = async (
   if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
 
   // A return can only follow delivery.
-  const delivered = order.status === ORDER_STATUS.DELIVERED || order.status === ORDER_STATUS.RETURNED;
+  const delivered =
+    order.status === ORDER_STATUS.DELIVERED || order.status === ORDER_STATUS.RETURNED;
   if (!delivered) {
     throw AppError.unprocessable('Only a delivered order can be returned.');
   }
@@ -1247,7 +1297,12 @@ export const getReturnById = async (
 /** Vendor or admin advances a return through its state machine. */
 export const updateReturnStatus = async (
   id: string,
-  input: { status: string; remark?: string; rejectReason?: string; itemApproval?: { returnItemId: string; isApproved: boolean }[] },
+  input: {
+    status: string;
+    remark?: string;
+    rejectReason?: string;
+    itemApproval?: { returnItemId: string; isApproved: boolean }[];
+  },
   actorId?: string,
   vendorId?: string,
   req?: any,
@@ -1345,7 +1400,10 @@ export const updateReturnStatus = async (
     userId: row.userId,
     type: 'RETURN',
     title: `Return ${next.toLowerCase().replace('_', ' ')}`,
-    body: D.str(input.rejectReason) || D.str(input.remark) || `Return ${row.returnNumber} is now ${next.toLowerCase()}.`,
+    body:
+      D.str(input.rejectReason) ||
+      D.str(input.remark) ||
+      `Return ${row.returnNumber} is now ${next.toLowerCase()}.`,
     data: { returnId: row.id },
   });
 
@@ -1386,8 +1444,10 @@ export const processReturnRefund = async (
   });
 
   const refund = await prisma.$transaction(async (tx) => {
-    // The money always moves through a refund record so the ledger is complete,
-    // even when the credit lands in the wallet instead of the gateway.
+    /**
+     * The money always moves through a refund record so the ledger is complete, even when the
+     * credit lands in the wallet instead of the gateway.
+     */
     const created =
       payment &&
       (await tx.refund.create({
@@ -1463,14 +1523,20 @@ export const processReturnRefund = async (
       await tx.payment.update({
         where: { id: payment.id },
         data: {
-          status: total >= D.float(payment.paidAmount) ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+          status:
+            total >= D.float(payment.paidAmount)
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
         },
       });
 
       await tx.order.update({
         where: { id: row.orderId },
         data: {
-          paymentStatus: total >= D.float(payment.paidAmount) ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+          paymentStatus:
+            total >= D.float(payment.paidAmount)
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
         },
       });
     }
@@ -1504,4 +1570,707 @@ export const getReturnSettlementEta = async (): Promise<number> => {
   return D.num(cfg.processingDays);
 };
 
-export { getPaymentMethodsConfig, isPast };
+// ═══ Manual / gateway payments ════════════════════════════════════════════════
+
+/**
+ * Records a customer-submitted UPI or bank reference.
+ *
+ * The money is not treated as received here — the row stays PENDING until an
+ * admin confirms it, because a reference string alone proves nothing.
+ */
+export const submitManualPayment = async (
+  userId: string,
+  input: {
+    orderId: string;
+    method: 'UPI' | 'BANK';
+    reference: string;
+    amount?: number;
+    paymentId?: string;
+    note?: string;
+  },
+  req?: any,
+): Promise<PaymentRow> => {
+  const cfg = await getPaymentMethodsConfig();
+
+  if (input.method === 'UPI' && !cfg.upi.enabled) {
+    throw AppError.unprocessable(ERROR.PAYMENT.METHOD_DISABLED);
+  }
+
+  if (input.method === 'BANK' && !cfg.bank.enabled) {
+    throw AppError.unprocessable(ERROR.PAYMENT.METHOD_DISABLED);
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: D.str(input.orderId), userId },
+    select: { id: true, orderNumber: true, total: true, walletAmount: true, userId: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  const amount = money(D.num(input.amount) || order.total - order.walletAmount);
+
+  const payment = D.str(input.paymentId)
+    ? await prisma.payment.update({
+        where: { id: D.str(input.paymentId) },
+        data: {
+          method: PaymentMethod[input.method],
+          reference: D.str(input.reference),
+          paidAmount: amount,
+          status: PaymentStatus.PENDING,
+          providerRef: D.str(input.reference),
+        },
+        include: PAYMENT_INCLUDE,
+      })
+    : await prisma.payment.create({
+        data: {
+          orderId: order.id,
+          userId,
+          method: PaymentMethod[input.method],
+          amount,
+          reference: D.str(input.reference),
+          paidAmount: amount,
+          status: PaymentStatus.PENDING,
+          providerRef: D.str(input.reference),
+          failureReason: D.str(input.note),
+        },
+        include: PAYMENT_INCLUDE,
+      });
+
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'PAYMENT_SUBMITTED',
+    entity: 'Payment',
+    entityId: payment.id,
+    meta: { method: input.method, reference: input.reference, amount },
+  });
+
+  return payment;
+};
+
+/** Admin confirms a submitted reference as genuinely received. */
+export const confirmPayment = async (
+  paymentId: string,
+  actorId?: string,
+  req?: any,
+): Promise<PaymentRow> => {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    select: { id: true, status: true, paidAmount: true, orderId: true, userId: true },
+  });
+
+  if (!payment) throw AppError.notFound(ERROR.PAYMENT.NOT_FOUND);
+
+  if (payment.status === PaymentStatus.PAID) {
+    throw AppError.unprocessable(ERROR.PAYMENT.ALREADY_PAID);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: PaymentStatus.PAID, paidAt: new Date() },
+      include: PAYMENT_INCLUDE,
+    });
+
+    await tx.order.update({
+      where: { id: payment.orderId },
+      data: { paymentStatus: PaymentStatus.PAID },
+    });
+
+    return row;
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'PAYMENT_CONFIRMED',
+    entity: 'Payment',
+    entityId: payment.id,
+    meta: { amount: payment.paidAmount },
+  });
+
+  void notifyUser({
+    userId: payment.userId,
+    type: 'PAYMENT',
+    title: 'Payment confirmed',
+    body: `We received your payment of ${payment.paidAmount}.`,
+    data: { paymentId: payment.id },
+  });
+
+  return updated as PaymentRow;
+};
+
+export const listRefundsByOrder = async (
+  orderId: string,
+  userId: string,
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, userId },
+    select: { id: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  return listRefunds({ ...query, orderId });
+};
+
+/**
+ * Gateway helpers.
+ *
+ * Razorpay and Stripe are optional dependencies, so each one is required lazily and a
+ * missing install surfaces as a plain "not configured" refusal rather than a crash at boot.
+ */
+const requireGateway = (name: string, configured: boolean): void => {
+  if (!configured) {
+    throw AppError.serviceUnavailable(
+      `${name} is not configured for this environment.`,
+      ERROR_CODE.SERVICE_UNAVAILABLE,
+    );
+  }
+};
+
+export const createGatewayOrder = async (
+  userId: string,
+  input: { orderId: string; amount?: number },
+  req?: any,
+): Promise<Record<string, any>> => {
+  requireGateway('Razorpay', isRazorpayConfigured);
+
+  const order = await prisma.order.findFirst({
+    where: { id: D.str(input.orderId), userId },
+    select: { id: true, orderNumber: true, total: true, walletAmount: true, currency: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Razorpay = require('razorpay');
+  const client = new Razorpay({ key_id: ENV.RAZORPAY_KEY_ID, key_secret: ENV.RAZORPAY_KEY_SECRET });
+
+  const amount = money(D.num(input.amount) || order.total - order.walletAmount);
+
+  const gatewayOrder = await client.orders.create({
+    amount: Math.round(amount * 100),
+    currency: order.currency,
+    receipt: order.orderNumber,
+    notes: { orderId: order.id, userId },
+  });
+
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'GATEWAY_ORDER_CREATED',
+    entity: 'Order',
+    entityId: order.id,
+    meta: { gateway: 'razorpay', amount },
+  });
+
+  return {
+    provider: GATEWAY.RAZORPAY,
+    gatewayOrderId: D.str(gatewayOrder.id),
+    amount,
+    currency: D.str(order.currency),
+    keyId: D.str(ENV.RAZORPAY_KEY_ID),
+  };
+};
+
+/**
+ * Confirms a gateway payment.
+ *
+ * The signature is checked against the order's own amount, so a client cannot reuse a
+ * successful response for a cheaper order.
+ */
+export const verifyGatewayPayment = async (
+  userId: string,
+  input: {
+    orderId: string;
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  },
+  req?: any,
+): Promise<PaymentRow> => {
+  requireGateway('Razorpay', isRazorpayConfigured);
+
+  const order = await prisma.order.findFirst({
+    where: { id: D.str(input.orderId), userId },
+    select: { id: true, orderNumber: true, total: true, walletAmount: true, currency: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  const expected = verifyGatewaySignature(
+    `${D.str(input.razorpayOrderId)}|${D.str(input.razorpayPaymentId)}`,
+    D.str(input.razorpaySignature),
+    D.str(ENV.RAZORPAY_KEY_SECRET),
+  );
+
+  if (!expected) {
+    throw AppError.badRequest(ERROR.PAYMENT.INVALID_SIGNATURE, ERROR_CODE.INVALID_SIGNATURE);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Razorpay = require('razorpay');
+  const client = new Razorpay({ key_id: ENV.RAZORPAY_KEY_ID, key_secret: ENV.RAZORPAY_KEY_SECRET });
+
+  const gatewayPayment = await client.payments.fetch(D.str(input.razorpayPaymentId));
+
+  if (D.str(gatewayPayment.status) !== 'captured') {
+    throw AppError.unprocessable(ERROR.PAYMENT.FAILED);
+  }
+
+  const amount = money(Number(gatewayPayment.amount) / 100);
+
+  const payment = await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.create({
+      data: {
+        orderId: order.id,
+        userId,
+        method: PaymentMethod.RAZORPAY,
+        amount,
+        reference: D.str(input.razorpayPaymentId),
+        providerRef: D.str(input.razorpayOrderId),
+        paidAmount: amount,
+        status: PaymentStatus.PAID,
+        paidAt: new Date(),
+      },
+      include: PAYMENT_INCLUDE,
+    });
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { paymentStatus: PaymentStatus.PAID, tokenPaid: true },
+    });
+
+    return row;
+  });
+
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'PAYMENT_VERIFIED',
+    entity: 'Order',
+    entityId: order.id,
+    meta: { gateway: 'razorpay', amount },
+  });
+
+  return payment as PaymentRow;
+};
+
+export const createStripeIntent = async (
+  userId: string,
+  input: { orderId: string; amount?: number },
+  req?: any,
+): Promise<Record<string, any>> => {
+  requireGateway('Stripe', isStripeConfigured);
+
+  const order = await prisma.order.findFirst({
+    where: { id: D.str(input.orderId), userId },
+    select: { id: true, orderNumber: true, total: true, walletAmount: true, currency: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Stripe = require('stripe');
+  const stripe = new Stripe(ENV.STRIPE_KEY);
+
+  const amount = money(D.num(input.amount) || order.total - order.walletAmount);
+
+  const intent = await stripe.paymentIntents.create({
+    amount: Math.round(amount * 100),
+    currency: D.str(order.currency).toLowerCase(),
+    metadata: { orderId: order.id, orderNumber: order.orderNumber },
+  });
+
+  return {
+    provider: GATEWAY.STRIPE,
+    intentId: D.str(intent.id),
+    clientSecret: D.str(intent.client_secret),
+    amount,
+    currency: D.str(order.currency),
+  };
+};
+
+// ═══ Payout batch operations ══════════════════════════════════════════════════
+
+/** Totals by status, plus what is still owed to vendors in total. */
+export const getPayoutSummary = async (
+  query: Record<string, any>,
+): Promise<Record<string, any>> => {
+  const where: Prisma.PayoutWhereInput = D.str(query.vendorId)
+    ? { vendorId: D.str(query.vendorId) }
+    : {};
+
+  const [byStatus, pendingEarnings] = await Promise.all([
+    prisma.payout.groupBy({
+      by: ['status'],
+      where,
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.vendorEarning.aggregate({
+      where: { status: PayoutStatus.PENDING },
+      _sum: { netAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  return {
+    statusList: byStatus.map((g: any) => ({
+      status: D.str(g.status),
+      count: D.num(g._count._all),
+      amount: D.float(g._sum.amount),
+    })),
+    totalPayouts: byStatus.reduce((s: number, g: any) => s + D.num(g._count._all), 0),
+    totalPaid: byStatus
+      .filter((g: any) => D.str(g.status) === 'PAID')
+      .reduce((s: number, g: any) => s + D.float(g._sum.amount), 0),
+    pendingEarningCount: D.num(pendingEarnings._count._all),
+    pendingEarningAmount: D.float(pendingEarnings._sum.netAmount),
+  };
+};
+
+/**
+ * Batch payout run.
+ *
+ * Releases matured earnings first, then opens one payout per vendor that clears the
+ * minimum. Per-vendor failures are reported rather than aborting the whole cycle.
+ */
+export const generatePayoutCycles = async (req?: any): Promise<Record<string, any>> => {
+  const released = await releaseEarnings();
+  const minAmount = await getMinPayoutAmount();
+
+  const vendors = await prisma.vendorProfile.findMany({
+    where: { status: 'APPROVED', deletedAt: null },
+    select: { id: true },
+  });
+
+  const results: {
+    vendorId: string;
+    status: string;
+    amount: number;
+    error: string;
+  }[] = [];
+
+  for (const vendor of vendors) {
+    const claimed = await prisma.vendorEarning.findMany({
+      where: { vendorId: vendor.id, status: { in: [PayoutStatus.PAID, PayoutStatus.PROCESSING] } },
+      select: { id: true },
+    });
+
+    const available = await prisma.vendorEarning.findMany({
+      where: {
+        vendorId: vendor.id,
+        isAvailable: true,
+        status: PayoutStatus.PENDING,
+        id: { notIn: claimed.map((e) => e.id) },
+      },
+      orderBy: { availableAt: 'asc' },
+    });
+
+    const total = money(available.reduce((sum, e) => sum + D.float(e.netAmount), 0));
+
+    if (total < minAmount) {
+      results.push({ vendorId: vendor.id, status: 'SKIPPED', amount: total, error: '' });
+      continue;
+    }
+
+    try {
+      const payout = await requestPayout(vendor.id, { amount: total }, req);
+      results.push({
+        vendorId: vendor.id,
+        status: 'CREATED',
+        amount: D.float(payout.amount),
+        error: '',
+      });
+    } catch (err) {
+      results.push({
+        vendorId: vendor.id,
+        status: 'FAILED',
+        amount: total,
+        error: (err as Error)?.message ?? 'unknown error',
+      });
+    }
+  }
+
+  return {
+    releasedEarnings: released,
+    vendorCount: vendors.length,
+    createdCount: results.filter((r) => r.status === 'CREATED').length,
+    vendorList: results,
+  };
+};
+
+export const bulkApprovePayouts = async (
+  input: { payoutIds: string[]; notes?: string },
+  actorId?: string,
+  req?: any,
+): Promise<{ approvedCount: number; failedList: { payoutId: string; reason: string }[] }> => {
+  const failed: { payoutId: string; reason: string }[] = [];
+  let approvedCount = 0;
+
+  for (const payoutId of D.arr(input.payoutIds)) {
+    try {
+      await updatePayoutStatus(payoutId, { status: 'APPROVED', notes: input.notes }, actorId, req);
+      approvedCount += 1;
+    } catch (err) {
+      failed.push({
+        payoutId: D.str(payoutId),
+        reason: (err as Error)?.message ?? 'unknown error',
+      });
+    }
+  }
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'PAYOUTS_BULK_APPROVED',
+    entity: 'Payout',
+    meta: { approvedCount, failedCount: failed.length },
+  });
+
+  return { approvedCount, failedList: failed };
+};
+
+/** What a vendor can still withdraw: matured earnings minus anything already claimed. */
+export const getVendorPendingAmount = async (vendorId: string): Promise<Record<string, any>> => {
+  // Fetched first because the availability query excludes whatever this returns.
+  const claimed = await prisma.vendorEarning.findMany({
+    where: { vendorId, status: { in: [PayoutStatus.PAID, PayoutStatus.PROCESSING] } },
+    select: { id: true },
+  });
+
+  const [available, held] = await Promise.all([
+    prisma.vendorEarning.findMany({
+      where: {
+        vendorId,
+        isAvailable: true,
+        status: PayoutStatus.PENDING,
+        id: { notIn: claimed.map((e) => e.id) },
+      },
+      select: { netAmount: true },
+    }),
+    prisma.vendorEarning.findMany({
+      where: { vendorId, isAvailable: false, status: PayoutStatus.PENDING },
+      select: { netAmount: true },
+    }),
+  ]);
+
+  const minAmount = await getMinPayoutAmount();
+  const availableAmount = money(available.reduce((s, e) => s + D.float(e.netAmount), 0));
+
+  return {
+    vendorId: D.str(vendorId),
+    availableAmount,
+    heldAmount: money(held.reduce((s, e) => s + D.float(e.netAmount), 0)),
+    minPayoutAmount: minAmount,
+    isEligible: availableAmount >= minAmount,
+    availableCount: available.length,
+  };
+};
+
+/** Rows for the payout statement PDF. */
+export const getVendorStatement = async (
+  vendorId: string,
+  query: Record<string, any>,
+): Promise<Record<string, any>> => {
+  const where: Prisma.VendorEarningWhereInput = { vendorId };
+
+  if (D.str(query.from) || D.str(query.to)) {
+    where.createdAt = {
+      ...(D.str(query.from) ? { gte: new Date(D.str(query.from)) } : {}),
+      ...(D.str(query.to) ? { lte: new Date(D.str(query.to)) } : {}),
+    };
+  }
+
+  const [earnings, payouts, vendor] = await Promise.all([
+    prisma.vendorEarning.findMany({ where, orderBy: { createdAt: 'desc' } }),
+    prisma.payout.findMany({ where: { vendorId }, orderBy: { createdAt: 'desc' } }),
+    prisma.vendorProfile.findUnique({
+      where: { id: vendorId },
+      select: {
+        id: true,
+        shopName: true,
+        slug: true,
+        bankHolderName: true,
+        bankIfsc: true,
+        upiId: true,
+      },
+    }),
+  ]);
+
+  const gross = money(earnings.reduce((s, e) => s + D.float(e.amount), 0));
+  const commission = money(earnings.reduce((s, e) => s + D.float(e.commission), 0));
+  const platformFee = money(earnings.reduce((s, e) => s + D.float(e.platformFee), 0));
+
+  return {
+    vendorData: {
+      vendorId: D.str(vendor?.id),
+      shopName: D.str(vendor?.shopName),
+      slug: D.str(vendor?.slug),
+      bankHolderName: D.str(vendor?.bankHolderName),
+      bankIfsc: D.str(vendor?.bankIfsc),
+      upiId: D.str(vendor?.upiId),
+    },
+    earningCount: earnings.length,
+    payoutCount: payouts.length,
+    grossAmount: gross,
+    commissionAmount: commission,
+    platformFeeAmount: platformFee,
+    netAmount: money(gross - commission - platformFee),
+    paidAmount: money(
+      payouts
+        .filter((p) => p.status === PayoutStatus.PAID)
+        .reduce((s, p) => s + D.float(p.amount), 0),
+    ),
+    earningList: earnings.map((e: any) => ({
+      earningId: D.str(e.id),
+      orderId: D.str(e.orderId),
+      amount: D.float(e.amount),
+      commission: D.float(e.commission),
+      platformFee: D.float(e.platformFee),
+      netAmount: D.float(e.netAmount),
+      status: D.str(e.status),
+      period: D.str(e.period),
+      createdAt: D.date(e.createdAt),
+    })),
+    payoutList: payouts.map((p: any) => ({
+      payoutId: D.str(p.id),
+      amount: D.float(p.amount),
+      method: D.str(p.method),
+      status: D.str(p.status),
+      reference: D.str(p.reference),
+      period: D.str(p.period),
+      createdAt: D.date(p.createdAt),
+    })),
+  };
+};
+
+// ═══ Wallet top-up and redemption ═════════════════════════════════════════════
+
+/** Customer-initiated top-up; the row waits for admin confirmation like any manual payment. */
+export const addMoneyToWallet = async (
+  userId: string,
+  input: { amount: number; method?: string; reference?: string },
+  req?: any,
+): Promise<any> => {
+  const cfg = await getWalletConfig();
+
+  if (!cfg.enabled) throw AppError.unprocessable(ERROR.WALLET.NOT_ENABLED);
+
+  const amount = D.num(input.amount);
+
+  if (amount < cfg.minRedeem) {
+    throw AppError.unprocessable(
+      `${ERROR.WALLET.MIN_REDEEM} (minimum ${cfg.minRedeem})`,
+      ERROR_CODE.MIN_LIMIT,
+    );
+  }
+
+  const current = await getWalletBalance(userId);
+  const next = money(current + amount);
+
+  if (next > cfg.maxBalance) {
+    throw AppError.unprocessable(
+      `${ERROR.WALLET.MAX_BALANCE} (maximum ${cfg.maxBalance})`,
+      ERROR_CODE.MAX_LIMIT,
+    );
+  }
+
+  const row = await prisma.walletTransaction.create({
+    data: {
+      userId,
+      type: 'CREDIT',
+      amount,
+      balanceAfter: next,
+      description: D.str(input.method) ? `Wallet top-up via ${input.method}` : 'Wallet top-up',
+      reference: D.str(input.reference),
+      status: 'PENDING',
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'WALLET_TOPUP_REQUESTED',
+    entity: 'WalletTransaction',
+    entityId: row.id,
+    meta: { amount, reference: input.reference },
+  });
+
+  return row;
+};
+
+/**
+ * Reserves wallet balance against an order.
+ *
+ * The debit is written with the order id so a refund can put it back without guessing.
+ */
+export const useWalletForOrder = async (
+  userId: string,
+  input: { orderId: string; amount?: number },
+  req?: any,
+): Promise<any> => {
+  const cfg = await getWalletConfig();
+
+  if (!cfg.enabled) throw AppError.unprocessable(ERROR.WALLET.NOT_ENABLED);
+
+  const order = await prisma.order.findFirst({
+    where: { id: D.str(input.orderId), userId },
+    select: { id: true, orderNumber: true, total: true, walletAmount: true },
+  });
+
+  if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
+
+  const amount = money(D.num(input.amount) || order.total - order.walletAmount);
+
+  if (amount < cfg.minRedeem && D.num(input.amount) > 0) {
+    throw AppError.unprocessable(
+      `${ERROR.WALLET.MIN_REDEEM} (minimum ${cfg.minRedeem})`,
+      ERROR_CODE.MIN_LIMIT,
+    );
+  }
+
+  const current = await getWalletBalance(userId);
+
+  if (amount > current) {
+    throw AppError.unprocessable(ERROR.WALLET.INSUFFICIENT_BALANCE);
+  }
+
+  const next = money(current - amount);
+
+  const row = await prisma.$transaction(async (tx) => {
+    const created = await tx.walletTransaction.create({
+      data: {
+        userId,
+        type: 'REDEEM',
+        amount,
+        balanceAfter: next,
+        orderId: order.id,
+        description: `Wallet used for order ${order.orderNumber}`,
+      },
+    });
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { walletAmount: money(order.walletAmount + amount) },
+    });
+
+    return created;
+  });
+
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'WALLET_USED',
+    entity: 'Order',
+    entityId: order.id,
+    meta: { amount, balanceAfter: next },
+  });
+
+  return { ...row, balance: next };
+};
+
+export { getPaymentMethodsConfig };

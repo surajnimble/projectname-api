@@ -113,6 +113,8 @@ export const addWishlistItemSchema = z
 /** Path param accepts either the wishlist-item id or a product id. */
 export const wishlistItemParamSchema = z.object({ id });
 
+export const productIdParamSchema = z.object({ productId: z.string().trim().min(1).max(40) });
+
 export const moveToCartSchema = z
   .object({
     productId: id.optional(),

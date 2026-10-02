@@ -19,11 +19,7 @@ export const listPagesSchema = z
 
 export const createPageSchema = z
   .object({
-    title: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('title', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    title: z.string().trim().min(2, VALIDATION.MIN_LENGTH('title', 2)).max(NAME.TITLE_MAX_LENGTH),
     slug: z
       .string()
       .trim()
@@ -58,11 +54,7 @@ export const listBlogsSchema = z
 
 export const createBlogSchema = z
   .object({
-    title: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('title', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    title: z.string().trim().min(2, VALIDATION.MIN_LENGTH('title', 2)).max(NAME.TITLE_MAX_LENGTH),
     slug: z
       .string()
       .trim()
@@ -131,11 +123,7 @@ export const listBannersSchema = z
 
 const bannerBody = z
   .object({
-    title: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('title', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    title: z.string().trim().min(2, VALIDATION.MIN_LENGTH('title', 2)).max(NAME.TITLE_MAX_LENGTH),
     slug: z
       .string()
       .trim()
@@ -146,7 +134,10 @@ const bannerBody = z
     image: z.string().trim().max(300).optional().default(''),
     mobileImage: z.string().trim().max(300).optional().default(''),
     type: z.enum(['HOME', 'PRODUCT', 'CATEGORY', 'SIDEBAR', 'PROMO']).optional().default('HOME'),
-    linkUrl: z.union([url, z.literal('')]).optional().default(''),
+    linkUrl: z
+      .union([url, z.literal('')])
+      .optional()
+      .default(''),
     isActive: z.boolean().optional().default(true),
     sortOrder: z.coerce.number().int().min(0).optional().default(0),
     startsAt: common.dateString.optional(),
@@ -166,16 +157,14 @@ export const createBannerSchema = bannerBody.superRefine((v, ctx) => {
 });
 
 /** PATCH /banners/updateBanner/:id */
-export const updateBannerSchema = bannerBody
-  .partial()
-  .superRefine((v, ctx) => {
-    if (Object.keys(v).length === 0) {
-      ctx.addIssue({ code: 'custom', message: VALIDATION.INVALID_JSON });
-    }
-    if (!bannerWindowValid(v as any)) {
-      ctx.addIssue({ code: 'custom', message: 'Banner end time must be after start time.' });
-    }
-  });
+export const updateBannerSchema = bannerBody.partial().superRefine((v, ctx) => {
+  if (Object.keys(v).length === 0) {
+    ctx.addIssue({ code: 'custom', message: VALIDATION.INVALID_JSON });
+  }
+  if (!bannerWindowValid(v as any)) {
+    ctx.addIssue({ code: 'custom', message: 'Banner end time must be after start time.' });
+  }
+});
 
 export const bannerIdParamSchema = z.object({ id });
 
@@ -183,17 +172,19 @@ export const bannerIdParamSchema = z.object({ id });
 
 export const submitContactSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.MAX_LENGTH),
     email: z.string().trim().email(VALIDATION.INVALID_EMAIL),
-    // No `.default('')`: an empty string would fail PHONE_REGEX and reject
-    // every request that simply omits the optional field.
+    /**
+     * No `.default('')`: an empty string would fail PHONE_REGEX and reject every request that
+     * simply omits the optional field.
+     */
     phone: z.string().trim().max(15).regex(PHONE_REGEX, VALIDATION.INVALID_PHONE).optional(),
     subject: z.string().trim().max(NAME.TITLE_MAX_LENGTH).optional().default(''),
-    message: z.string().trim().min(5, VALIDATION.MIN_LENGTH('message', 5)).max(NAME.COMMENT_MAX_LENGTH),
+    message: z
+      .string()
+      .trim()
+      .min(5, VALIDATION.MIN_LENGTH('message', 5))
+      .max(NAME.COMMENT_MAX_LENGTH),
   })
   .strict();
 
@@ -260,7 +251,10 @@ export const listCitiesSchema = z
 
 export const checkPincodeSchema = z
   .object({
-    pincode: z.string().trim().regex(/^\d{4,10}$/, VALIDATION.INVALID_PINCODE),
+    pincode: z
+      .string()
+      .trim()
+      .regex(/^\d{4,10}$/, VALIDATION.INVALID_PINCODE),
   })
   .strict();
 
@@ -282,11 +276,7 @@ export const currencyUpdateSchema = currencySchema
 
 export const taxConfigSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
     slug: z
       .string()
       .trim()
@@ -336,11 +326,7 @@ export const translationQuerySchema = z
 
 export const dropdownSchema = z
   .object({
-    type: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('type', 2))
-      .max(40),
+    type: z.string().trim().min(2, VALIDATION.MIN_LENGTH('type', 2)).max(40),
     label: z.string().trim().max(120).optional().default(''),
     value: z.string().trim().min(1, VALIDATION.REQUIRED('value')).max(120),
     sortOrder: z.coerce.number().int().min(0).optional().default(0),
@@ -393,6 +379,10 @@ export const webhookLogSchema = z
 
 export const webhookIdParamSchema = z.object({ id });
 
+export const webhookProviderParamSchema = z.object({
+  provider: z.enum(['razorpay', 'stripe', 'shipping', 'custom']),
+});
+
 // ─── Bulk jobs ───────────────────────────────────────────────────────────────
 
 export const listJobsSchema = z
@@ -442,11 +432,7 @@ export const reportSchema = z
 
 export const createScheduleSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
     reportType: z.enum([
       'SALES',
       'ORDERS',
@@ -477,6 +463,92 @@ export const listSchedulesSchema = z
   .strict();
 
 export const scheduleIdParamSchema = z.object({ id });
+
+// ─── Newsletter campaign ──────────────────────────────────────────────────────
+
+/** POST /newsletter/sendCampaign — admin */
+export const sendCampaignSchema = z
+  .object({
+    subject: z.string().trim().min(2, VALIDATION.REQUIRED('subject')).max(NAME.TITLE_MAX_LENGTH),
+    body: z.string().trim().min(2, VALIDATION.REQUIRED('body')).max(20_000),
+    /** Overrides the stored template when a campaign needs its own copy. */
+    templateKey: z.string().trim().max(60).optional(),
+  })
+  .strict();
+
+// ─── Bulk import of orders and users ──────────────────────────────────────────
+
+export const bulkRowsSchema = z
+  .object({
+    rows: z.array(z.record(z.unknown())).min(1, VALIDATION.REQUIRED('rows')).max(5000),
+    /** Defaults to false, so a caller has to opt in to a partial import. */
+    continueOnError: z.boolean().optional().default(false),
+  })
+  .strict();
+
+// ─── API keys ────────────────────────────────────────────────────────────────
+
+/** POST /apiKeys/create — the secret is returned exactly once. */
+export const createApiKeySchema = z
+  .object({
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
+    scopes: z.array(z.string().trim().max(60)).max(50).optional().default([]),
+    expiresInDays: z.coerce.number().int().min(1).max(3650).optional(),
+  })
+  .strict();
+
+export const apiKeyIdParamSchema = z.object({ id });
+
+// ─── Translations ────────────────────────────────────────────────────────────
+
+export const localeParamSchema = z.object({ locale: z.string().trim().min(2).max(20) });
+
+export const createTranslationSchema = z
+  .object({
+    locale: z.string().trim().min(2, VALIDATION.REQUIRED('locale')).max(20),
+    key: z.string().trim().min(1, VALIDATION.REQUIRED('key')).max(200),
+    value: z.string().trim().max(4000),
+    namespace: z.string().trim().max(60).optional().default('common'),
+  })
+  .strict();
+
+export const updateTranslationSchema = z
+  .object({
+    value: z.string().trim().max(4000),
+    key: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+
+export const bulkUpsertTranslationsSchema = z
+  .object({
+    locale: z.string().trim().min(2, VALIDATION.REQUIRED('locale')).max(20),
+    namespace: z.string().trim().max(60).optional().default('common'),
+    entries: z
+      .array(
+        z
+          .object({
+            key: z.string().trim().min(1).max(200),
+            value: z.string().trim().max(4000),
+          })
+          .strict(),
+      )
+      .min(1, VALIDATION.REQUIRED('entries'))
+      .max(1000),
+  })
+  .strict();
+
+// ─── Geo ──────────────────────────────────────────────────────────────────────
+
+export const countryCodeParamSchema = z.object({
+  countryCode: z.string().trim().min(2).max(4),
+});
+
+export const stateCodeParamSchema = z.object({ stateCode: z.string().trim().min(1).max(8) });
+
+/** POST /countries/checkPincode */
+export const checkPincodeBodySchema = z
+  .object({ pincode: z.string().trim().min(3, VALIDATION.REQUIRED('pincode')).max(10) })
+  .strict();
 
 type Assert<T> = T;
 export type ReportInput = Assert<z.infer<typeof reportSchema>>;

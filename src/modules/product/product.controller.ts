@@ -1,13 +1,16 @@
-import { Request, Response } from 'express';
+import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole, optionalAuth } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/rbac.middleware';
 import { PERMISSION } from '../../constants/permissions';
 import { getUploadedFiles } from '../../middlewares/upload.middleware';
+import { AppError } from '../../utils/AppError';
+import { ERROR } from '../../messages/error';
 import * as service from './product.service';
 import {
   serializeProduct,
@@ -26,9 +29,15 @@ const vendorId = (req: Request): string => req.auth!.vendorId;
 
 export const guards = {
   vendor: [requireRole('VENDOR')],
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
-  adminCatalog: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.PRODUCT_VIEW_ALL)],
-  adminUpdate: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.PRODUCT_UPDATE)],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
+  adminCatalog: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.PRODUCT_VIEW_ALL),
+  ],
+  adminUpdate: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.PRODUCT_UPDATE),
+  ],
 };
 
 // ── Vendor: own catalog ──────────────────────────────────────────────────────
@@ -149,6 +158,39 @@ export const bulkPriceUpdate = asyncHandler(async (req, res) => {
     message: SUCCESS.PRODUCT.BULK_PRICE_UPDATED,
     result: serializeBulkPriceResult({ ...result, type: req.body.type, value: req.body.value }),
   });
+});
+
+/** POST /products/bulkImportCsv — the uploaded sheet is streamed, not buffered. */
+export const bulkImportCsv = asyncHandler(async (req, res) => {
+  const file = getUploadedFiles(req)[0];
+
+  if (!file) throw AppError.badRequest(ERROR.UPLOAD.FILE_REQUIRED);
+
+  const result = await service.importCsv(
+    vendorId(req),
+    file.path,
+    { continueOnError: req.body.continueOnError !== 'false' },
+    req.auth!.userId,
+    req,
+  );
+
+  return ApiResponse.created(res, SUCCESS.PRODUCT.IMPORTED, result);
+});
+
+/** GET /products/exportCsv — streams CSV rather than a JSON envelope. */
+export const exportCsv = asyncHandler(async (req, res) => {
+  const isVendor = req.auth!.role === ROLES.VENDOR;
+
+  const { fileName, csv, totalRecord } = await service.exportCsv(
+    req.query as any,
+    isVendor ? vendorId(req) : undefined,
+  );
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.setHeader('X-Total-Record', String(totalRecord));
+
+  return res.status(200).send(csv);
 });
 
 // ── Public listing ───────────────────────────────────────────────────────────

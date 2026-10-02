@@ -34,7 +34,8 @@ export const SERVER_SCHEMA: Record<string, any> = {
       tag: { type: 'string' },
       data: { type: 'string' },
     },
-    description: 'Returned only when the request carried `x-encrypted: 1` and encryption is enabled.',
+    description:
+      'Returned only when the request carried `x-encrypted: 1` and encryption is enabled.',
   },
 
   // ── Pagination ─────────────────────────────────────────────────────────────
@@ -56,24 +57,29 @@ export const SERVER_SCHEMA: Record<string, any> = {
   // ── Auth ───────────────────────────────────────────────────────────────────
   RegisterCustomerRequest: {
     type: 'object',
-    required: ['type', 'name', 'email', 'password'],
+    required: ['type', 'name', 'email', 'password', 'otp'],
+    description:
+      'Call POST /auth/sendOtp with type=REGISTER and this identifier first, then submit the code. ' +
+      'Only the contact the OTP proves is marked verified.',
     properties: {
       type: { type: 'string', enum: ['CUSTOMER'] },
       name: { type: 'string', example: 'Ravi Kumar' },
       email: { type: 'string', format: 'email', example: 'ravi@example.com' },
       phone: { type: 'string', example: '+919876543210' },
       password: { type: 'string', example: 'Secret@123' },
+      otp: { type: 'string', minLength: 6, maxLength: 6, example: '123456' },
     },
   },
   RegisterVendorRequest: {
     type: 'object',
-    required: ['type', 'name', 'email', 'password', 'shopName'],
+    required: ['type', 'name', 'email', 'password', 'otp', 'shopName'],
     properties: {
       type: { type: 'string', enum: ['VENDOR'] },
       name: { type: 'string', example: 'Ravi Kumar' },
       email: { type: 'string', format: 'email', example: 'ravi@example.com' },
       phone: { type: 'string', example: '+919876543210' },
       password: { type: 'string', example: 'Secret@123' },
+      otp: { type: 'string', minLength: 6, maxLength: 6, example: '123456' },
       shopName: { type: 'string', example: 'Ravi Store' },
       slug: { type: 'string', example: 'ravi-store' },
       description: { type: 'string' },
@@ -147,10 +153,18 @@ export const SERVER_SCHEMA: Record<string, any> = {
     type: 'object',
     parameters: [
       { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
-      { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+      {
+        name: 'limit',
+        in: 'query',
+        schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+      },
       { name: 'sort', in: 'query', schema: { type: 'string', example: '-createdAt' } },
       { name: 'search', in: 'query', schema: { type: 'string' } },
-      { name: 'fields', in: 'query', schema: { type: 'string', description: 'Comma separated whitelist.' } },
+      {
+        name: 'fields',
+        in: 'query',
+        schema: { type: 'string', description: 'Comma separated whitelist.' },
+      },
     ],
   },
   UserData: {
@@ -202,7 +216,19 @@ export const SERVER_SCHEMA: Record<string, any> = {
     properties: {
       orderId: { type: 'string' },
       orderNumber: { type: 'string' },
-      status: { type: 'string', enum: ['PENDING', 'PENDING_TOKEN', 'CONFIRMED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED'] },
+      status: {
+        type: 'string',
+        enum: [
+          'PENDING',
+          'PENDING_TOKEN',
+          'CONFIRMED',
+          'SHIPPED',
+          'OUT_FOR_DELIVERY',
+          'DELIVERED',
+          'CANCELLED',
+          'RETURNED',
+        ],
+      },
       total: { type: 'number' },
       tokenRequired: { type: 'boolean' },
       tokenAmount: { type: 'number' },

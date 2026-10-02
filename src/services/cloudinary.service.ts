@@ -35,6 +35,12 @@ export interface UploadedAsset {
 const folderFor = (kind: string): string =>
   `${UPLOAD.CLOUDINARY_FOLDER}/${kind}`.replace(/\/+/g, '/');
 
+/** An empty or blank `folder` means "use the default" — `??` alone would not. */
+const resolveFolder = (kind: string, override?: string): string => {
+  const trimmed = String(override ?? '').trim();
+  return trimmed ? trimmed.replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '') : folderFor(kind);
+};
+
 /**
  * Streams a local temp file to Cloudinary and removes it afterwards.
  * Callers must have validated MIME + size via the upload middleware.
@@ -58,7 +64,7 @@ export const uploadToCloudinary = async (
     const result = await new Promise<any>((resolve, reject) => {
       const stream = cloudinaryLib.uploader.upload_stream(
         {
-          folder: options.folder ?? folderFor(kind),
+          folder: resolveFolder(kind, options.folder),
           public_id: options.publicId,
           resource_type: options.resourceType ?? 'auto',
           overwrite: false,
@@ -110,7 +116,7 @@ export const uploadBufferToCloudinary = async (
 
   try {
     const result = await cloudinaryLib.uploader.upload(buffer.toString('base64'), {
-      folder: options.folder ?? folderFor(kind),
+      folder: resolveFolder(kind, options.folder),
       public_id: options.publicId,
       resource_type: 'auto',
       overwrite: false,

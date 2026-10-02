@@ -3,6 +3,7 @@ import { ReferralStatus } from '@prisma/client';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
@@ -16,8 +17,8 @@ import {
 const userId = (req: Request): string => req.auth!.userId;
 
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
-  superAdmin: [requireRole('SUPER_ADMIN')],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
+  superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
 };
 
 // ═══ Loyalty ══════════════════════════════════════════════════════════════════
@@ -161,7 +162,11 @@ export const applyCode = asyncHandler(async (req, res) => {
 export const getMyReferrals = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listMyReferrals(userId(req), { ...(req.query as any), skip, take });
+  const { rows, total } = await service.listMyReferrals(userId(req), {
+    ...(req.query as any),
+    skip,
+    take,
+  });
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.REFERRAL.REWARDS_FETCHED,
@@ -283,7 +288,11 @@ export const updateStatus = asyncHandler(async (req, res) => {
 export const getMyGiftCards = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listGiftCards(userId(req), { ...(req.query as any), skip, take });
+  const { rows, total } = await service.listGiftCards(userId(req), {
+    ...(req.query as any),
+    skip,
+    take,
+  });
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.GIFT_CARD.FETCHED,
@@ -319,7 +328,8 @@ export const getBalance = asyncHandler(async (req, res) => {
  *       200: { description: Balance and validity, never the owner }
  */
 export const check = asyncHandler(async (req, res) => {
-  const result = await service.checkGiftCard(D.str((req.query as any).code));
+  const code = D.str(req.params.code) || D.str((req.query as any).code);
+  const result = await service.checkGiftCard(code);
 
   return ApiResponse.success(res, { message: SUCCESS.GIFT_CARD.BALANCE_FETCHED, result });
 });
@@ -607,7 +617,11 @@ export const deleteSms = asyncHandler(async (req, res) => {
 export const listNotifications = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listNotificationTemplates({ ...(req.query as any), skip, take });
+  const { rows, total } = await service.listNotificationTemplates({
+    ...(req.query as any),
+    skip,
+    take,
+  });
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.I18N.TRANSLATIONS_FETCHED,

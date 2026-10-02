@@ -25,8 +25,16 @@ export const redeemPointsSchema = z
 /** POST /loyalty/adjust/:userId — the target comes from the path, not the body. */
 export const adjustPointsSchema = z
   .object({
-    points: z.coerce.number().int().refine((v) => v !== 0, { message: 'Points cannot be zero.' }),
-    description: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional().default('Admin adjustment'),
+    points: z.coerce
+      .number()
+      .int()
+      .refine((v) => v !== 0, { message: 'Points cannot be zero.' }),
+    description: z
+      .string()
+      .trim()
+      .max(NAME.COMMENT_MAX_LENGTH)
+      .optional()
+      .default('Admin adjustment'),
   })
   .strict();
 
@@ -105,6 +113,8 @@ export const giftCardIdParamSchema = z.object({ id });
 
 export const checkGiftCardSchema = z.object({ code: z.string().trim().min(6).max(24) }).strict();
 
+export const giftCardCodeParamSchema = z.object({ code: z.string().trim().min(6).max(24) });
+
 // ─── Message templates ────────────────────────────────────────────────────────
 
 /**
@@ -165,18 +175,26 @@ export const templateKeyParamSchema = z.object({ key: z.string().trim().min(2).m
  */
 export const renderTemplateSchema = z
   .object({
-    values: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().default({}),
+    values: z
+      .record(z.union([z.string(), z.number(), z.boolean()]))
+      .optional()
+      .default({}),
   })
   .strict();
 
 /** POST /templates/email/:key/render */
 export const renderTemplateValuesSchema = z
   .object({
-    values: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().default({}),
+    values: z
+      .record(z.union([z.string(), z.number(), z.boolean()]))
+      .optional()
+      .default({}),
   })
   .strict();
 
-export const templateChannelQuerySchema = z.object({ channel: z.nativeEnum(NotificationChannel).optional() }).strict();
+export const templateChannelQuerySchema = z
+  .object({ channel: z.nativeEnum(NotificationChannel).optional() })
+  .strict();
 
 type Assert<T> = T;
 export type CreateGiftCardInput = Assert<z.infer<typeof createGiftCardSchema>>;

@@ -7,6 +7,7 @@ import { logger } from './logger.service';
 import { verifyAccessToken } from '../utils/crypto';
 import { prisma } from './prisma.service';
 import { ROLES } from '../constants/roles';
+import { ERROR } from '../messages/error';
 
 type AuthedSocket = Socket & {
   data: {
@@ -48,7 +49,11 @@ export const initSocket = (server: HttpServer): SocketServer => {
       (socket.handshake.headers?.authorization as string)?.replace(/^Bearer\s+/i, '') ||
       (socket.handshake.query?.token as string);
 
-    if (!token) return next(new Error('UNAUTHORIZED'));
+    /**
+     * Socket.IO hands the reason to the client verbatim, so it comes from the message catalogue
+     * rather than an inline literal.
+     */
+    if (!token) return next(new Error(ERROR.AUTH.UNAUTHORIZED));
 
     try {
       const payload = verifyAccessToken(token);
@@ -60,7 +65,7 @@ export const initSocket = (server: HttpServer): SocketServer => {
       };
       return next();
     } catch {
-      return next(new Error('UNAUTHORIZED'));
+      return next(new Error(ERROR.AUTH.UNAUTHORIZED));
     }
   });
 
@@ -85,7 +90,7 @@ export const initSocket = (server: HttpServer): SocketServer => {
       return ack?.({ success: true });
     });
 
-    socket.on('order:leave', (payload: any) => {
+    socket.on(SOCKET.EMIT.ORDER_LEAVE, (payload: any) => {
       const orderId = String(payload?.orderId ?? '');
       if (orderId) socket.leave(SOCKET.ROOMS.ORDER(orderId));
     });
@@ -94,13 +99,33 @@ export const initSocket = (server: HttpServer): SocketServer => {
     socket.on(SOCKET.EMIT.CHAT_SEND, (payload: any, ack?: (r: any) => void) => {
       const conversationId = String(payload?.conversationId ?? '');
       if (!conversationId) return ack?.({ success: false });
-      socket.to(SOCKET.ROOMS.CONVERSATION(conversationId)).emit(SOCKET.EVENTS.CHAT_NEW, {
-        conversationId,
-        senderId: userId,
-        body: String(payload?.body ?? ''),
-        createdAt: new Date().toISOString(),
-      });
-      return ack?.({ success: true });
+
+      /**
+       * Routed through the same service the HTTP endpoint uses, so the message is persisted and the
+       * block check runs. Imported lazily because notification.service imports this module for its
+       * emit helpers.
+       */
+      void (async () => {
+        try {
+          const { sendMessage } = await import('../modules/notification/notification.service');
+          const message = await sendMessage(conversationId, userId, {
+            body: String(payload?.body ?? ''),
+            attachments: Array.isArray(payload?.attachments) ? payload.attachments.map(String) : [],
+          });
+
+          socket.to(SOCKET.ROOMS.CONVERSATION(conversationId)).emit(SOCKET.EVENTS.CHAT_NEW, {
+            conversationId,
+            message,
+          });
+          return ack?.({ success: true, message });
+        } catch (err) {
+          logger.error(
+            { err: (err as Error)?.message, conversationId, userId },
+            '[socket] chat send failed',
+          );
+          return ack?.({ success: false, message: (err as Error)?.message ?? 'send failed' });
+        }
+      })();
     });
 
     socket.on(SOCKET.EMIT.CHAT_TYPING, (payload: any) => {

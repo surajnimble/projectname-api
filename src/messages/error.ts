@@ -10,6 +10,9 @@ export const ERROR = {
     INVALID_OTP_TYPE: 'Invalid OTP type.',
     OTP_INVALID: 'Invalid or expired OTP.',
     OTP_MAX_ATTEMPTS: 'Maximum OTP attempts reached.',
+    OTP_REQUIRED: 'Verify the OTP sent to your phone or email before continuing.',
+    ACCOUNT_UNVERIFIED: 'Verify your phone or email before signing in.',
+    CONTACT_MISMATCH: 'That contact does not belong to this account.',
     OTP_RESEND_COOLDOWN: 'Please wait before requesting another OTP.',
     ACCOUNT_SUSPENDED: 'Your account is suspended.',
     ACCOUNT_LOCKED: 'Account temporarily locked. Try again later.',
@@ -143,6 +146,10 @@ export const ERROR = {
     NOT_FOUND: 'Question not found.',
     ANSWER_NOT_FOUND: 'Answer not found.',
   },
+  NOTIFICATION: {
+    TEMPLATE_NOT_FOUND: 'Notification template not found.',
+    TEMPLATE_KEY_TAKEN: 'A template with this key already exists.',
+  },
   CHAT: {
     NOT_FOUND: 'Conversation not found.',
     MESSAGE_NOT_FOUND: 'Message not found.',
@@ -237,6 +244,11 @@ export const ERROR = {
     UPLOAD_FAILED: 'File upload failed. Please try again.',
     FILE_NOT_FOUND: 'File not found.',
   },
+  AUDIT: {
+    NOT_FOUND: 'Audit log not found.',
+    LOG_NOT_FOUND: 'Audit log not found.',
+    INVALID_WINDOW: 'Provide how many days of history to keep.',
+  },
   PERMISSION: {
     NOT_GRANTED: 'You do not have permission for this action.',
     INVALID_PERMISSION: 'Invalid permission.',
@@ -244,6 +256,12 @@ export const ERROR = {
   ANALYTICS: {
     INVALID_RANGE: 'Invalid date range.',
     RANGE_TOO_LARGE: 'Date range is too large.',
+  },
+  DEVICE: {
+    NOT_FOUND: 'Device not found.',
+  },
+  SESSION: {
+    NOT_FOUND: 'Session not found.',
   },
   BULK: {
     JOB_NOT_FOUND: 'Job not found.',
@@ -294,6 +312,7 @@ export const ERROR = {
     RATE_LIMITED: 'Too many requests, please try again later.',
     NOT_FOUND: 'Resource not found.',
     FORBIDDEN: 'You do not have permission.',
+    CORS_ORIGIN_DENIED: 'Origin is not allowed by CORS.',
     DUPLICATE: 'Duplicate value.',
     MAINTENANCE: 'Service under maintenance.',
     BAD_REQUEST: 'Invalid request.',

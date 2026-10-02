@@ -22,6 +22,7 @@ Ye **sirf backend** hai. Sabhi web apps + Android + iOS isko consume karenge.
 
 - **PostgreSQL** (main relational database)
 - **Redis (Upstash)** — cart sessions, cache, rate-limit store, realtime analytics streams ke liye
+- `ioredis` (Redis client — `redis` package nahi, ioredis use hota hai)
 
 **Auth & Security**
 
@@ -29,10 +30,9 @@ Ye **sirf backend** hai. Sabhi web apps + Android + iOS isko consume karenge.
 - `bcrypt` (passwords hash karne ke liye)
 - `helmet` (XSS, clickjacking, MIME sniffing se bachata hai)
 - `express-rate-limit` + `rate-limit-redis` (brute-force aur DDoS rokta hai; Redis store se server restart pe bhi count safe rehta hai)
-- `xss-clean` (user input se HTML/JS tags strip karta hai — XSS protection)
 - `hpp` (HTTP Parameter Pollution — duplicate query params se attack rokta hai)
 - `cors` (whitelist: admin, vendor, store domains — wildcard allowed nahi)
-- `speakeasy` + `qrcode` (2FA — TOTP generate/verify + QR)
+- `qrcode` (2FA — TOTP QR generate karne ke liye; TOTP verify `src/utils/crypto.ts` me hai)
 - `ua-parser-js` (device/browser/OS parse karne ke liye — device fingerprinting)
 - `geoip-lite` (IP → country/state/city lookup — analytics)
 
@@ -50,20 +50,24 @@ Ye **sirf backend** hai. Sabhi web apps + Android + iOS isko consume karenge.
 
 **Utils**
 
-- `pino` / `winston` — structured logging (level-based)
-- `nodemailer` or `@gmail/mail` (SMTP) — transactional email bhejne ke liye
+- `pino` (structured logging, level-based) + `pino-http` (har request ka log)
+- `compression` (gzip response — payload size kam)
+- `nodemailer` (SMTP se transactional email) — provider `src/services/mail/mail.service.ts` me pluggable hai: Brevo HTTP API (`BREVO_API_KEY`) priority le ta hai, warna SMTP, warna sirf log
 - `slugify` (product/vendor name → URL-safe slug)
-- `nanoid` / `uuid` — request ID, order ID, invite tokens generate karne ke liye
+- `nanoid` (request ID, invite tokens) — `uuid` nahi
 - `dayjs` — lightweight date parse/format
 - `swagger-jsdoc` + `swagger-ui-express` — auto OpenAPI docs generate + serve
-- `razorpay` / `stripe` (online payments ke liye — optional)
+- `razorpay` / `stripe` (optionalDependencies — online payments ke liye)
 - `handlebars` (email/SMS template rendering — DB templates)
+- `zod` (env schema + har request body/query/params validation)
 
 **Dev/Test**
 
 - `vitest` (unit tests)
 - `supertest` (HTTP API integration tests)
 - `eslint` + `prettier` + `husky` (code quality + pre-commit hooks)
+- `dotenv-cli` (`.env` ke saath ek command chalana)
+- `@electric-sql/pglite` (devDependency — in-process Postgres, `npm run db:up` ke liye; production me use nahi hota)
 
 ---
 
@@ -89,6 +93,8 @@ Ye **sirf backend** hai. Sabhi web apps + Android + iOS isko consume karenge.
 | Audit Logs | `AuditLog` table — kaun sub-admin ne kya kiya, record rahe. **SUPER_ADMIN self-edit bhi log ho.** |
 | DB Indexes | email, slug, vendorId, status, createdAt pe index — queries fast |
 | Seed script | Super Admin + demo data — fresh env setup 1 command mai |
+| **OTP verification** | Contact proof before an account exists — `OTP_REQUIRED` env se poora system on/off |
+| **OTP delivery** | Email (Brevo ya SMTP) + SMS (MSG91) — `src/services/mail/` + `src/services/sms/` |
 | Migration in build | `prisma migrate deploy` in Render build — schema auto sync |
 | Env validation | Zod env schema — missing/invalid env pe server early fail ho |
 | API versioning | `/api/v1/...` — future breaking changes ke liye |
@@ -619,6 +625,80 @@ export const encryptionMiddleware = (req, res, next) => {
 ENCRYPTION_ENABLED=false
 ENCRYPTION_KEY=<64-hex-chars>
 ```
+
+Poora env inventory `src/config/env.config.ts` me Zod schema hai — server boot
+se pehle validate hota hai, missing ya invalid value pe fail ho jata hai. `.env`
+ko do hisso me rakha hai: **Part 1 required** (in ke bina app start nahi hota) aur
+**Part 2 optional** (har ek ka default `.env` me likha hai).
+
+**Part 1 — required (default nahi hai, boot error dega):**
+
+| Var | Rule |
+| --- | --- |
+| `DATABASE_URL` | Non-empty. Render pe **internal** URL, local machine pe external |
+| `JWT_ACCESS_SECRET` | Min 16 chars |
+| `JWT_REFRESH_SECRET` | Min 16 chars, access se alag hona chahiye |
+
+**Part 2 — optional (har ek ka default):**
+
+| Var | Default | Kaam |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `production` = strict CORS, secure cookie, code log nahi hota |
+| `PORT` | `5000` | Render khud inject karta hai |
+| `APP_NAME` | `projectname` | JWT issuer/audience — **badalne se sab logout** |
+| `LOG_LEVEL` | `info` | `fatal` se `trace` tak |
+| `OTP_REQUIRED` | `true` | Poore OTP system ka master switch (§7.5) |
+| `OTP_SMS_ENABLED` | `false` | Phone number pe code bhejne ke liye |
+| `OTP_STATIC_CODE` | *(khali)* | Local testing ke liye fix code — production me boot error |
+| `JWT_ACCESS_EXPIRY` | `15m` | Access token TTL |
+| `JWT_REFRESH_EXPIRY` | `7d` | Refresh token TTL |
+| `REDIS_URL` | *(khali)* | Nahi hai to cache/queue/rate-limit degrade |
+| `REDIS_PREFIX` | `projectname` | Redis key namespace |
+| `QUEUE_ENABLED` | `true` | `true` hai aur `REDIS_URL` khali → **boot error** |
+| `QUEUE_PREFIX` | `projectname` | BullMQ queue namespace |
+| `WORKER_ENABLED` | `true` | `false` = sirf HTTP serve, workers/cron nahi |
+| `TRACKING_ENABLED` | `true` | Har request pe 2 extra DB query |
+| `GEO_LOOKUP_ENABLED` | `true` | GeoLite lookup |
+| `RATE_LIMIT_ENABLED` | `true` | `false` karne se OTP brute-force guard bhi jaata hai |
+| `CORS_ORIGINS` | *(khali)* | CSV. Production me khali = har origin reject |
+| `SOCKET_CORS_ORIGINS` | *(khali)* | Khali ho to `CORS_ORIGINS` use hota hai |
+| `SUPER_ADMIN_EMAIL` | `superadmin@projectname.com` | Seed ka super admin |
+| `SUPER_ADMIN_PASSWORD` | `SuperSecret@123` | ⚠️ Default kabhi live mat jaane do |
+| `ENCRYPTION_ENABLED` | `false` | §4 ka transport encryption |
+| `ENCRYPTION_KEY` | *(khali)* | `ENCRYPTION_ENABLED=true` pe **exactly 64 hex** chahiye |
+| `CLOUDINARY_CLOUD_NAME` | *(khali)* | Khali = upload route 503 |
+| `CLOUDINARY_API_KEY` | *(khali)* | Account-level **Root** key use karo |
+| `CLOUDINARY_API_SECRET` | *(khali)* | |
+| `CLOUDINARY_FOLDER` | `projectname` | Media library ka top folder |
+| `BREVO_API_KEY` | *(khali)* | Set hai to SMTP ko priority milta hai |
+| `BREVO_FROM_EMAIL` | *(khali)* | Brevo me verified sender hona chahiye |
+| `BREVO_FROM_NAME` | `ProjectName` | |
+| `BREVO_SENDER_NAME` | *(khali)* | Khali ho to `BREVO_FROM_NAME` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | *(khali)* / `587` / `false` | Brevo nahi to ye path |
+| `SMTP_USER` / `SMTP_PASS` | *(khali)* | |
+| `MAIL_FROM_NAME` | `ProjectName` | |
+| `MAIL_FROM_EMAIL` | `no-reply@projectname.com` | |
+| `MSG91_AUTHKEY` | *(khali)* | SMS provider |
+| `MSG91_SENDER_ID` | *(khali)* | India me DLT-registered header mandatory |
+| `MSG91_TEMPLATE_ID` | *(khali)* | DLT template, `{{0}}` placeholder |
+| `MSG91_COUNTRY_CODE` | `91` | |
+| `FCM_SERVER_KEY` / `FCM_ENABLED` | *(khali)* / `false` | Push — abhi koi code nahi padhta |
+| `RAZORPAY_*` / `STRIPE_*` / `SHIPPING_PARTNER_WEBHOOK_SECRET` | *(khali)* | Payment module land hone tak safe ignore |
+
+**Cross-field rules jo boot pe enforce hote hain:**
+
+| Condition | Result |
+| --- | --- |
+| `QUEUE_ENABLED=true` + `REDIS_URL` khali | Boot error |
+| `ENCRYPTION_ENABLED=true` + key 64 hex nahi | Boot error |
+| `NODE_ENV=production` + `CORS_ORIGINS` me `*` | Boot error |
+| `OTP_STATIC_CODE` set + `NODE_ENV=production` | Boot error |
+| `OTP_STATIC_CODE` non-numeric | Boot error |
+| `NODE_ENV=production` + `OTP_REQUIRED=true` + koi provider nahi | Boot error |
+
+Local tooling (`npm run db:up` ke liye) raw `process.env` se padhta hai aur schema
+me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
+`SEED_DEMO_DATA`.
 
 ### 4.6 Rules / Notes
 
@@ -1254,7 +1334,6 @@ export const errorHandler = (
 | POST | `/api/v1/auth/logout` | ✅ | Any | Logout + revoke refresh |
 | POST | `/api/v1/auth/logoutAllDevices` | ✅ | Any | Revoke all sessions |
 | GET | `/api/v1/auth/getMe` | ✅ | Any | Current user |
-| POST | `/api/v1/auth/sendOtp` | ❌ | Public | Send OTP — `type: REGISTER\|FORGOT_PASSWORD\|LOGIN\|PHONE_VERIFY\|EMAIL_VERIFY\|TWO_FA` |
 | POST | `/api/v1/auth/verifyOtp` | ❌ | Public | Verify OTP |
 | POST | `/api/v1/auth/forgotPassword` | ❌ | Public | Trigger reset OTP flow |
 | POST | `/api/v1/auth/resetPassword` | ❌ | Public | Reset with OTP |
@@ -1272,7 +1351,6 @@ export const errorHandler = (
 | DELETE | `/api/v1/auth/sessions/:id` | ✅ | Any | Revoke session |
 | GET | `/api/v1/users/getProfile` | ✅ | Any | Self profile |
 | PATCH | `/api/v1/users/updateProfile` | ✅ | Any | Update self profile |
-| POST | `/api/v1/users/updateAvatar` | ✅ | Any | Change avatar |
 | DELETE | `/api/v1/users/deleteAccount` | ✅ | Any | Soft-delete self |
 | GET | `/api/v1/users/getAddresses` | ✅ | CUSTOMER | List addresses |
 | POST | `/api/v1/users/addAddress` | ✅ | CUSTOMER | Add address |
@@ -1676,20 +1754,79 @@ export const errorHandler = (
 | GET | `/api/v1/auditLogs/getByActor/:userId` | ✅ | ADMIN | Actor logs |
 | GET | `/api/v1/auditLogs/export` | ✅ | ADMIN | CSV |
 | DELETE | `/api/v1/auditLogs/purge` | ✅ | SUPER_ADMIN | Purge old |
-| GET | `/api/v1/activityLogs/getAll` | ✅ | ADMIN | User actions |
-| GET | `/api/v1/health` | ❌ | Public | Uptime |
 | GET | `/api/v1/health/db` | ❌ | Public | DB check |
 | GET | `/api/v1/health/redis` | ❌ | Public | Redis check |
 | GET | `/api/v1/health/queue` | ❌ | Public | Queue check |
-| GET | `/api/v1/version` | ❌ | Public | API version |
-| GET | `/api/v1/docs` | ❌ | Public | Swagger UI |
-| GET | `/api/v1/docs.json` | ❌ | Public | OpenAPI JSON |
+| GET | `/api/v1/analytics/funnels` | ✅ | ADMIN | List funnels |
+| POST | `/api/v1/analytics/funnels` | ✅ | ADMIN | Create funnel |
+| PATCH | `/api/v1/analytics/funnels/:id` | ✅ | ADMIN | Update funnel |
+| GET | `/api/v1/attributes/getById/:id` | ❌ | Public | Single attribute |
+| POST | `/api/v1/auth/sendOtp` | ❌ | Public | Send OTP — `type: REGISTER\|FORGOT_PASSWORD\|LOGIN\|PHONE_VERIFY\|EMAIL_VERIFY\|TWO_FA` |
+| GET | `/api/v1/brands/getBySlug/:slug` | ❌ | Public | Brand by slug |
+| POST | `/api/v1/categories/bulkCreate` | ✅ | ADMIN | Bulk create |
+| GET | `/api/v1/categories/getBySlug/:slug` | ❌ | Public | Category by slug |
+| GET | `/api/v1/chat/getBlocked` | ✅ | Any | Blocked users |
+| GET | `/api/v1/collections/getById/:id` | ❌ | Public | Single collection |
+| GET | `/api/v1/collections/getBySlug/:slug` | ❌ | Public | Collection by slug |
+| GET | `/api/v1/collections/getProducts/:id` | ❌ | Public | Collection products |
+| POST | `/api/v1/collections/setProducts/:id` | ✅ | Any | Replace products |
+| PATCH | `/api/v1/contact/:id/markRead` | ✅ | ADMIN | Mark read |
+| GET | `/api/v1/content/dropdowns` | ❌ | Public | List dropdowns |
+| DELETE | `/api/v1/content/dropdowns/:id/delete` | ✅ | ADMIN | Delete |
+| PATCH | `/api/v1/content/dropdowns/:id/update` | ✅ | ADMIN | Update |
+| POST | `/api/v1/content/dropdowns/create` | ✅ | ADMIN | Create |
+| POST | `/api/v1/countries/seedCountries` | ✅ | ADMIN | Seed reference data |
+| GET | `/api/v1/currencies/convert` | ❌ | Public | Convert amount |
+| GET | `/api/v1/docs/docs.json` | ✅ | Any | OpenAPI JSON |
+| GET | `/api/v1/flashSales/getAll` | ✅ | ADMIN | List flash sales |
+| GET | `/api/v1/flashSales/getBySlug/:slug` | ❌ | Public | Flash sale by slug |
+| DELETE | `/api/v1/giftCards/delete/:id` | ✅ | ADMIN | Delete |
+| GET | `/api/v1/health/jobs/:jobId` | ✅ | Any | Job state |
+| POST | `/api/v1/loyalty/adjust/:userId` | ✅ | ADMIN | Adjust points |
+| GET | `/api/v1/referral/admin/getAll` | ✅ | ADMIN | All referrals |
+| POST | `/api/v1/referral/complete/:id` | ✅ | ADMIN | Mark complete |
+| PATCH | `/api/v1/referral/updateStatus/:id` | ✅ | ADMIN | Update status |
+| GET | `/api/v1/reports/getSchedules` | ✅ | ADMIN | Schedule list |
+| DELETE | `/api/v1/reports/schedule/:id/delete` | ✅ | ADMIN | Delete schedule |
+| PATCH | `/api/v1/reports/schedule/:id/update` | ✅ | ADMIN | Update schedule |
+| PATCH | `/api/v1/shipping/updatePartner/:id` | ✅ | ADMIN | Update partner |
+| POST | `/api/v1/tags/bulkCreate` | ✅ | Any | Bulk create |
+| DELETE | `/api/v1/templates/email/:key/delete` | ✅ | ADMIN | Delete |
+| POST | `/api/v1/templates/email/:key/render` | ✅ | ADMIN | Render with values |
+| GET | `/api/v1/templates/email/getAll` | ✅ | ADMIN | List email templates |
+| POST | `/api/v1/templates/email/upsert` | ✅ | ADMIN | Create or update |
+| DELETE | `/api/v1/templates/notification/:key/delete` | ✅ | ADMIN | Delete |
+| POST | `/api/v1/templates/notification/:key/render` | ✅ | ADMIN | Render with values |
+| GET | `/api/v1/templates/notification/getAll` | ✅ | ADMIN | List notification templates |
+| POST | `/api/v1/templates/notification/upsert` | ✅ | ADMIN | Create or update |
+| DELETE | `/api/v1/templates/sms/:key/delete` | ✅ | ADMIN | Delete |
+| POST | `/api/v1/templates/sms/:key/render` | ✅ | ADMIN | Render with values |
+| GET | `/api/v1/templates/sms/getAll` | ✅ | ADMIN | List SMS templates |
+| POST | `/api/v1/templates/sms/upsert` | ✅ | ADMIN | Create or update |
+| POST | `/api/v1/uploads/uploadImage/single` | ✅ | Any | Single file upload |
+| PATCH | `/api/v1/users/updateAvatar` | ❌ | Public | Change avatar |
+| POST | `/api/v1/webhooks/:id/rotateSecret` | ✅ | ADMIN | Rotate secret |
+| PATCH | `/api/v1/webhooks/:id/update` | ✅ | ADMIN | Update |
+| GET | `/api/v1/wishlist/checkProduct/:productId` | ✅ | Any | Is wishlisted |
 
 ---
 
 # 6. Sample Request/Response Pairs
 
 ## 6.1a Register — Customer
+
+```
+POST /api/v1/auth/sendOtp
+Content-Type: application/json
+
+{
+  "type": "REGISTER",
+  "channel": "EMAIL",
+  "identifier": "ravi@example.com"
+}
+```
+
+`otp` ki value se hi register karo:
 
 ```
 POST /api/v1/auth/register
@@ -1700,7 +1837,8 @@ Content-Type: application/json
   "name": "Ravi Kumar",
   "email": "ravi@example.com",
   "phone": "+919876543210",
-  "password": "Secret@123"
+  "password": "Secret@123",
+  "otp": "123456"
 }
 ```
 
@@ -1718,12 +1856,20 @@ Content-Type: application/json
       "name": "Ravi Kumar",
       "email": "ravi@example.com",
       "phone": "+919876543210",
-      "isActive": true
+      "isActive": true,
+      "isEmailVerified": true,
+      "isPhoneVerified": false
     },
     "rolesList": ["CUSTOMER"]
   }
 }
 ```
+
+**Note:** User row tabhi banta hai jab `otp` verify ho jaaye — pehle koi partial
+account create nahi hota. Sirf wahi contact `isVerified` mark hota hai jiska code
+aaya tha: email se register kiya to `isPhoneVerified` false rahega. `otp`
+`OTP_REQUIRED=false` pe optional hai — tab account turant ban jaata hai,
+`isVerified` flags false.
 
 ## 6.1b Register — Vendor
 
@@ -1737,6 +1883,7 @@ Content-Type: application/json
   "email": "ravi@example.com",
   "phone": "+919876543210",
   "password": "Secret@123",
+  "otp": "123456",
   "shopName": "Ravi Store",
   "slug": "ravi-store"
 }
@@ -2121,13 +2268,57 @@ export const OTP = {
   MAX_ATTEMPTS: 3,
   RESEND_COOLDOWN_SEC: 60,
   MAX_RESENDS_PER_DAY: 10,
+  BCRYPT_ROUNDS: 10,
+  ATTEMPT_LOCK_MIN: 15,
+  /**
+   * Fixed code for local/testing, e.g. `111111`. Empty disables it and every
+   * OTP is random. The env schema refuses this in production, because a known
+   * code would let anyone log in as any account.
+   */
+  staticCode: ENV.OTP_STATIC_CODE,
 };
 ```
 
-**Note:** OTP ab single table me store hoga, `type` column ke saath:
+**Note:** OTP ab single table me store hoga, `type` aur `channel` column ke saath:
 
 - `POST /auth/sendOtp` → `{ type, channel, identifier }`
 - `POST /auth/verifyOtp` → `{ type, identifier, otp }`
+
+Record channel se keyed hota hai jo identifier se match karta hai (email pe
+`EMAIL`, phone pe `SMS`), client ke requested channel pe nahi — isse SMS code ko
+email code ki tarah redeem nahi kar sakte.
+
+### Master switch — `OTP_REQUIRED`
+
+Poore system ka ek hi switch. Har enforcement point ise
+`src/config/otp-policy.ts` se padhta hai, seedha `ENV.OTP_REQUIRED` se nahi —
+isliye ise off karne pe koi ek code path bhi code demand karte nahi reh jaata.
+
+| Value | Register | Login | Change password |
+| --- | --- | --- | --- |
+| `true` (default) | `otp` zaroori, row sirf verify hone ke baad | verified contact nahi hai to 403 `ACCOUNT_UNVERIFIED` | account ke apne contact pe code bhi chahiye |
+| `false` | account turant, unverified | verification check skip | sirf current password |
+
+`true` default hai kyunki wahi secure choice hai. Jab koi bhi channel code
+deliver na kar sake to enforce nahi hota, taaki bina provider wala fresh clone
+apni hi login screen pe na phanse. `NODE_ENV=production` me ye combination
+**boot error** hai — code bhejne ka waada karke na bhejna deploy ki galti hai,
+runtime condition nahi.
+
+Code in flows me lagta hai: registration, OTP login, forgot/reset password, email
+aur phone verification, aur password change.
+
+### Delivery
+
+| Channel | Provider | Env |
+| --- | --- | --- |
+| Email | Brevo HTTP API | `BREVO_API_KEY` (SMTP ko priority deta hai) |
+| Email | Koi bhi SMTP host | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` |
+| SMS | MSG91 | `MSG91_AUTHKEY` + `OTP_SMS_ENABLED=true` |
+
+Koi provider set nahi hai to `sendOtp` phir bhi 200 deta hai aur code log me
+chala jaata hai — `npm run doctor` is par fail karta hai. `OTP_STATIC_CODE=111111`
+ke saath poora signup flow offline chal jaata hai.
 
 ## 7.6 Rate Limit — `src/config/rateLimit.config.ts`
 
@@ -2753,7 +2944,9 @@ const settings: Array<{ key: string; value: any; category: string; isPublic: boo
 for (const s of settings) {
   await prisma.systemSetting.upsert({
     where:  { key: s.key },
-    update: { value: s.value, category: s.category, isPublic: s.isPublic },
+    // Sirf category update hoti hai — value aur isPublic nahi. Isse admin ne
+    // jo tune kiya hai wo re-seed se mitta nahi.
+    update: { category: s.category },
     create: { key: s.key, value: s.value, category: s.category, isPublic: s.isPublic },
   });
 }
@@ -2764,7 +2957,8 @@ const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'SuperSecret@123'
 
 await prisma.user.upsert({
   where:  { email: superAdminEmail },
-  update: {},
+  // Login ke liye verified contact zaroori hai, isliye create aur update dono me.
+  update: { isEmailVerified: true },
   create: {
     email:        superAdminEmail,
     passwordHash: await bcrypt.hash(superAdminPassword, 12),
@@ -3035,96 +3229,116 @@ function calcTokenAmount(orderTotal: number, cfg: {
 
 # 9. Folder Structure (API)
 
+Module layout **domain-grouped** hai — ek module ke andar multiple routers
+rehte hain, ek resource per folder nahi. Ye jane bujh kar kiya gaya hai: 49
+alag folder ka matlab 49 routing layer aur 49 serializer file, jabki actual
+surface un modules me aata hi jaata hai. Neeche mapping di hai taaki route
+path se module pata chal jaaye.
+
 ```
 projectname-api/
-├─ prisma/
-│  ├─ schema.prisma
-│  ├─ migrations/
-│  └─ seed.ts
-├─ src/
-│  ├─ constants/        # roles, permissions, statuses, enums, http codes
-│  ├─ messages/         # success, error, validation texts
-│  ├─ config/           # env, app, pagination, upload, jwt, otp,
-│  │                    # password, rateLimit, encryption, payment,
-│  │                    # currency, locale, logger, tracking, shipping,
-│  │                    # analytics, pdf, socket
-│  ├─ middlewares/      # auth, rbac, error, validate, rateLimit, upload,
-│  │                    # requestId, encryption, maintenance, tracking,
-│  │                    # device, session
-│  ├─ modules/
-│  │  ├─ auth/
-│  │  ├─ user/
-│  │  ├─ vendor/
-│  │  ├─ product/
-│  │  ├─ category/
-│  │  ├─ brand/
-│  │  ├─ tag/
-│  │  ├─ attribute/
-│  │  ├─ collection/
-│  │  ├─ cart/
-│  │  ├─ wishlist/
-│  │  ├─ order/
-│  │  ├─ payment/
-│  │  ├─ payout/
-│  │  ├─ return/
-│  │  ├─ review/
-│  │  ├─ question/
-│  │  ├─ coupon/
-│  │  ├─ flashSale/
-│  │  ├─ banner/
-│  │  ├─ wallet/
-│  │  ├─ loyalty/
-│  │  ├─ referral/
-│  │  ├─ giftCard/
-│  │  ├─ notification/
-│  │  ├─ chat/
-│  │  ├─ ticket/
-│  │  ├─ page/
-│  │  ├─ blog/
-│  │  ├─ faq/
-│  │  ├─ contact/
-│  │  ├─ newsletter/
-│  │  ├─ setting/
-│  │  ├─ admin/
-│  │  ├─ analytics/
-│  │  ├─ tracking/
-│  │  ├─ device/
-│  │  ├─ report/
-│  │  ├─ shipping/
-│  │  ├─ deliveryBoy/
-│  │  ├─ search/
-│  │  ├─ bulk/
-│  │  ├─ apiKey/
-│  │  ├─ webhook/
-│  │  ├─ currency/
-│  │  ├─ tax/
-│  │  ├─ country/
-│  │  ├─ i18n/
-│  │  └─ upload/
-│  ├─ services/
-│  │  ├─ settings.service.ts
-│  │  ├─ analytics.service.ts
-│  │  ├─ tracking.service.ts
-│  │  ├─ pdf.service.ts
-│  │  ├─ socket.service.ts
-│  │  └─ email.service.ts
-│  ├─ utils/            # AppError, asyncHandler, ApiResponse, defaults,
-│  │                    # serialize, pagination, crypto, geo, deviceParser
-│  ├─ jobs/             # bullmq workers
-│  ├─ templates/        # default email HTML
-│  ├─ routes/           # /api/v1 aggregator
-│  ├─ docs/             # swagger spec
-│  ├─ app.ts
-│  └─ server.ts
-├─ .env.example
-├─ docker-compose.yml
-├─ package.json
-└─ tsconfig.json
+|-- prisma/
+|   |-- schema.prisma
+|   |-- migrations/
+|   |   |-- migration_lock.toml
+|   |   `-- 20260101000000_init/   # poori schema ek hi folder me (97 models)
+|   `-- seed.ts
+|-- src/
+|   |-- constants/        # roles, permissions, statuses, enums, http codes
+|   |-- messages/         # success, error, validation texts
+|   |-- config/           # env, app, pagination, upload, jwt, otp, otp-policy,
+|   |                     # password, rateLimit, encryption, currency, logger,
+|   |                     # tracking, shipping, analytics, pdf, socket, setting
+|   |-- middlewares/      # auth, rbac, error, validate, rateLimit, upload,
+|   |                     # requestId, encryption, maintenance, tracking, common
+|   |-- modules/
+|   |   |-- auth/         # register, login, otp, password, sessions, social, 2fa
+|   |   |-- user/         # profile, addresses, wishlist
+|   |   |-- vendor/       # apply, kyc, payouts, ratings, wallet
+|   |   |-- product/      # products, variants, inventory
+|   |   |-- category/     # categories, attributes
+|   |   |-- catalog/      # brand, tag, collection
+|   |   |-- cart/
+|   |   |-- order/
+|   |   |-- payment/      # payment, payout, return, wallet
+|   |   |-- review/       # review, q&a, coupon, flashSale
+|   |   |-- engagement/   # loyalty, referral, giftCard
+|   |   |-- content/      # page, blog, faq, banner, contact, newsletter,
+|   |   |                 # report, bulk, apiKey, webhook, currency, tax, country
+|   |   |-- notification/ # notification, chat, ticket
+|   |   |-- shipping/     # shipping, deliveryBoy, settings, admin, audit
+|   |   |-- analytics/    # analytics, tracking, search, upload
+|   |   |-- system/       # version, maintenance
+|   |   |-- health/       # /api/v1/health
+|   |   `-- vendor/       # (vendor upar hai)
+|   |-- services/
+|   |   |-- mail/mail.service.ts     # brevo → smtp → log
+|   |   |-- sms/sms.service.ts       # msg91
+|   |   |-- settings, audit, cloudinary, notification, pdf,
+|   |   | socket, email, prisma, redis, logger, template
+|   |-- utils/            # AppError, asyncHandler, ApiResponse, defaults,
+|   |                     # serialize, pagination, crypto, geo, deviceParser,
+|   |                     # slug, dates, calculations, validate
+|   |-- jobs/             # bullmq workers + cron
+|   |-- templates/        # default email HTML (DB row ki fallback)
+|   |-- routes/           # /api/v1 aggregator
+|   |-- docs/             # swagger spec
+|   |-- types/            # ambient declarations
+|   |-- app.ts
+|   `-- server.ts
+|-- scripts/              # dev tooling — build me compile nahi hota
+|   |-- db.ts, apply-migrations.ts, db-reset.ts, seed-check.ts
+|   |-- doctor.ts, env-sync.ts
+|   `-- e2e-*.ts, run-e2e.ps1
+|-- tests/                # vitest
+|-- prisma/migrations/
+|-- .github/workflows/    # ci
+|-- .env, .env.example    # .env.example generated — npm run env:sync
+|-- .gitattributes
+|-- .nvmrc
+|-- render.yaml           # Render blueprint
+|-- tsconfig.json         # typecheck + eslint ke liye (scripts/tests included)
+|-- tsconfig.build.json   # build ke liye — sirf src/, dist/server.js banata hai
+|-- vitest.config.ts
+|-- docker-compose.yml
+|-- package.json
+|-- package-lock.json
+|-- README.md            # operational README — setup, commands, deploy
+`-- projectname-api.md  # ye doc
 ```
 
-Har module mai: `route.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.ts`, **`serializer.ts`**.
+Har module me: `<name>.routes.ts`, `<name>.controller.ts`, `<name>.service.ts`,
+`<name>.schema.ts`, `<name>.types.ts`, aur jahan zaroori ho
+`<name>.serializer.ts`.
+
+**Route prefix → module mapping** (`src/routes/index.ts` se):
+
+| Module | Mounted prefixes |
+| --- | --- |
+| `auth/` | `/auth` |
+| `user/` | `/users` |
+| `vendor/` | `/vendors`, `/vendor` |
+| `product/` | `/products` |
+| `category/` | `/categories`, `/attributes` |
+| `catalog/` | `/brands`, `/tags`, `/collections` |
+| `cart/` | `/cart` |
+| `order/` | `/orders` |
+| `payment/` | `/payments`, `/wallet` |
+| `review/` | `/reviews`, `/questions`, `/coupons`, `/flash-sales` |
+| `engagement/` | `/loyalty`, `/referrals`, `/gift-cards` |
+| `content/` | `/content`, `/pages`, `/blogs`, `/faqs`, `/banners`, `/contact`, `/newsletter`, `/reports`, `/bulk`, `/api-keys`, `/webhooks`, `/taxes`, `/countries`, `/i18n` |
+| `notification/` | `/notifications`, `/chat`, `/tickets` |
+| `shipping/` | `/shipping`, `/delivery-boys`, `/admin` |
+| `analytics/` | `/analytics`, `/tracking`, `/search`, `/upload` |
+| `system/` | `/version` |
+| `health/` | `/health` |
+
+**Build me kya jaata hai:** sirf `src/`. `tsconfig.build.json` `rootDir: ./src`
+aur `outDir: ./dist` set karta hai, isliye entry `dist/server.js` banta hai aur
+`tests/`, `scripts/`, `prisma/` image me nahi jaate.
 
 ---
+
 
 # 10. Prisma Models
 
@@ -3185,180 +3399,184 @@ Har module mai: `route.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.t
 # 11. API Routes Outline (`/api/v1`)
 
 ```
-/auth           register, login, loginWithOtp, logout, logoutAllDevices, refreshToken,
-                sendOtp, verifyOtp, forgotPassword, resetPassword, changePassword,
-                verifyEmail, verifyPhone, enable2FA, disable2FA, verify2FA,
-                socialLogin, linkSocial, unlinkSocial, checkAvailability,
-                getMe, sessions, sessions/:id
-
-/users          getProfile, updateProfile, updateAvatar, deleteAccount,
-                getAddresses, addAddress, updateAddress/:id, deleteAddress/:id,
-                setDefaultAddress/:id,
-                getAll, getById/:id, updateUser/:id, toggleStatus/:id, deleteUser/:id,
-                getActivity/:id, getOrders/:id, impersonate/:id
-
-/vendors        getProfile, updateProfile,
-                getAll, getById/:id,
-                approveVendor/:id, rejectVendor/:id, suspendVendor/:id,
-                updateCommission/:id, updateBankDetails/:id,
-                getStats, getRatings/:id, getProducts/:id,
-                requestPayout, getPayoutHistory,
-                uploadDocuments, getDocuments, verifyDocuments/:id
-
-/products       createProduct, getAll, getById/:id, getBySlug/:slug, updateProduct/:id,
-                deleteProduct/:id, updateStock/:id, toggleStatus/:id,
-                uploadImages/:id, deleteImage/:id/:imageId,
-                bulkCreate, bulkImportCsv, exportCsv, bulkUpdate, bulkDelete,
-                getRelated/:id, getRecommended, getFrequentlyBought/:id,
-                getRecentlyViewed, trackView/:id, getFilters, bulkPriceUpdate
-
-/categories     createCategory, getAll, getById/:id, updateCategory/:id,
-                deleteCategory/:id, reorder
-
-/brands         createBrand, getAll, getById/:id, updateBrand/:id, deleteBrand/:id
-
-/tags           createTag, getAll, deleteTag/:id
-
-/attributes     createAttribute, getAll, updateAttribute/:id, deleteAttribute/:id
-
-/collections    createCollection, getAll, updateCollection/:id, deleteCollection/:id
-
-/cart           getCart, addItem, updateItem, removeItem/:cartItemId, clearCart,
-                applyCoupon, removeCoupon, estimate, mergeGuestCart
-
-/wishlist       getAll, addItem, removeItem/:id, clear, moveToCart/:id
-
-/orders         placeOrder, getAll, getById/:id, cancelOrder/:id, updateStatus/:id,
-                getVendorOrders, updateVendorStatus/:subOrderId,
-                track/:id, reorder/:id, getInvoice/:id, getPackingSlip/:id,
-                getShippingLabel/:subOrderId, assignDeliveryBoy/:subOrderId,
-                verifyDeliveryOtp/:subOrderId, getTimeline/:id,
-                returnRequest/:id, approveReturn/:returnId, rejectReturn/:returnId
-
-/payments       payToken/:orderId, payBalance/:orderId, getByOrder/:orderId,
-                verifyUpi/:orderId, verifyBank/:orderId, markCodCollected/:orderId,
-                getAll, confirmPayment/:id, refund/:id, getRefundHistory/:orderId,
-                razorpay/createOrder, razorpay/verify, stripe/createIntent,
-                methods, walletBalance
-
-/payouts        getVendorEarnings, getAll, approvePayout/:id, rejectPayout/:id,
-                generateCycles, getSummary, getStatement/:vendorId,
-                bulkApprove, getPendingAmount/:vendorId, updateStatus/:id
-
-/returns        createRequest, getAll, getById/:id, approve/:id, reject/:id,
-                markPickedUp/:id, markReceived/:id, processRefund/:id,
-                getReasons, addReason
-
-/reviews        addReview, getAll, updateReview/:id, deleteReview/:id,
-                approve/:id, reject/:id, voteHelpful/:id, reply/:id,
-                getSummary/:productId
-
-/questions      ask, answer/:id, getAll/:productId, approve/:id, delete/:id
-
-/coupons        createCoupon, getAll, getById/:id, updateCoupon/:id, deleteCoupon/:id,
-                validateCoupon, applyCoupon, getUsages/:id, toggleStatus/:id
-
-/flashSales     create, getActive, update/:id, delete/:id
-
-/banners        create, getAll, update/:id, delete/:id
-
-/wallet         getBalance, getTransactions, addMoney, useForOrder,
-                adminCredit, adminDebit
-
-/loyalty        getPoints, getHistory, redeem, getTiers
-
-/referral       getMyCode, applyCode, getRewards, getLeaderboard
-
-/giftCards      create, getAll, redeem, checkBalance/:code, disable/:id
-
-/notifications  getAll, markRead/:id, markAllRead, delete/:id, getUnreadCount,
-                registerDevice, unregisterDevice,
-                getPreferences, updatePreferences,
-                sendBulk, getTemplates, createTemplate, updateTemplate/:id, deleteTemplate/:id
-
-/chat           getConversations, startConversation, getMessages/:conversationId,
-                sendMessage, markRead/:conversationId, deleteMessage/:id,
-                blockUser/:userId, getUnreadCount
-
-/tickets        create, getAll, getById/:id, reply/:id, updateStatus/:id,
-                assign/:id, close/:id, delete/:id, getCategories
-
-/pages          create, getAll, getBySlug/:slug, update/:id, delete/:id
-
-/blogs          create, getAll, getBySlug/:slug, update/:id, delete/:id
-
-/faqs           create, getAll, update/:id, delete/:id
-
-/contact        submit, getAll
-
-/newsletter     subscribe, unsubscribe, getAll, sendCampaign
-
-/settings       getPublicSettings, getAll, updateSetting, bulkUpdateSettings,
-                getByCategory/:category, resetToDefault,
-                getFeatureFlags, toggleFeature, getMaintenance, updateMaintenance
-
-/admin          getDashboardStats,
-                createSubAdmin, getAllSubAdmins, updateSubAdmin/:id, deleteSubAdmin/:id,
-                toggleSubAdminStatus/:id, getPermissions, updatePermissions/:id,
-                getAuditLogs, getActivityLogs,
-                getSystemHealth, clearCache, getCronJobs, triggerJob
-
-/analytics      getOverview, getVisitors, getUniqueVisitors, getPageViews,
-                getTopPages, getTrafficSources, getDeviceBreakdown, getGeoBreakdown,
-                getSessions, getSessionDetail/:id, getFunnel, getConversions,
-                getRevenueReport, getProductPerformance, getVendorPerformance,
-                getCustomerCohorts, getAbandonedCarts, getSearchTerms,
-                getZeroResultSearches, getRealtime, getCrashes, getAppVersions, export
-
-/track          event, pageView, session/start, session/end, device,
-                appInstall, appOpen, crash, performance, error,
-                funnel, conversion, click, scroll, search, utm, referrer, heartbeat
-
-/devices        getAll, getById/:id, getByUser/:userId, block/:id, unblock/:id,
-                delete/:id, getTrusted, trust/:id, untrust/:id
-
-/reports        sales, orders, products, customers, vendors, payouts, tax,
-                inventory, returns, export/:type, schedule
-
-/shipping       getZones, createZone, updateZone/:id, deleteZone/:id,
-                createMethod, getMethods, updateMethod/:id, deleteMethod/:id,
-                checkServiceability, calculateRate,
-                createPartner, getPartners,
-                createShipment/:subOrderId, track/:awb, updateStatus/:id
-
-/deliveryBoys   getAll, create, update/:id, delete/:id, toggleStatus/:id,
-                getMyDeliveries, updateDeliveryStatus/:id
-
-/search         global, autocomplete, products, vendors, trending, recent, recent/clear
-
-/bulk           importProducts, importOrders, importUsers, getJobStatus/:jobId, getJobHistory
-
-/apiKeys        create, getAll, revoke/:id, delete/:id, getUsage/:id
-
-/i18n           getTranslations/:locale, getLocales, create, update/:id, delete/:id, bulkUpsert
-
-/currencies     getAll, create, update/:id, delete/:id
-
-/tax            getConfigs, create, update/:id, delete/:id
-
-/countries      getAll, getStates/:countryCode, getCities/:stateCode, checkPincode
-
-/uploads        uploadImage, uploadVideo, uploadDocument, uploadMultiple,
-                deleteFile, getSignedUrl
-
-/webhooks       razorpay, shipping, payment-gateway/:provider,
-                getLogs, register, getAll, delete/:id
-
-/auditLogs      getAll, getById/:id, getByActor/:userId, export, purge
-
-/activityLogs   getAll
-
-/health         uptime, db, redis, queue
-
+/brands          getAll, getById/:id, getBySlug/:slug
+                 createBrand, updateBrand/:id, deleteBrand/:id
+/tags            getAll, createTag, bulkCreate
+                 deleteTag/:id
+/attributes      getAll, getById/:id, createAttribute
+                 updateAttribute/:id, deleteAttribute/:id
+/collections     getAll, getById/:id, getBySlug/:slug
+                 getProducts/:id, createCollection, updateCollection/:id
+                 deleteCollection/:id, setProducts/:id
+/admin           getDashboardStats, getSystemHealth, createSubAdmin
+                 getAllSubAdmins, updateSubAdmin/:id, deleteSubAdmin/:id
+                 toggleSubAdminStatus/:id, getPermissions, updatePermissions/:id
+                 getAuditLogs, getActivityLogs, clearCache
+                 getCronJobs, triggerJob
+/analytics       getOverview, getVisitors, getUniqueVisitors
+                 getPageViews, getTopPages, getTrafficSources
+                 getDeviceBreakdown, getGeoBreakdown, getSessions
+                 getSessionDetail/:id, getFunnel, getConversions
+                 getRevenueReport, getProductPerformance, getVendorPerformance
+                 getCustomerCohorts, getAbandonedCarts, getSearchTerms
+                 getZeroResultSearches, getRealtime, getCrashes
+                 getAppVersions, export, funnels
+                 funnels, funnels/:id
+/apiKeys         getAll, create, revoke/:id
+                 delete/:id, getUsage/:id
+/auditLogs       getAll, getById/:id, getByActor/:userId
+                 export, purge
+/auth            register, login, loginWithOtp
+                 refreshToken, logout, logoutAllDevices
+                 getMe, sendOtp, verifyOtp
+                 forgotPassword, resetPassword, changePassword
+                 verifyEmail, verifyPhone, enable2FA
+                 disable2FA, verify2FA, socialLogin
+                 linkSocial, unlinkSocial, checkAvailability
+                 sessions, sessions/:id
+/banners         getAll, create, update/:id
+                 delete/:id
+/blogs           getAll, getBySlug/:slug, create
+                 update/:id, delete/:id
+/bulk            importProducts, importOrders, importUsers
+                 getJobStatus/:jobId, getJobHistory
+/cart            getCart, addItem, updateItem
+                 removeItem/:cartItemId, clearCart, applyCoupon
+                 removeCoupon, estimate, mergeGuestCart
+/categories      getAll, getById/:id, getBySlug/:slug
+                 createCategory, updateCategory/:id, deleteCategory/:id
+                 reorder, bulkCreate
+/chat            getConversations, getUnreadCount, startConversation
+                 getMessages/:conversationId, sendMessage, markRead/:conversationId
+                 deleteMessage/:id, blockUser/:userId, getBlocked
+/contact         submit, getAll, :id/markRead
+/content         dropdowns, dropdowns/create, dropdowns/:id/update
+                 dropdowns/:id/delete
+/countries       getAll, getStates/:countryCode, getCities/:stateCode
+                 checkPincode, seedCountries
+/coupons         getAll, getById/:id, applyCoupon
+                 createCoupon, updateCoupon/:id, deleteCoupon/:id
+                 validateCoupon, getUsages/:id, toggleStatus/:id
+/currencies      getAll, convert, create
+                 update/:id, delete/:id
+/deliveryBoys    getAll, create, update/:id
+                 delete/:id, toggleStatus/:id, getMyDeliveries
+                 updateDeliveryStatus/:id
+/devices         getAll, getById/:id, getByUser/:userId
+                 block/:id, unblock/:id, delete/:id
+                 getTrusted, trust/:id, untrust/:id
+/faqs            getAll, create, update/:id
+                 delete/:id
+/flashSales      getActive, getAll, getBySlug/:slug
+                 create, update/:id, delete/:id
+/giftCards       checkBalance/:code, redeem, getAll
+                 create, disable/:id, delete/:id
+/i18n            getLocales, getTranslations/:locale, bulkUpsert
+                 create, update/:id, delete/:id
+/loyalty         getPoints, getTiers, getHistory
+                 redeem, adjust/:userId
+/newsletter      subscribe, unsubscribe, getAll
+                 sendCampaign
+/notifications   getAll, getUnreadCount, markRead/:id
+                 markAllRead, delete/:id, getPreferences
+                 updatePreferences, registerDevice, unregisterDevice
+                 sendBulk, getTemplates, createTemplate
+                 updateTemplate/:id, deleteTemplate/:id
+/orders          track/:id, getAll, placeOrder
+                 reorder/:id, cancelOrder/:id, getById/:id
+                 getTimeline/:id, getInvoice/:id, returnRequest/:id
+                 getVendorOrders, updateVendorStatus/:subOrderId, getPackingSlip/:id
+                 getShippingLabel/:subOrderId, updateStatus/:id, assignDeliveryBoy/:subOrderId
+                 verifyDeliveryOtp/:subOrderId, approveReturn/:returnId, rejectReturn/:returnId
+/pages           getAll, getBySlug/:slug, create
+                 update/:id, delete/:id
+/payments        methods, getAll, getByOrder/:orderId
+                 payToken/:orderId, payBalance/:orderId, verifyUpi/:orderId
+                 verifyBank/:orderId, markCodCollected/:orderId, confirmPayment/:id
+                 refund/:id, getRefundHistory/:orderId, razorpay/createOrder
+                 razorpay/verify, stripe/createIntent, walletBalance
+/payouts         getVendorEarnings, getAll, approvePayout/:id
+                 rejectPayout/:id, generateCycles, getSummary
+                 getStatement/:vendorId, bulkApprove, getPendingAmount/:vendorId
+                 updateStatus/:id
+/products        getAll, getById/:id, getBySlug/:slug
+                 getFilters, getRelated/:id, getRecommended
+                 getFrequentlyBought/:id, getRecentlyViewed, trackView/:id
+                 createProduct, updateProduct/:id, deleteProduct/:id
+                 updateStock/:id, toggleStatus/:id, uploadImages/:id
+                 deleteImage/:id/:imageId, bulkCreate, bulkUpdate
+                 bulkDelete, bulkPriceUpdate, bulkImportCsv
+                 exportCsv
+/questions       getAll/:productId, ask, answer/:id
+                 approve/:id, delete/:id
+/referral        getMyCode, applyCode, getRewards
+                 getLeaderboard, admin/getAll, complete/:id
+                 updateStatus/:id
+/reports         sales, orders, products
+                 customers, vendors, payouts
+                 tax, inventory, returns
+                 export/:type, schedule, getSchedules
+                 schedule/:id/update, schedule/:id/delete
+/returns         getReasons, addReason, createRequest
+                 getAll, getById/:id, approve/:id
+                 reject/:id, markPickedUp/:id, markReceived/:id
+                 processRefund/:id
+/reviews         getAll, getSummary/:productId, addReview
+                 updateReview/:id, deleteReview/:id, approve/:id
+                 reject/:id, voteHelpful/:id, reply/:id
+/search          global, autocomplete, products
+                 vendors, trending, recent
+                 recent/clear
+/settings        getPublicSettings, getAll, updateSetting
+                 bulkUpdateSettings, getByCategory/:category, resetToDefault
+                 getFeatureFlags, toggleFeature, getMaintenance
+                 updateMaintenance
+/shipping        getZones, createZone, updateZone/:id
+                 deleteZone/:id, getMethods, createMethod
+                 updateMethod/:id, deleteMethod/:id, getPartners
+                 createPartner, updatePartner/:id, checkServiceability
+                 calculateRate, createShipment/:subOrderId, track/:awb
+                 updateStatus/:id
+/tax             getConfigs, create, update/:id
+                 delete/:id
+/templates       email/getAll, email/upsert, email/:key/render
+                 email/:key/delete, sms/getAll, sms/upsert
+                 sms/:key/render, sms/:key/delete, notification/getAll
+                 notification/upsert, notification/:key/render, notification/:key/delete
+/tickets         getCategories, create, getAll
+                 getById/:id, reply/:id, updateStatus/:id
+                 assign/:id, close/:id, delete/:id
+/track           event, pageView, session/start
+                 session/end, device, appInstall
+                 appOpen, crash, performance
+                 error, funnel, conversion
+                 click, scroll, search
+                 utm, referrer, heartbeat
+/uploads         uploadImage, uploadImage/single, uploadVideo
+                 uploadDocument, uploadMultiple, deleteFile
+                 getSignedUrl
+/users           getProfile, updateProfile, updateAvatar
+                 deleteAccount, getAddresses, addAddress
+                 updateAddress/:id, deleteAddress/:id, setDefaultAddress/:id
+                 getAll, getById/:id, updateUser/:id
+                 toggleStatus/:id, deleteUser/:id, getActivity/:id
+                 getOrders/:id, impersonate/:id
+/vendors         getProfile, updateProfile, updateBankDetails/:id
+                 getStats, requestPayout, getPayoutHistory
+                 uploadDocuments, getRatings/:id, getProducts/:id
+                 getAll, getById/:id, approveVendor/:id
+                 rejectVendor/:id, suspendVendor/:id, updateCommission/:id
+                 getDocuments, verifyDocuments/:id
+/wallet          getBalance, getTransactions, addMoney
+                 useForOrder, adminCredit, adminDebit
+/webhooks        register, razorpay, shipping
+                 payment-gateway/:provider, getLogs, getAll
+                 :id/update, :id/rotateSecret, delete/:id
+/wishlist       getAll, checkProduct/:productId, addItem
+                 removeItem/:id, clear, moveToCart/:id
+/health         uptime, db, redis, queue, jobs/:jobId
 /version        api version
-
-/docs           swagger UI
-
+/docs           swagger UI, docs.json
 /docs.json      OpenAPI JSON
 ```
 
@@ -3366,13 +3584,54 @@ Har module mai: `route.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.t
 
 # 12. Render Deployment (API)
 
+`render.yaml` blueprint hai — Render ka **New → Blueprint** flow usi ko padhta
+hai. Build, start, health path aur env var list wahin se aati hai.
+
 - **Service type:** Web Service (Node)
-- **Build:** `npm ci && npx prisma generate && npx prisma migrate deploy && npm run build`
+- **Build:** `npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run seed && npm run build`
 - **Start:** `npm start`
-- **Env vars:** `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CLOUDINARY_*`, `SMTP_*`, `CORS_ORIGINS`, `ENCRYPTION_ENABLED`, `ENCRYPTION_KEY`, `NODE_ENV`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `FCM_SERVER_KEY`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `STRIPE_KEY`, `SOCKET_CORS_ORIGINS`
-- **Postgres:** Render Postgres
-- **Redis:** Upstash (REDIS_URL)
 - **Health check path:** `/api/v1/health`
+- **Postgres:** Render Postgres — app ke liye **internal** URL (private network
+  me resolve hota hai, external nahi)
+- **Redis:** Render Key Value ya Upstash (REDIS_URL)
+
+**Do flags zaroori hain, bhoolne se build/boot dono fail hote hain:**
+
+- `--include=dev` — `NODE_ENV=production` hone par npm devDependencies omit kar
+  deta hai (`npm config get omit` = `dev`), aur `prisma`, `typescript`, `tsx` teeno
+  devDeps hain. Bina iske build ke paas compiler hi nahi hota.
+- `--ignore-scripts` **mat** lagao — bcrypt ka native binary uske `install`
+  script se aata hai; scripts skip karne se har login runtime pe crash hoga.
+  `HUSKY=0` se sirf `prepare` hook no-op hota hai, wahi kaam karo.
+- `npm run seed` build ke andar hai kyunki `migrate deploy` sirf schema banata
+  hai — super admin, 163 settings aur permission matrix nahi. Fresh DB pe dono
+  chahiye, warna koi login hi nahi kar paayega.
+
+**Dashboard me bharne wale vars** (blueprint me `sync: false`):
+
+| Var | Kahan se |
+| --- | --- |
+| `DATABASE_URL` | Render Postgres → Internal Database URL |
+| `REDIS_URL` | Render Key Value / Upstash |
+| `CORS_ORIGINS` | Frontend ka URL — CSV, wildcard nahi |
+| `SUPER_ADMIN_PASSWORD` | Kuch strong — code ka default `SuperSecret@123` hai |
+| `CLOUDINARY_*` | Cloudinary → Settings → API Keys (Root key) |
+| `BREVO_API_KEY` ya `SMTP_*` | `OTP_REQUIRED=true` hone se zaroori — warna boot error |
+| `MSG91_*` + `OTP_SMS_ENABLED` | Sirf SMS chahiye to |
+
+`JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` blueprint `generateValue` se khud ban
+jaate hain.
+
+**Local pe wahi build simulate karne ke liye** — `npm ci --include=dev && npx
+prisma generate && npx prisma migrate deploy && npm run seed && npm run build`,
+phir `NODE_ENV=production npm start`. Production ki saari env rules isi tarah se
+check hoti hain.
+
+Saare commands ek jagah `README.md` me hain — clean install, database, testing,
+production build aur deploy, troubleshooting table ke saath.
+
+**⚠️ Render ka free Postgres plan 30 din baad delete ho jaata hai** — data bhi.
+Production ke liye plan upgrade karo.
 
 ---
 
@@ -3587,6 +3846,78 @@ Har module mai: `route.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.t
 - `serializeXList()` mai pagination nums daalna — `ApiResponse.paginated()` ka kaam hai
 - `ApiResponse.error()` mai `errors` field pass karna — ab allowed nahi
 
+### Comment Structure
+
+Comments **English** me. Hinglish sirf `projectname-api.md` (ye spec) aur commit
+message me — source code me nahi.
+
+Chaar form hain, aur har ek ka ek hi kaam hai. Inka mix mat karo.
+
+**1. Route marker** — ek line, sirf method + path. Har route handler ke upar.
+
+```ts
+/** POST /auth/register */
+export const register = asyncHandler(async (req, res) => { /* ... */ });
+```
+
+**2. Doc block** — do ya zyada line. Pehla line summary, phir khaali ` *`, phir
+kyun. Yehi form hai lambi baat ke liye — ek line se zyada ka matlab.
+
+```ts
+/**
+ * What it does, in one line.
+ *
+ * Why it works the way it does — the non-obvious part only. Anything the
+ * signature or the name already says, do not repeat.
+ */
+```
+
+**3. Inline note** — ek line, `//`. Code ke andar, jahan padhne wala ek extra
+shabd se samajh jaye.
+
+```ts
+// Runs before the insert, so no unverified account is ever created.
+```
+
+**4. Banner** — section divider. Sirf drawing characters aur ek label, kabhi
+prose nahi.
+
+```ts
+// ── Orders ────────────────────────────────────────────
+```
+
+Rules:
+
+- **"Why", not "what".** Naam aur type se pata chalne wala likhna bekaar hai.
+  `// increment counter` ki jagah `// Attempts are capped here rather than in the
+  service so a direct call cannot bypass the cap.`
+- **Ek line ka matlab ek `//`.** Do line ki baat hai to doc block banao —
+  `// …` ki do line ek form me nahi rehni chahiye, warna form ka matlab kho deta
+  hai. Ye baat `npm run comments:check` enforce karta hai.
+- **Comment fix ki kahani mat batao.** "Pehle ye bug tha", "ab ye hota hai",
+  "ye isliye ki na ho" — development ke dauran likha hua aisa comment us code
+  ki history document karta hai, current behaviour nahi. Wo jaldi stale ho jata
+  hai aur phir galat comment se bekaar kuch nahi hota. Jo rule abhi bhi sahi
+  hai woh likho, baaki hata do. `comments:check` narrative wording bhi pakadta
+  hai.
+- **Comment stale ho to delete karo, update mat karo.**
+- **Zaroorat sirf wahan hai jahan code khud nahi bata sakta.** License header,
+  `@ts-ignore` ki wajah, quirky regex ka kaam.
+- `TODO` likhna ho to owner + reason + kab hatana hai, warna woh TODO nahi —
+  gurbani hai.
+- ESLint directive comment nahi hai — uska apna format hai, chhedna nahi.
+
+File ka top: file ka kya kaam hai, 2-4 line, doc block se. Har exported
+function/class/const pe JSDoc. Interface aur `type` pe bhi — shape kyun aisi hai
+ye batana contract ka hissa hai.
+
+Config ya constant file me har value pe comment mat likho — value khud document
+hai. Zaroorat ho to file ke top ek block me saare defaults ek saath.
+
+**`npm run comments:check`** ye teen galtiyan dhoondta hai: `//` ki do-plus line
+wali run jahan doc block chahiye, doc block jahan khaali hai, aur narrative
+wording. `npm run comments:fix` pehli wali automatically theek kar deta hai.
+
 ### Helper / Config
 
 - `D.*` helpers skip karke manual `?? ''` / `?? 0` — inconsistent ho jaata hai
@@ -3611,6 +3942,11 @@ Har module mai: `route.ts`, `controller.ts`, `service.ts`, `schema.ts`, `types.t
 - Password hash kabhi serializer ke through leak
 - Error stack prod mai response mai
 - Blocked device ko ignore karna — har request pe check
+- Unverified account ko session dena — `isEmailVerified`/`isPhoneVerified` me se
+  koi ek `true` hona chahiye, warna `ACCOUNT_UNVERIFIED`
+- `OTP_STATIC_CODE` ko production me set karna — env schema boot block karta hai
+- OTP ko us identifier ke alawa kisi aur ko consume karne dena
+- `verifyEmail`/`verifyPhone` me wo identifier dena jo account ka nahi hai
 
 ### Encryption
 

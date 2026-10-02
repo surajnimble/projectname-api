@@ -15,7 +15,10 @@ const name = z
   .max(NAME.MAX_LENGTH, VALIDATION.MAX_LENGTH('fullName', NAME.MAX_LENGTH));
 
 const phone = z.string().trim().max(15).regex(PHONE_REGEX, VALIDATION.INVALID_PHONE);
-const pincode = z.string().trim().regex(/^\d{4,10}$/, VALIDATION.INVALID_PINCODE);
+const pincode = z
+  .string()
+  .trim()
+  .regex(/^\d{4,10}$/, VALIDATION.INVALID_PINCODE);
 
 /** GET /orders/getAll */
 export const listOrdersSchema = z
@@ -157,7 +160,53 @@ export const invoiceQuerySchema = z
   .strict();
 
 /** GET /orders/track/:orderNumber */
-export const trackParamSchema = z.object({ orderNumber: z.string().trim().min(4).max(32) });
+export const trackParamSchema = z.object({ id: z.string().trim().min(4).max(32) });
+
+/** Sub-order ids share the id shape, so they get their own name for readability. */
+export const subOrderParamSchema = z.object({ subOrderId: z.string().trim().min(1).max(40) });
+
+export const returnIdParamSchema = z.object({ returnId: z.string().trim().min(1).max(40) });
+
+/** POST /orders/returnRequest/:id — same shape as the returns module's create request. */
+export const returnRequestSchema = z
+  .object({
+    subOrderId: z.string().trim().min(1).max(40).optional(),
+    reasonId: z.string().trim().min(1).max(40).optional(),
+    reasonText: z.string().trim().max(500).optional(),
+    comment: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
+    images: z.array(z.string().trim().max(300)).max(6).optional(),
+    items: z
+      .array(
+        z
+          .object({
+            orderItemId: z.string().trim().min(1).max(40),
+            qty: z.coerce.number().int().min(1).max(999),
+          })
+          .strict(),
+      )
+      .min(1, VALIDATION.REQUIRED('items'))
+      .max(50),
+  })
+  .strict()
+  .refine((v) => Boolean(v.reasonId || v.reasonText), {
+    message: 'Provide reasonId or reasonText.',
+  });
+
+/** The status is fixed by the route, so only the free-text fields remain. */
+export const returnDecisionSchema = z
+  .object({
+    remark: z.string().trim().max(500).optional(),
+    itemApproval: z
+      .array(z.object({ returnItemId: z.string().trim().min(1), isApproved: z.boolean() }).strict())
+      .max(50)
+      .optional(),
+  })
+  .strict();
+
+export const rejectReturnDecisionSchema = returnDecisionSchema.refine(
+  (v) => Boolean(v.remark && String(v.remark).trim().length > 0),
+  { message: VALIDATION.REQUIRED('remark') },
+);
 
 export const ORDER_STATUS_VALUES = Object.values(ORDER_STATUS);
 

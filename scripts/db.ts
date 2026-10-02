@@ -63,8 +63,10 @@ const start = async (): Promise<void> => {
 
   const out = fs.openSync(LOG_FILE, 'a');
 
-  // Resolve the real CLI entrypoints: `npx.cmd` cannot be spawned detached on
-  // Windows (EINVAL), so call node directly against the local binaries.
+  /**
+   * Resolve the real CLI entrypoints: `npx.cmd` cannot be spawned detached on Windows (EINVAL),
+   * so call node directly against the local binaries.
+   */
   const node = process.execPath;
   const tsxCli = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const entry = path.join(ROOT, 'scripts', 'pglite-server.ts');
@@ -74,7 +76,12 @@ const start = async (): Promise<void> => {
     detached: true,
     windowsHide: true,
     stdio: ['ignore', out, out],
-    env: { ...process.env, PGLITE_PORT: String(PORT), PGLITE_HOST: HOST, PGLITE_DATA_DIR: DATA_DIR },
+    env: {
+      ...process.env,
+      PGLITE_PORT: String(PORT),
+      PGLITE_HOST: HOST,
+      PGLITE_DATA_DIR: DATA_DIR,
+    },
   });
 
   child.unref();
@@ -126,7 +133,9 @@ const status = async (): Promise<void> => {
   const pid = readPid();
   console.log(`[db] port ${PORT}: ${open ? 'LISTENING' : 'CLOSED'}`);
   console.log(`[db] pid file: ${pid ?? '(none)'}`);
-  console.log(`[db] dataDir : ${fs.existsSync(DATA_DIR) ? DATA_DIR : `${DATA_DIR} (not created yet)`}`);
+  console.log(
+    `[db] dataDir : ${fs.existsSync(DATA_DIR) ? DATA_DIR : `${DATA_DIR} (not created yet)`}`,
+  );
 };
 
 const commands: Record<string, () => Promise<void>> = { up: start, down: stop, status, restart };

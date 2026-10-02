@@ -1,10 +1,16 @@
 import type { RequestHandler } from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
-import { parseUserAgent, resolveDeviceId, resolvePlatform, ParsedDevice } from '../utils/deviceParser';
+import {
+  parseUserAgent,
+  resolveDeviceId,
+  resolvePlatform,
+  ParsedDevice,
+} from '../utils/deviceParser';
 import { lookupGeo, parseUtm, resolveIp } from '../utils/geo';
 import { prisma } from '../services/prisma.service';
 import { getRedis, cacheGet, cacheSet } from '../services/redis.service';
 import { REDIS_KEYS, TRACKING } from '../config/tracking.config';
+import { APP } from '../config/app.config';
 import { ENV } from '../config/env.config';
 import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
 import { ERROR } from '../messages/error';
@@ -41,6 +47,15 @@ export const tracking: RequestHandler = asyncHandler(async (req, res, next) => {
 
   if (!ENV.TRACKING_ENABLED) return next();
 
+  /**
+   * Infra probes (Render health checks) must stay answerable even while Postgres is unreachable,
+   * so they skip the two per-request queries entirely.
+   */
+  const probePath = String(req.originalUrl ?? '').split('?')[0];
+  if (probePath === `${APP.API_PREFIX}/health` || probePath === `${APP.API_PREFIX}/version`) {
+    return next();
+  }
+
   // ── Blocked device enforcement (checked on every request) ──────────────────
   try {
     const device = await prisma.device.findUnique({
@@ -49,11 +64,7 @@ export const tracking: RequestHandler = asyncHandler(async (req, res, next) => {
     });
 
     if (device?.isBlocked) {
-      throw new AppError(
-        ERROR.AUTH.UNAUTHORIZED,
-        HTTP_STATUS.FORBIDDEN,
-        ERROR_CODE.DEVICE_BLOCKED,
-      );
+      throw new AppError(ERROR.AUTH.UNAUTHORIZED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.DEVICE_BLOCKED);
     }
 
     // Fire-and-forget: update lastSeenAt, do not await the response path.
@@ -152,4 +163,9 @@ export const endSession = async (sessionId: string): Promise<boolean> => {
 };
 
 export const getOrCreateSession = async (req: any): Promise<string> =>
-  req.sessionKey ?? (await resolveSessionKey(req, parseUserAgent(String(req.headers['user-agent'] ?? '')), req.ip ?? ''));
+  req.sessionKey ??
+  (await resolveSessionKey(
+    req,
+    parseUserAgent(String(req.headers['user-agent'] ?? '')),
+    req.ip ?? '',
+  ));

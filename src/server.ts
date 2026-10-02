@@ -3,7 +3,7 @@ import { createApp } from './app';
 import { SERVER, APP } from './config/app.config';
 import { logger } from './services/logger.service';
 import { disconnectPrisma, isDatabaseHealthy } from './services/prisma.service';
-import { disconnectRedis, isRedisAvailable } from './services/redis.service';
+import { disconnectRedis, isRedisAvailable, isRedisHealthy } from './services/redis.service';
 import { closeQueues } from './jobs/queues';
 import { stopWorkers } from './jobs/workers';
 import { stopCronJobs } from './jobs/cron';
@@ -22,7 +22,14 @@ const start = async (): Promise<void> => {
   await startCronJobs();
 
   server.listen(SERVER.PORT, SERVER.HOST, async () => {
-    const [dbOk, redisOk] = await Promise.all([isDatabaseHealthy(), isRedisAvailable]);
+    /**
+     * `isRedisAvailable` only means REDIS_URL is set, so ping for real — a configured-but-dead
+     * Redis must not be reported as connected.
+     */
+    const [dbOk, redisOk] = await Promise.all([
+      isDatabaseHealthy(),
+      isRedisAvailable ? isRedisHealthy() : Promise.resolve(false),
+    ]);
 
     logger.info(
       {
@@ -32,11 +39,18 @@ const start = async (): Promise<void> => {
         docs: `${APP.API_PREFIX}/docs`,
         health: `${APP.API_PREFIX}/health`,
         database: dbOk ? 'connected' : 'unreachable',
-        redis: redisOk ? 'connected' : 'disabled',
+        redis: !isRedisAvailable ? 'disabled' : redisOk ? 'connected' : 'unreachable',
         workers: ENV.WORKER_ENABLED ? 'enabled' : 'disabled',
       },
       `[${APP.NAME}] API listening on ${SERVER.HOST}:${SERVER.PORT}`,
     );
+
+    if (!dbOk) {
+      logger.error('[server] DATABASE_URL is unreachable — every DB-backed route will 500');
+    }
+    if (isRedisAvailable && !redisOk) {
+      logger.error('[server] REDIS_URL is unreachable — queues, cron and rate limiting degrade');
+    }
 
     const warn = encryptionBootWarning();
     if (warn) logger.warn(warn);
@@ -80,6 +94,7 @@ const start = async (): Promise<void> => {
 
   process.on('unhandledRejection', (reason) => {
     logger.error({ reason: String(reason) }, '[process] unhandled rejection');
+    void shutdown('unhandledRejection');
   });
 
   process.on('uncaughtException', (err) => {

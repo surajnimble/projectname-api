@@ -122,3 +122,18 @@ export const DELIVERED_ORDER_STATUSES: OrderStatus[] = [
   ORDER_STATUS.DELIVERED,
   ORDER_STATUS.RETURNED,
 ];
+
+/**
+ * Values reported by the health probes. `NOT_CONFIGURED` is distinct from
+ * `DOWN` on purpose: an absent Redis is a deliberate choice, an unreachable one
+ * is a fault, and the two should not read the same in a dashboard.
+ */
+export const HEALTH_STATUS = {
+  UP: 'UP',
+  DOWN: 'DOWN',
+  DEGRADED: 'DEGRADED',
+  DISABLED: 'DISABLED',
+  NOT_CONFIGURED: 'NOT_CONFIGURED',
+} as const;
+
+export type HealthStatus = keyof typeof HEALTH_STATUS;

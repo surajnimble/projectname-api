@@ -1,203 +1,362 @@
 import { Router } from 'express';
-import { validate } from '../../middlewares/validate.middleware';
+import { validate, idParamSchema, paginationSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
 import * as controller from './payment.controller';
 import * as schema from './payment.schema';
 
-const router = Router();
+// ── Payments ─────────────────────────────────────────────────────────────────
 
-// ── Payments ──────────────────────────────────────────────────────────────────
+const payment = Router();
 
-/** GET /payments/getAll — the caller's own payments. */
-router.get(
+/** GET /payments/methods — public so a signed-out cart can still price itself */
+payment.get('/methods', controller.getMethods);
+
+/** GET /payments/getAll — admin */
+payment.get(
   '/getAll',
   authenticate,
+  ...controller.guards.admin,
   validate({ query: schema.listPaymentsSchema }),
   controller.getAll,
 );
 
-/** GET /payments/getMethods — public-ish config, still behind auth. */
-router.get('/getMethods', authenticate, controller.getMethods);
-
 /** GET /payments/getByOrder/:orderId */
-router.get(
+payment.get(
   '/getByOrder/:orderId',
   authenticate,
   validate({ params: schema.paymentOrderParamSchema }),
   controller.getByOrder,
 );
 
-/** POST /payments/verifyTokenPayment */
-router.post(
-  '/verifyTokenPayment',
+/** POST /payments/payToken/:orderId */
+payment.post(
+  '/payToken/:orderId',
   authenticate,
-  validate({ body: schema.verifyTokenPaymentSchema }),
+  validate({
+    params: schema.paymentOrderParamSchema,
+    body: schema.verifyTokenPaymentSchema.omit({ orderId: true }),
+  }),
   controller.verifyTokenPayment,
 );
 
-/** POST /payments/payBalance */
-router.post(
-  '/payBalance',
+/** POST /payments/payBalance/:orderId */
+payment.post(
+  '/payBalance/:orderId',
   authenticate,
-  validate({ body: schema.payBalanceSchema }),
+  validate({
+    params: schema.paymentOrderParamSchema,
+    body: schema.payBalanceSchema.omit({ orderId: true }),
+  }),
   controller.payBalance,
 );
 
-/** POST /payments/initiateRefund */
-router.post(
-  '/initiateRefund',
+/** POST /payments/verifyUpi/:orderId */
+payment.post(
+  '/verifyUpi/:orderId',
   authenticate,
-  validate({ body: schema.initiateRefundSchema }),
-  controller.initiateRefund,
+  validate({ params: schema.paymentOrderParamSchema, body: schema.manualPaymentSchema }),
+  controller.verifyUpi,
 );
 
-/** GET /payments/getRefunds — admin only. */
-router.get(
-  '/getRefunds',
+/** POST /payments/verifyBank/:orderId */
+payment.post(
+  '/verifyBank/:orderId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ query: schema.listPaymentsSchema }),
-  controller.getRefunds,
+  validate({ params: schema.paymentOrderParamSchema, body: schema.manualPaymentSchema }),
+  controller.verifyBank,
 );
 
-/** PATCH /payments/processRefund/:id — admin settles a pending refund. */
-router.patch(
-  '/processRefund/:id',
+/** PATCH /payments/markCodCollected/:orderId — vendor or admin */
+payment.patch(
+  '/markCodCollected/:orderId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.refundParamSchema, body: schema.processRefundSchema }),
-  controller.processRefund,
-);
-
-/** POST /payments/codCollect — admin records cash taken. */
-router.post(
-  '/codCollect',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ body: schema.codCollectSchema }),
+  validate({
+    params: schema.paymentOrderParamSchema,
+    body: schema.codCollectSchema.omit({ orderId: true }),
+  }),
   controller.codCollect,
 );
 
-// ── Wallet ────────────────────────────────────────────────────────────────────
-
-/** GET /payments/wallet/balance */
-router.get('/wallet/balance', authenticate, controller.walletBalance);
-
-/** GET /payments/wallet/transactions */
-router.get(
-  '/wallet/transactions',
-  authenticate,
-  validate({ query: schema.walletListSchema }),
-  controller.walletTransactions,
-);
-
-/** POST /payments/wallet/adjust — admin credit or debit. */
-router.post(
-  '/wallet/adjust',
+/** PATCH /payments/confirmPayment/:id — admin */
+payment.patch(
+  '/confirmPayment/:id',
   authenticate,
   ...controller.guards.admin,
-  validate({ body: schema.walletAmountSchema }),
-  controller.walletAdjust,
+  validate({ params: idParamSchema }),
+  controller.confirmPayment,
 );
 
-// ── Payout ────────────────────────────────────────────────────────────────────
-
-/** GET /payments/payouts/getAll */
-router.get(
-  '/payouts/getAll',
+/** POST /payments/refund/:id — admin */
+payment.post(
+  '/refund/:id',
   authenticate,
-  validate({ query: schema.listPayoutsSchema }),
-  controller.payoutList,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema, body: schema.initiateRefundSchema.omit({ paymentId: true }) }),
+  controller.createRefund,
 );
 
-/** GET /payments/payouts/earnings */
-router.get(
-  '/payouts/earnings',
+/** GET /payments/getRefundHistory/:orderId */
+payment.get(
+  '/getRefundHistory/:orderId',
   authenticate,
+  validate({ params: schema.paymentOrderParamSchema, query: paginationSchema }),
+  controller.getRefundHistory,
+);
+
+/** POST /payments/razorpay/createOrder */
+payment.post(
+  '/razorpay/createOrder',
+  authenticate,
+  validate({ body: schema.gatewayOrderSchema }),
+  controller.createRazorpayOrder,
+);
+
+/** POST /payments/razorpay/verify */
+payment.post(
+  '/razorpay/verify',
+  authenticate,
+  validate({ body: schema.gatewayVerifySchema }),
+  controller.verifyRazorpayPayment,
+);
+
+/** POST /payments/stripe/createIntent */
+payment.post(
+  '/stripe/createIntent',
+  authenticate,
+  validate({ body: schema.gatewayOrderSchema }),
+  controller.createStripeIntent,
+);
+
+/** GET /payments/walletBalance — the wallet balance, under its original path */
+payment.get('/walletBalance', authenticate, controller.walletBalance);
+
+export const paymentRoutes = payment;
+
+// ── Payouts ──────────────────────────────────────────────────────────────────
+
+const payout = Router();
+
+/** GET /payouts/getVendorEarnings */
+payout.get(
+  '/getVendorEarnings',
+  authenticate,
+  ...controller.guards.vendor,
   validate({ query: schema.earningsSchema }),
   controller.earnings,
 );
 
-/** POST /payments/payouts/request — vendor only. */
-router.post(
-  '/payouts/request',
+/** GET /payouts/getAll — admin */
+payout.get(
+  '/getAll',
   authenticate,
-  ...controller.guards.vendor,
-  validate({ body: schema.requestPayoutSchema }),
-  controller.requestPayout,
+  ...controller.guards.admin,
+  validate({ query: schema.listPayoutsSchema }),
+  controller.payoutList,
 );
 
-/** PATCH /payments/payouts/updateStatus/:id — admin only. */
-router.patch(
-  '/payouts/updateStatus/:id',
+/** PATCH /payouts/approvePayout/:id — admin */
+payout.patch(
+  '/approvePayout/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({
+    params: schema.payoutIdParamSchema,
+    body: schema.payoutStatusSchema.omit({ status: true }),
+  }),
+  controller.approvePayout,
+);
+
+/** PATCH /payouts/rejectPayout/:id — admin */
+payout.patch(
+  '/rejectPayout/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.payoutIdParamSchema, body: schema.rejectPayoutSchema }),
+  controller.rejectPayout,
+);
+
+/** POST /payouts/generateCycles — admin */
+payout.post('/generateCycles', authenticate, ...controller.guards.admin, controller.generateCycles);
+
+/** GET /payouts/getSummary — admin */
+payout.get(
+  '/getSummary',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.payoutSummarySchema }),
+  controller.getSummary,
+);
+
+/** GET /payouts/getStatement/:vendorId — admin */
+payout.get(
+  '/getStatement/:vendorId',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.vendorIdParamSchema, query: schema.statementQuerySchema }),
+  controller.getStatement,
+);
+
+/** POST /payouts/bulkApprove — admin */
+payout.post(
+  '/bulkApprove',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.bulkApproveSchema }),
+  controller.bulkApprove,
+);
+
+/** GET /payouts/getPendingAmount/:vendorId — vendor */
+payout.get(
+  '/getPendingAmount/:vendorId',
+  authenticate,
+  ...controller.guards.vendor,
+  validate({ params: schema.vendorIdParamSchema }),
+  controller.getPendingAmount,
+);
+
+/** PATCH /payouts/updateStatus/:id — admin */
+payout.patch(
+  '/updateStatus/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.payoutIdParamSchema, body: schema.payoutStatusSchema }),
   controller.updatePayoutStatus,
 );
 
-// ── Returns ───────────────────────────────────────────────────────────────────
+export const payoutRoutes = payout;
 
-/** GET /payments/returns/reasons — declared before /:id so it is not shadowed. */
-router.get('/returns/reasons', authenticate, controller.returnReasons);
+// ── Returns ──────────────────────────────────────────────────────────────────
 
-/** POST /payments/returns/addReason — admin only. */
-router.post(
-  '/returns/addReason',
+const returns = Router();
+
+/** GET /returns/getReasons — declared before /:id so it is not shadowed */
+returns.get('/getReasons', authenticate, controller.returnReasons);
+
+/** POST /returns/addReason — admin */
+returns.post(
+  '/addReason',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.returnReasonSchema }),
   controller.addReturnReason,
 );
 
-/** PATCH /payments/returns/updateReason/:id — admin only. */
-router.patch(
-  '/returns/updateReason/:id',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.returnIdParamSchema, body: schema.returnReasonUpdateSchema }),
-  controller.updateReturnReason,
-);
-
-/** POST /payments/returns/request */
-router.post(
-  '/returns/request',
+/** POST /returns/createRequest */
+returns.post(
+  '/createRequest',
   authenticate,
   validate({ body: schema.requestReturnSchema }),
   controller.requestReturn,
 );
 
-/** GET /payments/returns/getAll */
-router.get(
-  '/returns/getAll',
+/** GET /returns/getAll */
+returns.get(
+  '/getAll',
   authenticate,
   validate({ query: schema.listReturnsSchema }),
   controller.returnList,
 );
 
-/** PATCH /payments/returns/processRefund/:id — admin only. */
-router.patch(
-  '/returns/processRefund/:id',
+/** GET /returns/getById/:id */
+returns.get(
+  '/getById/:id',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema }),
+  controller.returnById,
+);
+
+/** PATCH /returns/approve/:id */
+returns.patch(
+  '/approve/:id',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
+  controller.approveReturn,
+);
+
+/** PATCH /returns/reject/:id */
+returns.patch(
+  '/reject/:id',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema, body: schema.rejectReturnSchema }),
+  controller.rejectReturn,
+);
+
+/** PATCH /returns/markPickedUp/:id */
+returns.patch(
+  '/markPickedUp/:id',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
+  controller.markPickedUp,
+);
+
+/** PATCH /returns/markReceived/:id */
+returns.patch(
+  '/markReceived/:id',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
+  controller.markReceived,
+);
+
+/** PATCH /returns/processRefund/:id — admin */
+returns.patch(
+  '/processRefund/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.returnIdParamSchema, body: schema.processReturnRefundSchema }),
   controller.processReturnRefund,
 );
 
-/** PATCH /payments/returns/updateStatus/:id */
-router.patch(
-  '/returns/updateStatus/:id',
+export const returnRoutes = returns;
+
+// ── Wallet ───────────────────────────────────────────────────────────────────
+
+const wallet = Router();
+
+/** GET /wallet/getBalance */
+wallet.get('/getBalance', authenticate, controller.walletBalance);
+
+/** GET /wallet/getTransactions */
+wallet.get(
+  '/getTransactions',
   authenticate,
-  validate({ params: schema.returnIdParamSchema, body: schema.returnStatusSchema }),
-  controller.updateReturnStatus,
+  validate({ query: schema.walletListSchema }),
+  controller.walletTransactions,
 );
 
-/** GET /payments/returns/getById/:id */
-router.get(
-  '/returns/getById/:id',
+/** POST /wallet/addMoney */
+wallet.post(
+  '/addMoney',
   authenticate,
-  validate({ params: schema.returnIdParamSchema }),
-  controller.returnById,
+  validate({ body: schema.walletTopUpSchema }),
+  controller.addMoney,
 );
 
-export default router;
+/** POST /wallet/useForOrder */
+wallet.post(
+  '/useForOrder',
+  authenticate,
+  validate({ body: schema.walletRedeemSchema }),
+  controller.useForOrder,
+);
+
+/** POST /wallet/adminCredit — admin */
+wallet.post(
+  '/adminCredit',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.walletCreditSchema }),
+  controller.adminCredit,
+);
+
+/** POST /wallet/adminDebit — admin */
+wallet.post(
+  '/adminDebit',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.walletDebitSchema }),
+  controller.adminDebit,
+);
+
+export const walletRoutes = wallet;
+
+export default paymentRoutes;

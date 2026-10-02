@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { REGISTER_TYPE, OTP_TYPE, OTP_CHANNEL, SOCIAL_PROVIDER, PLATFORM } from '../../constants/roles';
+import {
+  REGISTER_TYPE,
+  OTP_TYPE,
+  OTP_CHANNEL,
+  SOCIAL_PROVIDER,
+  PLATFORM,
+} from '../../constants/roles';
 import { PASSWORD, NAME, PHONE } from '../../config/password.config';
 import { OTP } from '../../config/otp.config';
 import { EMAIL_REGEX, PHONE_REGEX } from '../../constants/countries';
@@ -43,6 +49,19 @@ const deviceData = z
   .optional();
 
 /**
+ * Proof that the caller controls the contact being registered. Required: without
+ * it anyone can register an account for an address they do not own.
+ */
+/**
+ * Proof that the caller controls the contact being registered.
+ *
+ * Optional at the schema level and enforced in the service, because whether it
+ * is required depends on OTP_REQUIRED. Making it conditionally required here
+ * would change the request contract the moment that flag is toggled.
+ */
+const registerOtp = z.string().trim().length(OTP.LENGTH, VALIDATION.INVALID_OTP_FORMAT).optional();
+
+/**
  * `/auth/register` discriminated union on `type`.
  * CUSTOMER requires only identity fields; VENDOR additionally requires shop details.
  *
@@ -52,53 +71,89 @@ const deviceData = z
  * a valid `type` always matches one of the two real branches first.
  */
 const registerUnion = z.discriminatedUnion('type', [
-    z
-      .object({
-        type: z.literal(REGISTER_TYPE.CUSTOMER),
-        name: z.string().trim().min(NAME.MIN_LENGTH, VALIDATION.MIN_LENGTH('name', NAME.MIN_LENGTH)).max(NAME.MAX_LENGTH),
-        email,
-        phone,
-        password,
-        deviceData,
-      })
-      .strict(),
-    z
-      .object({
-        type: z.literal(REGISTER_TYPE.VENDOR),
-        name: z.string().trim().min(NAME.MIN_LENGTH, VALIDATION.MIN_LENGTH('name', NAME.MIN_LENGTH)).max(NAME.MAX_LENGTH),
-        email,
-        phone,
-        password,
-        shopName: z.string().trim().min(NAME.SHOP_MIN_LENGTH).max(NAME.SHOP_MAX_LENGTH),
-        slug: z.string().trim().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, VALIDATION.INVALID_SLUG).optional(),
-        description: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
-        gstNumber: z.string().trim().max(20).optional(),
-        panNumber: z.string().trim().max(15).optional(),
-        bankHolderName: z.string().trim().max(100).optional(),
-        bankAccountNo: z.string().trim().max(30).optional(),
-        bankIfsc: z.string().trim().max(15).optional(),
-        upiId: z.string().trim().max(100).optional(),
-        deviceData,
-      })
-      .strict(),
+  z
+    .object({
+      type: z.literal(REGISTER_TYPE.CUSTOMER),
+      name: z
+        .string()
+        .trim()
+        .min(NAME.MIN_LENGTH, VALIDATION.MIN_LENGTH('name', NAME.MIN_LENGTH))
+        .max(NAME.MAX_LENGTH),
+      email,
+      phone,
+      password,
+      otp: registerOtp,
+      deviceData,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal(REGISTER_TYPE.VENDOR),
+      name: z
+        .string()
+        .trim()
+        .min(NAME.MIN_LENGTH, VALIDATION.MIN_LENGTH('name', NAME.MIN_LENGTH))
+        .max(NAME.MAX_LENGTH),
+      email,
+      phone,
+      password,
+      otp: registerOtp,
+      shopName: z.string().trim().min(NAME.SHOP_MIN_LENGTH).max(NAME.SHOP_MAX_LENGTH),
+      slug: z
+        .string()
+        .trim()
+        .min(2)
+        .max(120)
+        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, VALIDATION.INVALID_SLUG)
+        .optional(),
+      description: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
+      gstNumber: z.string().trim().max(20).optional(),
+      panNumber: z.string().trim().max(15).optional(),
+      bankHolderName: z.string().trim().max(100).optional(),
+      bankAccountNo: z.string().trim().max(30).optional(),
+      bankIfsc: z.string().trim().max(15).optional(),
+      upiId: z.string().trim().max(100).optional(),
+      deviceData,
+    })
+    .strict(),
 ]);
 
-const registerFallback = z
-  .object({ type: z.string() })
-  .passthrough()
-  .superRefine((_value, ctx) => {
+const REGISTER_TYPES = [REGISTER_TYPE.CUSTOMER, REGISTER_TYPE.VENDOR] as const;
+
+/**
+ * Surfaces the discriminated union's real issues instead of a catch-all.
+ *
+ * A bad `type` still gets the friendly message, because that is the one error a
+ * caller is most likely to hit and the least likely to understand. Everything
+ * else is passed through verbatim — a catch-all branch here would report a
+ * missing `otp` as "Invalid register type." and send the caller to the wrong
+ * field.
+ */
+export const registerSchema = z.any().superRefine((value, ctx) => {
+  const result = registerUnion.safeParse(value);
+
+  if (result.success) return;
+
+  const type = (value as { type?: unknown })?.type;
+  const typeIsUnknown = typeof type !== 'string' || !REGISTER_TYPES.includes(type as any);
+
+  if (typeIsUnknown) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['type'],
       message: 'Invalid register type.',
     });
-  });
+    return;
+  }
 
-export const registerSchema = z.union([
-  registerUnion,
-  // Runs only when neither CUSTOMER nor VENDOR matched, to report the clear error.
-  registerFallback,
-]);
+  /**
+   * The union's own issues, verbatim — a missing `otp` or an unknown key has to name itself, not
+   * arrive as a generic type error.
+   */
+  for (const issue of result.error.errors) {
+    ctx.addIssue(issue as z.ZodIssue);
+  }
+});
 
 export const loginSchema = z
   .object({
@@ -168,6 +223,12 @@ export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, VALIDATION.REQUIRED('currentPassword')),
     newPassword: password,
+    /**
+     * Second factor for the change, required only while OTP_REQUIRED is on and
+     * the account has a verified contact. Optional in the schema so toggling
+     * the flag never changes the request contract; enforced in the service.
+     */
+    otp: z.string().trim().length(OTP.LENGTH, VALIDATION.INVALID_OTP_FORMAT).optional(),
     logoutOtherDevices: z.boolean().optional().default(true),
   })
   .strict();

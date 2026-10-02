@@ -7,8 +7,10 @@ import * as schema from './user.schema';
 
 const router = Router();
 
-// Every route requires a valid access token; role/permission guards are applied
-// per route below (see controller.guards).
+/**
+ * Every route requires a valid access token; role/permission guards are applied per route
+ * below (see controller.guards).
+ */
 router.use(authenticate);
 
 /**
@@ -42,11 +44,7 @@ router.patch(
 );
 
 /** PATCH /users/updateAvatar */
-router.patch(
-  '/updateAvatar',
-  validate({ body: schema.avatarSchema }),
-  controller.updateAvatar,
-);
+router.patch('/updateAvatar', validate({ body: schema.avatarSchema }), controller.updateAvatar);
 
 /**
  * @openapi

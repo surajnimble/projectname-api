@@ -7,258 +7,17 @@
  *
  * Run: `npm run seed`  (or automatically via `prisma migrate reset`)
  */
-// Loads .env before Prisma reads DATABASE_URL — the seed runs standalone, so it
-// cannot rely on the app's import chain having loaded it already.
+/**
+ * Loads .env before Prisma reads DATABASE_URL — the seed runs standalone, so it cannot rely on
+ * the app's import chain having loaded it already.
+ */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { SETTINGS } from '../src/config/setting-defaults';
 import slugify from 'slugify';
 
 const prisma = new PrismaClient();
-
-interface SettingSeed {
-  key: string;
-  value: any;
-  category: string;
-  isPublic: boolean;
-}
-
-const SETTINGS: SettingSeed[] = [
-  // ── General / Site ──────────────────────────────────────────────────────
-  { key: 'site.name', value: 'ProjectName', category: 'general', isPublic: true },
-  { key: 'site.logo', value: '', category: 'general', isPublic: true },
-  { key: 'site.supportEmail', value: 'support@projectname.com', category: 'general', isPublic: true },
-  { key: 'site.supportPhones', value: [], category: 'general', isPublic: true },
-  { key: 'site.favicon', value: '', category: 'general', isPublic: true },
-  { key: 'site.tagline', value: '', category: 'general', isPublic: true },
-  { key: 'site.addressLine', value: '', category: 'general', isPublic: true },
-  {
-    key: 'site.socialLinks',
-    value: { facebook: '', instagram: '', twitter: '', youtube: '' },
-    category: 'general',
-    isPublic: true,
-  },
-  { key: 'site.maintenanceImage', value: '', category: 'general', isPublic: true },
-
-  // ── Locale / Timezone / Currency ────────────────────────────────────────
-  { key: 'currency.code', value: 'INR', category: 'currency', isPublic: true },
-  { key: 'currency.symbol', value: '₹', category: 'currency', isPublic: true },
-  { key: 'currency.decimals', value: 2, category: 'currency', isPublic: true },
-  { key: 'locale.default', value: 'en', category: 'locale', isPublic: true },
-  { key: 'locale.supported', value: ['en', 'hi'], category: 'locale', isPublic: true },
-  { key: 'timezone.default', value: 'Asia/Kolkata', category: 'locale', isPublic: true },
-  { key: 'date.format', value: 'DD-MM-YYYY', category: 'locale', isPublic: true },
-  { key: 'time.format', value: 'hh:mm A', category: 'locale', isPublic: true },
-
-  // ── Business / Commission ───────────────────────────────────────────────
-  { key: 'commission.default', value: 10, category: 'business', isPublic: false },
-  { key: 'commission.minPercent', value: 0, category: 'business', isPublic: false },
-  { key: 'commission.maxPercent', value: 50, category: 'business', isPublic: false },
-  { key: 'tax.defaultGstPercent', value: 18, category: 'tax', isPublic: true },
-  { key: 'tax.inclusive', value: false, category: 'tax', isPublic: true },
-
-  // ── Order ───────────────────────────────────────────────────────────────
-  { key: 'order.minAmount', value: 100, category: 'business', isPublic: true },
-  { key: 'order.maxItems', value: 50, category: 'business', isPublic: true },
-  { key: 'order.cancelWindowMin', value: 30, category: 'business', isPublic: true },
-  { key: 'order.autoCancelUnpaidMin', value: 1440, category: 'order', isPublic: false },
-  { key: 'order.allowGuestCheckout', value: false, category: 'order', isPublic: true },
-  { key: 'order.requirePhoneVerify', value: true, category: 'order', isPublic: true },
-  { key: 'order.maxPerCustomerPerDay', value: 20, category: 'order', isPublic: false },
-  { key: 'order.showVendorSplit', value: true, category: 'order', isPublic: true },
-
-  // ── Payment — COD / UPI / Bank ──────────────────────────────────────────
-  { key: 'payment.cod.enabled', value: true, category: 'payment', isPublic: true },
-  { key: 'payment.upi.enabled', value: true, category: 'payment', isPublic: true },
-  { key: 'payment.bank.enabled', value: true, category: 'payment', isPublic: true },
-  { key: 'payment.upi.id', value: 'projectname@upi', category: 'payment', isPublic: true },
-  { key: 'payment.bank.holderName', value: 'ProjectName Pvt Ltd', category: 'payment', isPublic: true },
-  { key: 'payment.bank.accountNo', value: '000000000000', category: 'payment', isPublic: true },
-  { key: 'payment.bank.ifsc', value: 'HDFC0000000', category: 'payment', isPublic: true },
-  { key: 'payment.cod.maxAmount', value: 20000, category: 'payment', isPublic: true },
-  { key: 'payment.cod.enabledAbove', value: 0, category: 'payment', isPublic: true },
-  { key: 'payment.cod.extraCharge', value: 0, category: 'payment', isPublic: true },
-  { key: 'payment.razorpay.enabled', value: false, category: 'payment', isPublic: false },
-  { key: 'payment.razorpay.keyId', value: '', category: 'payment', isPublic: false },
-  { key: 'payment.razorpay.webhookSecret', value: '', category: 'payment', isPublic: false },
-
-  // ── Payment — Token / Advance ───────────────────────────────────────────
-  { key: 'payment.token.enabled', value: false, category: 'payment', isPublic: true },
-  { key: 'payment.token.mode', value: 'percent', category: 'payment', isPublic: true },
-  { key: 'payment.token.percent', value: 20, category: 'payment', isPublic: true },
-  { key: 'payment.token.fixedAmount', value: 100, category: 'payment', isPublic: true },
-  { key: 'payment.token.minAmount', value: 50, category: 'payment', isPublic: true },
-  { key: 'payment.token.maxAmount', value: 5000, category: 'payment', isPublic: true },
-  { key: 'payment.token.applicableAbove', value: 2000, category: 'payment', isPublic: true },
-  {
-    key: 'payment.token.allowedMethods',
-    value: ['UPI', 'CARD', 'NETBANKING'],
-    category: 'payment',
-    isPublic: true,
-  },
-  { key: 'payment.token.refundable', value: true, category: 'payment', isPublic: true },
-  { key: 'payment.token.refundPercent', value: 100, category: 'payment', isPublic: true },
-  { key: 'payment.token.cancelWindowMin', value: 60, category: 'payment', isPublic: true },
-  { key: 'payment.token.balanceDueDays', value: 7, category: 'payment', isPublic: true },
-  {
-    key: 'payment.token.balanceReminderHours',
-    value: [24, 48, 72],
-    category: 'payment',
-    isPublic: false,
-  },
-  { key: 'payment.token.forfeitOnNoPay', value: true, category: 'payment', isPublic: false },
-  { key: 'payment.token.autoCancelAfterDue', value: true, category: 'payment', isPublic: false },
-
-  // ── Shipping / Delivery ─────────────────────────────────────────────────
-  { key: 'shipping.enabled', value: true, category: 'shipping', isPublic: true },
-  { key: 'shipping.defaultCharge', value: 49, category: 'shipping', isPublic: true },
-  { key: 'shipping.freeAbove', value: 999, category: 'shipping', isPublic: true },
-  { key: 'shipping.estimatedDays', value: 5, category: 'shipping', isPublic: true },
-  { key: 'shipping.perKgCharge', value: 0, category: 'shipping', isPublic: true },
-  { key: 'shipping.maxDistanceKm', value: 0, category: 'shipping', isPublic: true },
-  { key: 'shipping.serviceablePincodes', value: [], category: 'shipping', isPublic: true },
-
-  // ── Return / Refund ─────────────────────────────────────────────────────
-  { key: 'return.enabled', value: true, category: 'return', isPublic: true },
-  { key: 'return.windowDays', value: 7, category: 'return', isPublic: true },
-  { key: 'return.reasonRequired', value: true, category: 'return', isPublic: true },
-  { key: 'return.imagesRequired', value: true, category: 'return', isPublic: true },
-  { key: 'return.maxQtyPerOrder', value: 0, category: 'return', isPublic: false },
-  { key: 'refund.processingDays', value: 5, category: 'refund', isPublic: true },
-  { key: 'refund.mode', value: 'original', category: 'refund', isPublic: true },
-
-  // ── Wallet / Loyalty ────────────────────────────────────────────────────
-  { key: 'wallet.enabled', value: false, category: 'wallet', isPublic: true },
-  { key: 'wallet.maxBalance', value: 50000, category: 'wallet', isPublic: true },
-  { key: 'wallet.minRedeem', value: 100, category: 'wallet', isPublic: true },
-  { key: 'wallet.expiryDays', value: 365, category: 'wallet', isPublic: true },
-  { key: 'loyalty.enabled', value: false, category: 'loyalty', isPublic: true },
-  { key: 'loyalty.pointsPerRupee', value: 1, category: 'loyalty', isPublic: true },
-  { key: 'loyalty.pointValue', value: 0.01, category: 'loyalty', isPublic: true },
-  { key: 'loyalty.minRedeemPoints', value: 100, category: 'loyalty', isPublic: true },
-
-  // ── Coupon ──────────────────────────────────────────────────────────────
-  { key: 'coupon.maxPerOrder', value: 1, category: 'coupon', isPublic: true },
-  { key: 'coupon.stackable', value: false, category: 'coupon', isPublic: true },
-  { key: 'coupon.minOrderAmount', value: 0, category: 'coupon', isPublic: true },
-  { key: 'coupon.maxDiscount', value: 0, category: 'coupon', isPublic: true },
-
-  // ── Features ────────────────────────────────────────────────────────────
-  { key: 'feature.reviews', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.wishlist', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.coupons', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.chat', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.multiVendor', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.guestCheckout', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.productCompare', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.recentlyViewed', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.liveTracking', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.wallet', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.loyalty', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.referral', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.giftCards', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.chatSupport', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.ticketSupport', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.socialLogin', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.twoFactor', value: false, category: 'feature', isPublic: true },
-  { key: 'feature.analytics', value: true, category: 'feature', isPublic: true },
-  { key: 'feature.tracking', value: true, category: 'feature', isPublic: true },
-
-  // ── Catalog ─────────────────────────────────────────────────────────────
-  { key: 'catalog.productsPerPage', value: 20, category: 'catalog', isPublic: true },
-  { key: 'catalog.showOutOfStock', value: true, category: 'catalog', isPublic: true },
-  { key: 'catalog.allowBackorder', value: false, category: 'catalog', isPublic: true },
-  { key: 'catalog.defaultSort', value: '-createdAt', category: 'catalog', isPublic: true },
-  { key: 'catalog.maxImagesPerProduct', value: 10, category: 'catalog', isPublic: false },
-
-  // ── Cart ────────────────────────────────────────────────────────────────
-  { key: 'cart.maxItems', value: 50, category: 'cart', isPublic: true },
-  { key: 'cart.holdMinutes', value: 30, category: 'cart', isPublic: false },
-  { key: 'cart.persistAcrossDevices', value: true, category: 'cart', isPublic: true },
-
-  // ── Vendor / Payout ─────────────────────────────────────────────────────
-  { key: 'vendor.autoApprove', value: false, category: 'vendor', isPublic: false },
-  { key: 'vendor.maxProducts', value: 500, category: 'vendor', isPublic: false },
-  { key: 'vendor.minPayoutAmount', value: 500, category: 'vendor', isPublic: false },
-  { key: 'vendor.payoutCycleDays', value: 7, category: 'vendor', isPublic: false },
-  { key: 'vendor.payoutHoldDays', value: 3, category: 'vendor', isPublic: false },
-  { key: 'vendor.commissionOverrideAllowed', value: true, category: 'vendor', isPublic: false },
-
-  // ── Notification ────────────────────────────────────────────────────────
-  { key: 'notification.email.enabled', value: true, category: 'notification', isPublic: false },
-  { key: 'notification.sms.enabled', value: false, category: 'notification', isPublic: false },
-  { key: 'notification.push.enabled', value: true, category: 'notification', isPublic: false },
-  { key: 'notification.whatsapp.enabled', value: false, category: 'notification', isPublic: false },
-  {
-    key: 'notification.orderEvents',
-    value: ['CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'],
-    category: 'notification',
-    isPublic: false,
-  },
-  {
-    key: 'notification.tokenBalanceReminder',
-    value: true,
-    category: 'notification',
-    isPublic: false,
-  },
-
-  // ── Security ────────────────────────────────────────────────────────────
-  { key: 'security.otpLoginEnabled', value: false, category: 'security', isPublic: false },
-  { key: 'security.twoFactorEnabled', value: false, category: 'security', isPublic: false },
-  { key: 'security.maxLoginAttempts', value: 5, category: 'security', isPublic: false },
-  { key: 'security.lockoutMinutes', value: 15, category: 'security', isPublic: false },
-  { key: 'security.passwordMinLength', value: 8, category: 'security', isPublic: false },
-  { key: 'security.requireEmailVerify', value: false, category: 'security', isPublic: false },
-  { key: 'security.requirePhoneVerify', value: true, category: 'security', isPublic: false },
-  { key: 'security.sessionDays', value: 7, category: 'security', isPublic: false },
-
-  // ── System / Maintenance ────────────────────────────────────────────────
-  { key: 'maintenance.enabled', value: false, category: 'system', isPublic: false },
-  { key: 'maintenance.message', value: "We'll be back soon.", category: 'system', isPublic: true },
-  { key: 'maintenance.allowedIps', value: [], category: 'system', isPublic: false },
-  { key: 'system.encryptionEnabled', value: false, category: 'system', isPublic: false },
-  { key: 'system.apiRateLimitPerMin', value: 100, category: 'system', isPublic: false },
-
-  // ── App / Android / iOS ─────────────────────────────────────────────────
-  { key: 'app.minAndroidVersion', value: '1.0.0', category: 'app', isPublic: true },
-  { key: 'app.forceUpdateAndroid', value: false, category: 'app', isPublic: true },
-  { key: 'app.latestAndroidVersion', value: '1.0.0', category: 'app', isPublic: true },
-  { key: 'app.minIosVersion', value: '1.0.0', category: 'app', isPublic: true },
-  { key: 'app.forceUpdateIos', value: false, category: 'app', isPublic: true },
-  { key: 'app.latestIosVersion', value: '1.0.0', category: 'app', isPublic: true },
-  { key: 'app.updateMessage', value: '', category: 'app', isPublic: true },
-
-  // ── Tracking & Analytics ────────────────────────────────────────────────
-  { key: 'tracking.enabled', value: true, category: 'tracking', isPublic: false },
-  { key: 'tracking.sessionTimeoutMin', value: 30, category: 'tracking', isPublic: false },
-  { key: 'tracking.geoLookupEnabled', value: true, category: 'tracking', isPublic: false },
-  { key: 'tracking.botFilterEnabled', value: true, category: 'tracking', isPublic: false },
-  { key: 'tracking.rawRetentionDays', value: 90, category: 'tracking', isPublic: false },
-  { key: 'analytics.realtimeWindowMin', value: 5, category: 'analytics', isPublic: false },
-  { key: 'analytics.aggregationCron', value: '0 2 * * *', category: 'analytics', isPublic: false },
-  { key: 'analytics.exportMaxRows', value: 50000, category: 'analytics', isPublic: false },
-
-  // ── Referral / Gift Cards ───────────────────────────────────────────────
-  { key: 'referral.enabled', value: false, category: 'referral', isPublic: true },
-  { key: 'referral.referrerReward', value: 100, category: 'referral', isPublic: false },
-  { key: 'referral.refereeReward', value: 50, category: 'referral', isPublic: false },
-  { key: 'referral.expiryDays', value: 90, category: 'referral', isPublic: false },
-  { key: 'giftCard.enabled', value: false, category: 'giftCard', isPublic: true },
-  { key: 'giftCard.minAmount', value: 100, category: 'giftCard', isPublic: true },
-  { key: 'giftCard.maxAmount', value: 50000, category: 'giftCard', isPublic: true },
-  { key: 'giftCard.expiryDays', value: 365, category: 'giftCard', isPublic: true },
-
-  // ── Support / Chat ──────────────────────────────────────────────────────
-  { key: 'support.ticket.enabled', value: true, category: 'support', isPublic: true },
-  { key: 'support.chat.enabled', value: false, category: 'support', isPublic: true },
-  { key: 'support.chatAutoReply', value: true, category: 'support', isPublic: false },
-  {
-    key: 'support.workingHours',
-    value: { start: '10:00', end: '19:00' },
-    category: 'support',
-    isPublic: true,
-  },
-];
 
 /** Code-level permission defaults mirrored into RolePermission. */
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -345,7 +104,10 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 const toSlug = (value: string): string =>
   slugify(value, { lower: true, strict: true, trim: true, replacement: '-' });
 
-const uniqueSlug = async (base: string, exists: (slug: string) => Promise<boolean>): Promise<string> => {
+const uniqueSlug = async (
+  base: string,
+  exists: (slug: string) => Promise<boolean>,
+): Promise<string> => {
   const root = toSlug(base);
   if (!(await exists(root))) return root;
   for (let i = 2; i <= 50; i += 1) {
@@ -393,7 +155,10 @@ const seedSuperAdmin = async (): Promise<string> => {
 
   const user = await prisma.user.upsert({
     where: { email },
-    update: {},
+    // Only the password hash is left alone here: re-seeding must never silently reset a
+    // password an operator has since changed. SUPER_ADMIN_PASSWORD only applies when the
+    // account is created.
+    update: { isEmailVerified: true, isActive: true },
     create: {
       email,
       name: 'Super Admin',
@@ -461,14 +226,42 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   // ── Currency / Tax / Dropdown / Translation ─────────────────────────────
   await prisma.currency.upsert({
     where: { code: 'INR' },
-    create: { code: 'INR', name: 'Indian Rupee', symbol: '₹', decimals: 2, rate: 1, isDefault: true },
+    create: {
+      code: 'INR',
+      name: 'Indian Rupee',
+      symbol: '₹',
+      decimals: 2,
+      rate: 1,
+      isDefault: true,
+    },
     update: {},
   });
 
   const taxConfigs = [
-    { name: 'GST 18%', slug: 'gst-18', percent: 18, cgstPercent: 9, sgstPercent: 9, igstPercent: 18 },
-    { name: 'GST 12%', slug: 'gst-12', percent: 12, cgstPercent: 6, sgstPercent: 6, igstPercent: 12 },
-    { name: 'GST 5%', slug: 'gst-5', percent: 5, cgstPercent: 2.5, sgstPercent: 2.5, igstPercent: 5 },
+    {
+      name: 'GST 18%',
+      slug: 'gst-18',
+      percent: 18,
+      cgstPercent: 9,
+      sgstPercent: 9,
+      igstPercent: 18,
+    },
+    {
+      name: 'GST 12%',
+      slug: 'gst-12',
+      percent: 12,
+      cgstPercent: 6,
+      sgstPercent: 6,
+      igstPercent: 12,
+    },
+    {
+      name: 'GST 5%',
+      slug: 'gst-5',
+      percent: 5,
+      cgstPercent: 2.5,
+      sgstPercent: 2.5,
+      igstPercent: 5,
+    },
   ];
 
   for (const tax of taxConfigs) {
@@ -538,7 +331,10 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     });
   }
 
-  const menId = (await prisma.category.findUnique({ where: { slug: 'men' }, select: { id: true } }))!.id;
+  const menId = (await prisma.category.findUnique({
+    where: { slug: 'men' },
+    select: { id: true },
+  }))!.id;
 
   const subCategories = [
     { name: 'Shirts', slug: 'shirts', parentId: menId, sortOrder: 1 },
@@ -562,14 +358,34 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     await prisma.brand.upsert({ where: { slug: brand.slug }, create: brand, update: {} });
   }
 
-  for (const tag of [{ name: 'new-arrival', slug: 'new-arrival' }, { name: 'sale', slug: 'sale' }]) {
+  for (const tag of [
+    { name: 'new-arrival', slug: 'new-arrival' },
+    { name: 'sale', slug: 'sale' },
+  ]) {
     await prisma.tag.upsert({ where: { slug: tag.slug }, create: tag, update: {} });
   }
 
   for (const attribute of [
-    { name: 'Size', slug: 'size', type: 'SIZE' as const, options: ['S', 'M', 'L', 'XL'], isVariant: true },
-    { name: 'Colour', slug: 'colour', type: 'COLOR' as const, options: ['Black', 'White', 'Blue'], isVariant: true },
-    { name: 'Material', slug: 'material', type: 'SELECT' as const, options: ['Cotton', 'Polyester'] },
+    {
+      name: 'Size',
+      slug: 'size',
+      type: 'SIZE' as const,
+      options: ['S', 'M', 'L', 'XL'],
+      isVariant: true,
+    },
+    {
+      name: 'Colour',
+      slug: 'colour',
+      type: 'COLOR' as const,
+      options: ['Black', 'White', 'Blue'],
+      isVariant: true,
+    },
+    {
+      name: 'Material',
+      slug: 'material',
+      type: 'SELECT' as const,
+      options: ['Cotton', 'Polyester'],
+    },
   ]) {
     await prisma.attribute.upsert({
       where: { slug: attribute.slug },
@@ -580,7 +396,13 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   await prisma.collection.upsert({
     where: { slug: 'featured' },
-    create: { name: 'Featured', slug: 'featured', type: 'MANUAL', description: 'Curated picks', isActive: true },
+    create: {
+      name: 'Featured',
+      slug: 'featured',
+      type: 'MANUAL',
+      description: 'Curated picks',
+      isActive: true,
+    },
     update: {},
   });
 
@@ -608,7 +430,11 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     { name: 'Account Issue', slug: 'account-issue' },
     { name: 'Other', slug: 'other' },
   ]) {
-    await prisma.ticketCategory.upsert({ where: { slug: category.slug }, create: category, update: {} });
+    await prisma.ticketCategory.upsert({
+      where: { slug: category.slug },
+      create: category,
+      update: {},
+    });
   }
 
   // ── Shipping ─────────────────────────────────────────────────────────────
@@ -651,7 +477,7 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   const vendorUser = await prisma.user.upsert({
     where: { email: 'vendor@projectname.com' },
-    update: {},
+    update: { isPhoneVerified: true, isEmailVerified: true },
     create: {
       email: 'vendor@projectname.com',
       name: 'Ravi Kumar',
@@ -691,7 +517,7 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   const customerUser = await prisma.user.upsert({
     where: { email: 'customer@projectname.com' },
-    update: {},
+    update: { isPhoneVerified: true, isEmailVerified: true },
     create: {
       email: 'customer@projectname.com',
       name: 'Amit Sharma',
@@ -727,7 +553,12 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   await prisma.user.upsert({
     where: { email: 'subadmin@projectname.com' },
-    update: {},
+    /**
+     * Login now requires a verified contact, so seeded accounts must carry the flag on update as
+     * well as create — otherwise a re-seed cannot repair a database created before that rule
+     * existed.
+     */
+    update: { isEmailVerified: true },
     create: {
       email: 'subadmin@projectname.com',
       name: 'Sub Admin',
@@ -735,14 +566,21 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
       passwordHash: demoPassword,
       role: 'SUB_ADMIN',
       isActive: true,
+      isEmailVerified: true,
     },
   });
 
   // ── Demo products ────────────────────────────────────────────────────────
   if (!demoEnabled) return;
 
-  const shirtsId = (await prisma.category.findUnique({ where: { slug: 'shirts' }, select: { id: true } }))!.id;
-  const techNovaId = (await prisma.brand.findUnique({ where: { slug: 'technova' }, select: { id: true } }))!.id;
+  const shirtsId = (await prisma.category.findUnique({
+    where: { slug: 'shirts' },
+    select: { id: true },
+  }))!.id;
+  const techNovaId = (await prisma.brand.findUnique({
+    where: { slug: 'technova' },
+    select: { id: true },
+  }))!.id;
 
   const productSeeds = [
     {
@@ -792,10 +630,12 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   ];
 
   for (const product of productSeeds) {
-    const slug = await uniqueSlug(product.slugSeed, async (candidate) => {
-      const row = await prisma.product.findUnique({ where: { slug: candidate }, select: { id: true } });
-      return Boolean(row);
-    });
+    /**
+     * Deterministic on purpose: the upsert key *is* the slug, so deriving a new "unique" slug on
+     * every run would insert a duplicate row rather than match the existing one. Product creation
+     * has its own uniqueProductSlug helper.
+     */
+    const slug = toSlug(product.slugSeed);
 
     await prisma.product.upsert({
       where: { slug },
@@ -860,12 +700,27 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   });
 
   for (const faq of [
-    { question: 'How long does delivery take?', answer: 'Standard delivery takes 3-6 business days. Express delivery takes 1-3 days.' },
-    { question: 'Can I return a product?', answer: 'Yes. Returns are accepted within the return window shown on the product page.' },
-    { question: 'What payment methods are accepted?', answer: 'Cash on delivery, UPI, bank transfer, card and net banking.' },
-    { question: 'How do I track my order?', answer: 'Open Orders in the app to see live tracking for your order.' },
+    {
+      question: 'How long does delivery take?',
+      answer: 'Standard delivery takes 3-6 business days. Express delivery takes 1-3 days.',
+    },
+    {
+      question: 'Can I return a product?',
+      answer: 'Yes. Returns are accepted within the return window shown on the product page.',
+    },
+    {
+      question: 'What payment methods are accepted?',
+      answer: 'Cash on delivery, UPI, bank transfer, card and net banking.',
+    },
+    {
+      question: 'How do I track my order?',
+      answer: 'Open Orders in the app to see live tracking for your order.',
+    },
   ]) {
-    const existing = await prisma.faq.findFirst({ where: { question: faq.question }, select: { id: true } });
+    const existing = await prisma.faq.findFirst({
+      where: { question: faq.question },
+      select: { id: true },
+    });
     if (!existing) await prisma.faq.create({ data: faq });
   }
 
@@ -874,7 +729,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     create: {
       title: 'About Us',
       slug: 'about-us',
-      content: 'ProjectName is a multi-vendor marketplace connecting shoppers with independent sellers.',
+      content:
+        'ProjectName is a multi-vendor marketplace connecting shoppers with independent sellers.',
       isPublished: true,
     },
     update: {},
@@ -943,8 +799,20 @@ const main = async (): Promise<void> => {
 
   // eslint-disable-next-line no-console
   console.log('[seed] complete:', counts);
+
+  /**
+   * The super admin's password comes from the environment and is NOT Demo@12345, so it has to be
+   * printed from the same source the row was written from — otherwise the log misleads whoever
+   * is logging in.
+   */
+  const adminEmail = (process.env.SUPER_ADMIN_EMAIL || 'superadmin@projectname.com').toLowerCase();
+  const adminPassword = process.env.SUPER_ADMIN_PASSWORD || 'SuperSecret@123';
   // eslint-disable-next-line no-console
-  console.log('[seed] demo logins -> superadmin@projectname.com / vendor@projectname.com / customer@projectname.com (password: Demo@12345)');
+  console.log(`[seed] super admin -> ${adminEmail} / ${adminPassword}`);
+  // eslint-disable-next-line no-console
+  console.log(
+    '[seed] demo logins -> subadmin@ / vendor@ / customer@ (all @projectname.com, password: Demo@12345)',
+  );
 };
 
 main()

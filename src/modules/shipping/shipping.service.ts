@@ -1,13 +1,72 @@
 import { Prisma } from '@prisma/client';
+import { ROLES, PAYMENT_STATUS } from '../../constants/roles';
 import { prisma } from '../../services/prisma.service';
 import { AppError } from '../../utils/AppError';
 import { D, money } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
-import { generateCode } from '../../utils/slug';
-import { sha256 } from '../../utils/crypto';
-import { writeAuditLog } from '../../services/audit.service';
-import { getShippingConfig } from '../../services/settings.service';
+import { generateAwb } from '../../utils/slug';
+import { writeActivityLog, writeAuditLog } from '../../services/audit.service';
+import {
+  getFeatureFlags,
+  toggleFeature,
+  getMaintenanceStatus,
+  getSettingByCategory,
+  getShippingConfig,
+  resetSettingsToDefault,
+  setSetting,
+} from '../../services/settings.service';
+import { SETTING_CATEGORY, SETTING_KEY } from '../../config/setting.config';
+import { SETTINGS } from '../../config/setting-defaults';
+
+/** Feature flags for a client to read on boot. */
+export const getFeatureFlagMap = getFeatureFlags;
+
+export const toggleFeatureFlag = toggleFeature;
+
+export const getMaintenanceMode = getMaintenanceStatus;
+
+/** Flushes the caches an admin can poison by editing settings directly in the DB. */
+export const clearAllCaches = async (actorId?: string, req?: any): Promise<boolean> => {
+  const { flushCache } = await import('../../services/redis.service');
+  const flushed = await flushCache();
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'RESET',
+    entity: 'Cache',
+    description: flushed ? 'Redis cache flushed' : 'Redis unavailable, nothing flushed',
+  });
+
+  return flushed;
+};
+
+/** Cron definitions plus whether each one is currently registered on its queue. */
+export const listCronJobDefinitions = async () => {
+  const { listCronJobs } = await import('../../jobs/cron');
+  return listCronJobs();
+};
+
+export const triggerCronJobNow = async (
+  name: string,
+  actorId?: string,
+  req?: any,
+): Promise<{ triggered: boolean; name: string }> => {
+  const { triggerCronJob } = await import('../../jobs/cron');
+  const result = await triggerCronJob(name);
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'TOGGLE',
+    entity: 'CronJob',
+    entityId: name,
+    description: result.triggered ? 'Cron job triggered' : 'Cron job could not be triggered',
+  });
+
+  return result;
+};
 import { SHIPMENT_STATUS_TRANSITIONS } from '../../constants/statuses';
 import { COUNTRIES } from '../../constants/countries';
 
@@ -24,7 +83,9 @@ import { COUNTRIES } from '../../constants/countries';
 
 const ZONE_INCLUDE = { methods: { orderBy: { name: 'asc' } } } satisfies Prisma.ShippingZoneInclude;
 
-export const listZones = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listZones = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.ShippingZoneWhereInput = {};
 
   if (D.str(query.isActive) === 'true') where.isActive = true;
@@ -56,7 +117,13 @@ export const createZone = async (input: Record<string, any>, req?: any): Promise
     include: ZONE_INCLUDE,
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'ShippingZone', entityId: row.id, description: row.name });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'ShippingZone',
+    entityId: row.id,
+    description: row.name,
+  });
 
   return row;
 };
@@ -66,7 +133,10 @@ export const updateZone = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.shippingZone.findUnique({ where: { id: zoneId }, select: { id: true, name: true } });
+  const existing = await prisma.shippingZone.findUnique({
+    where: { id: zoneId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.SHIPPING.ZONE_NOT_FOUND);
 
@@ -76,7 +146,11 @@ export const updateZone = async (
       ...(input.name === undefined ? {} : { name: D.str(input.name) }),
       ...(input.countries === undefined
         ? {}
-        : { countries: D.strArr(input.countries).map((c) => resolveCountryCode(c) || c.toUpperCase()) }),
+        : {
+            countries: D.strArr(input.countries).map(
+              (c) => resolveCountryCode(c) || c.toUpperCase(),
+            ),
+          }),
       ...(input.states === undefined ? {} : { states: D.strArr(input.states) }),
       ...(input.pincodes === undefined ? {} : { pincodes: D.strArr(input.pincodes) }),
       ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
@@ -84,26 +158,45 @@ export const updateZone = async (
     include: ZONE_INCLUDE,
   });
 
-  void writeAuditLog({ req, action: 'UPDATE', entity: 'ShippingZone', entityId: zoneId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'UPDATE',
+    entity: 'ShippingZone',
+    entityId: zoneId,
+    description: existing.name,
+  });
 
   return row;
 };
 
 export const deleteZone = async (zoneId: string, req?: any): Promise<void> => {
-  const existing = await prisma.shippingZone.findUnique({ where: { id: zoneId }, select: { id: true, name: true } });
+  const existing = await prisma.shippingZone.findUnique({
+    where: { id: zoneId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.SHIPPING.ZONE_NOT_FOUND);
 
-  // Methods are detached rather than deleted, so historical shipments keep a
-  // readable method reference.
+  /**
+   * Methods are detached rather than deleted, so historical shipments keep a readable method
+   * reference.
+   */
   await prisma.shippingZone.delete({ where: { id: zoneId } });
 
-  void writeAuditLog({ req, action: 'DELETE', entity: 'ShippingZone', entityId: zoneId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'DELETE',
+    entity: 'ShippingZone',
+    entityId: zoneId,
+    description: existing.name,
+  });
 };
 
 // ═══ Methods ═════════════════════════════════════════════════════════════════
 
-export const listMethods = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listMethods = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.ShippingMethodWhereInput = {};
 
   if (D.str(query.zoneId)) where.zoneId = D.str(query.zoneId);
@@ -127,7 +220,10 @@ export const listMethods = async (query: Record<string, any>): Promise<{ rows: a
 export const createMethod = async (input: Record<string, any>, req?: any): Promise<any> => {
   const code = D.str(input.code).toUpperCase();
 
-  const existing = await prisma.shippingMethod.findUnique({ where: { code }, select: { id: true } });
+  const existing = await prisma.shippingMethod.findUnique({
+    where: { code },
+    select: { id: true },
+  });
 
   if (existing) {
     throw AppError.conflict('This shipping method code already exists.', ERROR_CODE.DUPLICATE);
@@ -138,7 +234,10 @@ export const createMethod = async (input: Record<string, any>, req?: any): Promi
   }
 
   if (D.str(input.zoneId)) {
-    const zone = await prisma.shippingZone.findUnique({ where: { id: D.str(input.zoneId) }, select: { id: true } });
+    const zone = await prisma.shippingZone.findUnique({
+      where: { id: D.str(input.zoneId) },
+      select: { id: true },
+    });
     if (!zone) throw AppError.notFound(ERROR.SHIPPING.ZONE_NOT_FOUND);
   }
 
@@ -159,7 +258,13 @@ export const createMethod = async (input: Record<string, any>, req?: any): Promi
     include: { zone: { select: { id: true, name: true } } },
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'ShippingMethod', entityId: row.id, description: row.name });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'ShippingMethod',
+    entityId: row.id,
+    description: row.name,
+  });
 
   return row;
 };
@@ -169,7 +274,10 @@ export const updateMethod = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.shippingMethod.findUnique({ where: { id: methodId }, select: { id: true, name: true, minDays: true, maxDays: true } });
+  const existing = await prisma.shippingMethod.findUnique({
+    where: { id: methodId },
+    select: { id: true, name: true, minDays: true, maxDays: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.SHIPPING.METHOD_NOT_FOUND);
 
@@ -197,18 +305,29 @@ export const updateMethod = async (
     include: { zone: { select: { id: true, name: true } } },
   });
 
-  void writeAuditLog({ req, action: 'UPDATE', entity: 'ShippingMethod', entityId: methodId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'UPDATE',
+    entity: 'ShippingMethod',
+    entityId: methodId,
+    description: existing.name,
+  });
 
   return row;
 };
 
 export const deleteMethod = async (methodId: string, req?: any): Promise<void> => {
-  const existing = await prisma.shippingMethod.findUnique({ where: { id: methodId }, select: { id: true, name: true } });
+  const existing = await prisma.shippingMethod.findUnique({
+    where: { id: methodId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.SHIPPING.METHOD_NOT_FOUND);
 
-  // A method that has shipped orders is deactivated, not deleted, so past
-  // shipments keep a resolvable reference.
+  /**
+   * A method that has shipped orders is deactivated, not deleted, so past shipments keep a
+   * resolvable reference.
+   */
   const used = await prisma.shipment.count({ where: { methodId } });
 
   if (used > 0) {
@@ -227,12 +346,20 @@ export const deleteMethod = async (methodId: string, req?: any): Promise<void> =
 
   await prisma.shippingMethod.delete({ where: { id: methodId } });
 
-  void writeAuditLog({ req, action: 'DELETE', entity: 'ShippingMethod', entityId: methodId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'DELETE',
+    entity: 'ShippingMethod',
+    entityId: methodId,
+    description: existing.name,
+  });
 };
 
 // ═══ Partners ════════════════════════════════════════════════════════════════
 
-export const listPartners = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listPartners = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.ShippingPartnerWhereInput = {};
 
   if (D.str(query.isActive) === 'true') where.isActive = true;
@@ -256,7 +383,10 @@ export const listPartners = async (query: Record<string, any>): Promise<{ rows: 
 export const createPartner = async (input: Record<string, any>, req?: any): Promise<any> => {
   const code = D.str(input.code).toUpperCase();
 
-  const existing = await prisma.shippingPartner.findUnique({ where: { code }, select: { id: true } });
+  const existing = await prisma.shippingPartner.findUnique({
+    where: { code },
+    select: { id: true },
+  });
 
   if (existing) {
     throw AppError.conflict('This partner code already exists.', ERROR_CODE.DUPLICATE);
@@ -273,7 +403,13 @@ export const createPartner = async (input: Record<string, any>, req?: any): Prom
     select: { id: true, name: true, code: true, apiUrl: true, isActive: true, createdAt: true },
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'ShippingPartner', entityId: row.id, description: row.name });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'ShippingPartner',
+    entityId: row.id,
+    description: row.name,
+  });
 
   return row;
 };
@@ -283,7 +419,10 @@ export const updatePartner = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.shippingPartner.findUnique({ where: { id: partnerId }, select: { id: true, name: true } });
+  const existing = await prisma.shippingPartner.findUnique({
+    where: { id: partnerId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.SHIPPING.PARTNER_NOT_FOUND);
 
@@ -340,7 +479,11 @@ const resolveZone = async (
   }
 
   for (const zone of zones) {
-    if (D.str(state) && D.strArr(zone.states).length && D.strArr(zone.states).some((s) => D.str(s).toLowerCase() === D.str(state).toLowerCase())) {
+    if (
+      D.str(state) &&
+      D.strArr(zone.states).length &&
+      D.strArr(zone.states).some((s) => D.str(s).toLowerCase() === D.str(state).toLowerCase())
+    ) {
       return { zone, reason: 'matched by state' };
     }
   }
@@ -419,7 +562,9 @@ export const checkServiceable = async (input: {
     isServiceable: serviceable,
     zoneId: '',
     zoneName: '',
-    matchedBy: serviceablePincodes.length ? 'global serviceable pincode list' : 'global fallback (no pincode list)',
+    matchedBy: serviceablePincodes.length
+      ? 'global serviceable pincode list'
+      : 'global fallback (no pincode list)',
     methodCount: serviceable ? 1 : 0,
     estimatedDays: serviceable ? D.num(cfg.estimatedDays) : 0,
   };
@@ -452,7 +597,8 @@ export const calculateRate = async (input: {
     if (!method) throw AppError.notFound(ERROR.SHIPPING.METHOD_NOT_FOUND);
   } else if (zone) {
     const candidates = D.arr(zone.methods).filter((m: any) => D.bool(m.isActive));
-    method = candidates.sort((a: any, b: any) => D.float(a.baseCharge) - D.float(b.baseCharge))[0] ?? null;
+    method =
+      candidates.sort((a: any, b: any) => D.float(a.baseCharge) - D.float(b.baseCharge))[0] ?? null;
   }
 
   if (!method) {
@@ -561,14 +707,20 @@ export const createDeliveryBoy = async (input: Record<string, any>, req?: any): 
   if (!user) throw AppError.notFound(ERROR.USER.NOT_FOUND);
 
   // One rider per account.
-  const existing = await prisma.deliveryBoy.findUnique({ where: { userId: user.id }, select: { id: true } });
+  const existing = await prisma.deliveryBoy.findUnique({
+    where: { userId: user.id },
+    select: { id: true },
+  });
 
   if (existing) {
     throw AppError.conflict('This user is already a delivery boy.', ERROR_CODE.DUPLICATE);
   }
 
   if (D.str(input.zoneId)) {
-    const zone = await prisma.shippingZone.findUnique({ where: { id: D.str(input.zoneId) }, select: { id: true } });
+    const zone = await prisma.shippingZone.findUnique({
+      where: { id: D.str(input.zoneId) },
+      select: { id: true },
+    });
     if (!zone) throw AppError.notFound(ERROR.SHIPPING.ZONE_NOT_FOUND);
   }
 
@@ -586,7 +738,13 @@ export const createDeliveryBoy = async (input: Record<string, any>, req?: any): 
     include: BOY_INCLUDE,
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'DeliveryBoy', entityId: row.id, description: row.name });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'DeliveryBoy',
+    entityId: row.id,
+    description: row.name,
+  });
 
   return row;
 };
@@ -596,7 +754,10 @@ export const updateDeliveryBoy = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.deliveryBoy.findUnique({ where: { id: boyId }, select: { id: true, name: true } });
+  const existing = await prisma.deliveryBoy.findUnique({
+    where: { id: boyId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.DELIVERY_BOY.NOT_FOUND);
 
@@ -613,13 +774,26 @@ export const updateDeliveryBoy = async (
     include: BOY_INCLUDE,
   });
 
-  void writeAuditLog({ req, action: 'UPDATE', entity: 'DeliveryBoy', entityId: boyId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'UPDATE',
+    entity: 'DeliveryBoy',
+    entityId: boyId,
+    description: existing.name,
+  });
 
   return row;
 };
 
-export const toggleDeliveryBoy = async (boyId: string, isActive: boolean, req?: any): Promise<any> => {
-  const existing = await prisma.deliveryBoy.findUnique({ where: { id: boyId }, select: { id: true, name: true } });
+export const toggleDeliveryBoy = async (
+  boyId: string,
+  isActive: boolean,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.deliveryBoy.findUnique({
+    where: { id: boyId },
+    select: { id: true, name: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.DELIVERY_BOY.NOT_FOUND);
 
@@ -634,7 +808,11 @@ export const toggleDeliveryBoy = async (boyId: string, isActive: boolean, req?: 
     }
   }
 
-  const row = await prisma.deliveryBoy.update({ where: { id: boyId }, data: { isActive }, include: BOY_INCLUDE });
+  const row = await prisma.deliveryBoy.update({
+    where: { id: boyId },
+    data: { isActive },
+    include: BOY_INCLUDE,
+  });
 
   void writeAuditLog({
     req,
@@ -661,7 +839,13 @@ export const deleteDeliveryBoy = async (boyId: string, req?: any): Promise<void>
 
   await prisma.deliveryBoy.delete({ where: { id: boyId } });
 
-  void writeAuditLog({ req, action: 'DELETE', entity: 'DeliveryBoy', entityId: boyId, description: existing.name });
+  void writeAuditLog({
+    req,
+    action: 'DELETE',
+    entity: 'DeliveryBoy',
+    entityId: boyId,
+    description: existing.name,
+  });
 };
 
 /** The queue a rider is working through. */
@@ -689,7 +873,9 @@ export const listDeliveries = async (
               select: {
                 id: true,
                 orderNumber: true,
-                address: { select: { fullName: true, phone: true, line1: true, city: true, pincode: true } },
+                address: {
+                  select: { fullName: true, phone: true, line1: true, city: true, pincode: true },
+                },
               },
             },
           },
@@ -792,7 +978,10 @@ export const updateSetting = async (
 ): Promise<any> => {
   const key = D.str(input.key);
 
-  const before = await prisma.systemSetting.findUnique({ where: { key }, select: { value: true, category: true } });
+  const before = await prisma.systemSetting.findUnique({
+    where: { key },
+    select: { value: true, category: true },
+  });
 
   const row = await prisma.systemSetting.upsert({
     where: { key },
@@ -833,7 +1022,10 @@ export const bulkUpdateSettings = async (
   const count = await prisma.$transaction(async (tx) => {
     for (const s of settings) {
       const key = D.str(s.key);
-      const existing = await tx.systemSetting.findUnique({ where: { key }, select: { category: true } });
+      const existing = await tx.systemSetting.findUnique({
+        where: { key },
+        select: { category: true },
+      });
 
       await tx.systemSetting.upsert({
         where: { key },
@@ -890,11 +1082,13 @@ export const getDashboard = async (): Promise<Record<string, any>> => {
     prisma.product.count({ where: { deletedAt: null } }),
     prisma.order.count({ where: { deletedAt: null } }),
     prisma.order.aggregate({
-      where: { deletedAt: null, createdAt: { gte: since }, paymentStatus: 'PAID' },
+      where: { deletedAt: null, createdAt: { gte: since }, paymentStatus: PAYMENT_STATUS.PAID },
       _sum: { total: true },
     }),
     prisma.ticket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
-    prisma.returnRequest.count({ where: { status: { in: ['REQUESTED', 'APPROVED', 'PICKED_UP'] } } }),
+    prisma.returnRequest.count({
+      where: { status: { in: ['REQUESTED', 'APPROVED', 'PICKED_UP'] } },
+    }),
     prisma.refund.count({ where: { status: 'PENDING' } }),
   ]);
 
@@ -936,21 +1130,23 @@ export const createSubAdmin = async (
         email: D.str(input.email).toLowerCase(),
         phone: D.str(input.phone),
         passwordHash: await hashPassword(input.password),
-        role: 'SUB_ADMIN' as any,
+        role: ROLES.SUB_ADMIN as any,
         isActive: true,
         isEmailVerified: true,
       },
     });
 
-    // An explicit list defines the role's permissions, it does not extend them.
-    // Merging would leave a "restricted" sub-admin holding every seeded
-    // SUB_ADMIN permission, which is the opposite of what the admin asked for.
+    /**
+     * An explicit list defines the role's permissions, it does not extend them. Merging would
+     * leave a "restricted" sub-admin holding every seeded SUB_ADMIN permission, which is the
+     * opposite of what the admin asked for.
+     */
     if (permissions.length) {
-      await tx.rolePermission.deleteMany({ where: { role: 'SUB_ADMIN' as any } });
+      await tx.rolePermission.deleteMany({ where: { role: ROLES.SUB_ADMIN as any } });
 
       await tx.rolePermission.createMany({
         data: permissions.map((p) => ({
-          role: 'SUB_ADMIN' as any,
+          role: ROLES.SUB_ADMIN as any,
           permission: p,
           isAllowed: true,
         })),
@@ -973,8 +1169,10 @@ export const createSubAdmin = async (
   return serializeUser(user);
 };
 
-export const listSubAdmins = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
-  const where: Prisma.UserWhereInput = { role: 'SUB_ADMIN' };
+export const listSubAdmins = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
+  const where: Prisma.UserWhereInput = { role: ROLES.SUB_ADMIN };
 
   if (D.str(query.isActive) === 'true') where.isActive = true;
   if (D.str(query.isActive) === 'false') where.isActive = false;
@@ -982,7 +1180,16 @@ export const listSubAdmins = async (query: Record<string, any>): Promise<{ rows:
   const [rows, total] = await Promise.all([
     prisma.user.findMany({
       where,
-      select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
       orderBy: { createdAt: 'desc' },
       skip: D.num(query.skip),
       take: D.num(query.take),
@@ -993,7 +1200,7 @@ export const listSubAdmins = async (query: Record<string, any>): Promise<{ rows:
   const withPerms = await Promise.all(
     rows.map(async (u) => {
       const perms = await prisma.rolePermission.findMany({
-        where: { role: 'SUB_ADMIN', isAllowed: true },
+        where: { role: ROLES.SUB_ADMIN, isAllowed: true },
         select: { permission: true },
       });
       return { ...u, permissions: perms.map((p) => p.permission) };
@@ -1042,7 +1249,9 @@ export const listRolePermissions = async (role: string): Promise<string[]> => {
   return rows.map((r) => r.permission);
 };
 
-export const listAuditLogs = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listAuditLogs = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.AuditLogWhereInput = {};
 
   if (D.str(query.actorId)) where.actorId = D.str(query.actorId);
@@ -1069,6 +1278,44 @@ export const listAuditLogs = async (query: Record<string, any>): Promise<{ rows:
   ]);
 
   return { rows, total };
+};
+
+export const getAuditLogById = async (id: string): Promise<any> => {
+  const row = await prisma.auditLog.findUnique({
+    where: { id },
+    include: { actor: { select: { id: true, name: true, email: true, role: true } } },
+  });
+
+  if (!row) throw AppError.notFound(ERROR.AUDIT.LOG_NOT_FOUND);
+
+  return row;
+};
+
+/**
+ * Deletes audit rows older than a cutoff.
+ *
+ * Audit rows are the record of who did what, so this is deliberately super-admin only and
+ * always explicit about the window it removed.
+ */
+export const purgeAuditLogs = async (
+  beforeDays: number,
+  actorId?: string,
+  req?: any,
+): Promise<{ beforeDays: number; deletedCount: number }> => {
+  if (beforeDays <= 0) throw AppError.badRequest(ERROR.AUDIT.INVALID_WINDOW);
+
+  const cutoff = new Date(Date.now() - beforeDays * 86_400_000);
+  const { count } = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'DELETE',
+    entity: 'AuditLog',
+    description: `Purged ${count} audit logs older than ${beforeDays} days`,
+  });
+
+  return { beforeDays, deletedCount: count };
 };
 
 export const listActivityLogs = async (
@@ -1103,97 +1350,6 @@ export const listActivityLogs = async (
 
 // ═══ API keys ═════════════════════════════════════════════════════════════════
 
-export const listApiKeys = async (): Promise<any[]> =>
-  // The secret is never selected — only the prefix, which is safe to show.
-  prisma.apiKey.findMany({
-    select: { id: true, name: true, prefix: true, scopes: true, isActive: true, expiresAt: true, lastUsedAt: true, usageCount: true, createdAt: true, revokedAt: true },
-    orderBy: { createdAt: 'desc' },
-  });
-
-/**
- * Creates a key and returns the secret exactly once.
- * Only a hash is stored, so a lost key cannot be recovered and must be rotated.
- */
-export const createApiKey = async (
-  input: { name: string; scopes?: string[]; expiresInDays?: number },
-  actorId?: string,
-  req?: any,
-): Promise<Record<string, any>> => {
-  const secret = generateCode(40);
-  const prefix = secret.slice(0, 8);
-
-  const row = await prisma.apiKey.create({
-    data: {
-      name: D.str(input.name),
-      key: `pn_${prefix}_${secret.slice(8, 20)}`,
-      secretHash: sha256(secret),
-      prefix,
-      scopes: D.strArr(input.scopes),
-      isActive: true,
-      expiresAt: D.num(input.expiresInDays)
-        ? new Date(Date.now() + D.num(input.expiresInDays) * 86_400_000)
-        : null,
-      createdById: D.str(actorId) || null,
-    },
-    select: { id: true, name: true, key: true, prefix: true, scopes: true, expiresAt: true, createdAt: true },
-  });
-
-  void writeAuditLog({
-    req,
-    actorId,
-    action: 'CREATE',
-    entity: 'ApiKey',
-    entityId: row.id,
-    description: `API key "${row.name}" created`,
-  });
-
-  return { ...row, secret, note: 'Store this secret now — it is not shown again.' };
-};
-
-export const revokeApiKey = async (keyId: string, actorId?: string, req?: any): Promise<any> => {
-  const existing = await prisma.apiKey.findUnique({ where: { id: keyId }, select: { id: true, name: true, revokedAt: true } });
-
-  if (!existing) throw AppError.notFound(ERROR.API_KEY.NOT_FOUND);
-
-  if (existing.revokedAt) {
-    throw AppError.unprocessable(ERROR.API_KEY.REVOKED);
-  }
-
-  const row = await prisma.apiKey.update({
-    where: { id: keyId },
-    data: { isActive: false, revokedAt: new Date() },
-    select: { id: true, name: true, prefix: true, scopes: true, isActive: true, revokedAt: true },
-  });
-
-  void writeAuditLog({
-    req,
-    actorId,
-    action: 'DELETE',
-    entity: 'ApiKey',
-    entityId: keyId,
-    description: `API key "${existing.name}" revoked`,
-  });
-
-  return row;
-};
-
-export const deleteApiKey = async (keyId: string, actorId?: string, req?: any): Promise<void> => {
-  const existing = await prisma.apiKey.findUnique({ where: { id: keyId }, select: { id: true, name: true } });
-
-  if (!existing) throw AppError.notFound(ERROR.API_KEY.NOT_FOUND);
-
-  await prisma.apiKey.delete({ where: { id: keyId } });
-
-  void writeAuditLog({
-    req,
-    actorId,
-    action: 'DELETE',
-    entity: 'ApiKey',
-    entityId: keyId,
-    description: `API key "${existing.name}" deleted`,
-  });
-};
-
 export const getSystemHealth = async (): Promise<Record<string, any>> => {
   const started = Date.now();
 
@@ -1212,4 +1368,344 @@ export const getSystemHealth = async (): Promise<Record<string, any>> => {
     nodeVersion: process.version,
     checkedAt: new Date().toISOString(),
   };
+};
+
+// ═══ Shipments ════════════════════════════════════════════════════════════════════
+
+/**
+ * Raises a shipment for a sub-order.
+ *
+ * The vendor is mandatory here: a shipment row carries addresses and a tracking number, so it
+ * is never reachable by guessing a sub-order id.
+ */
+export const createShipment = async (
+  subOrderId: string,
+  vendorId: string,
+  input: {
+    methodId?: string;
+    partnerId?: string;
+    weight?: number;
+    charge?: number;
+    remarks?: string;
+  },
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const sub = await prisma.subOrder.findFirst({
+    where: { id: subOrderId, vendorId },
+    select: { id: true, orderId: true, status: true, trackingNumber: true },
+  });
+
+  if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+
+  const existing = await prisma.shipment.findFirst({
+    where: { subOrderId },
+    select: { id: true },
+  });
+
+  // One shipment per sub-order: a second one means the first was never used.
+  if (existing) {
+    throw AppError.unprocessable('This sub-order already has a shipment.');
+  }
+
+  const awb = sub.trackingNumber || generateAwb();
+
+  const row = await prisma.shipment.create({
+    data: {
+      subOrderId: sub.id,
+      orderId: sub.orderId,
+      methodId: D.str(input.methodId) || null,
+      partnerId: D.str(input.partnerId) || null,
+      awb,
+      status: 'LABEL_CREATED',
+      weight: D.float(input.weight),
+      charge: D.float(input.charge),
+      remarks: D.str(input.remarks),
+    },
+  });
+
+  await prisma.delivery.create({
+    data: { shipmentId: row.id, subOrderId: sub.id, status: 'PENDING' },
+  });
+
+  if (!sub.trackingNumber) {
+    await prisma.subOrder.update({ where: { id: sub.id }, data: { trackingNumber: awb } });
+  }
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'CREATE',
+    entity: 'Shipment',
+    entityId: row.id,
+    meta: { subOrderId: sub.id, awb },
+  });
+
+  return row;
+};
+
+/** Public tracking by AWB, so a customer can follow a parcel without an account. */
+export const trackShipment = async (awb: string): Promise<Record<string, any>> => {
+  const shipment = await prisma.shipment.findFirst({
+    where: { awb: D.str(awb) },
+    include: {
+      subOrder: {
+        select: {
+          id: true,
+          status: true,
+          order: { select: { orderNumber: true } },
+        },
+      },
+    },
+  });
+
+  if (!shipment) throw AppError.notFound(ERROR.SHIPPING.SHIPMENT_NOT_FOUND);
+
+  return {
+    awb: D.str(shipment.awb),
+    orderNumber: D.str(shipment.subOrder?.order?.orderNumber),
+    status: D.str(shipment.status),
+    trackingUrl: D.str(shipment.trackingUrl),
+    estimatedDays: D.num(shipment.estimatedDays),
+    shippedAt: D.date(shipment.shippedAt),
+    deliveredAt: D.date(shipment.deliveredAt),
+    remarks: D.str(shipment.remarks),
+  };
+};
+
+/**
+ * A rider reports progress on a delivery.
+ *
+ * The delivery row is what the rider holds, so the shipment it hangs off moves with it and the
+ * two can never disagree.
+ */
+export const updateDeliveryStatus = async (
+  deliveryId: string,
+  input: { status: string; latitude?: number; longitude?: number; remarks?: string },
+  deliveryBoyId?: string,
+  req?: any,
+): Promise<any> => {
+  const delivery = await prisma.delivery.findUnique({
+    where: { id: deliveryId },
+    select: { id: true, status: true, shipmentId: true, deliveryBoyId: true, subOrderId: true },
+  });
+
+  if (!delivery) throw AppError.notFound(ERROR.SHIPPING.SHIPMENT_NOT_FOUND);
+
+  // A rider may only move their own delivery.
+  if (deliveryBoyId && delivery.deliveryBoyId && delivery.deliveryBoyId !== deliveryBoyId) {
+    throw AppError.forbidden(ERROR.COMMON.FORBIDDEN);
+  }
+
+  const status = D.str(input.status).toUpperCase();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.delivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: status as any,
+        latitude: D.float(input.latitude),
+        longitude: D.float(input.longitude),
+        remarks: D.str(input.remarks),
+        ...(status === 'DELIVERED' ? { deliveredAt: new Date() } : {}),
+      },
+    });
+
+    await tx.shipment.update({
+      where: { id: delivery.shipmentId },
+      data: {
+        status: status as any,
+        ...(status === 'DELIVERED' ? { deliveredAt: new Date() } : {}),
+      },
+    });
+
+    return row;
+  });
+
+  void writeActivityLog({
+    req,
+    userId: deliveryBoyId,
+    action: 'UPDATE',
+    entity: 'Delivery',
+    entityId: delivery.id,
+    meta: { status },
+  });
+
+  return updated;
+};
+
+// ═══ Settings extras ══════════════════════════════════════════════════════════
+
+export const getSettingsByCategory = async (category: string): Promise<Record<string, any>> =>
+  getSettingByCategory(category);
+
+/**
+ * Resets every seeded key back to its default.
+ *
+ * This is deliberately destructive and super-admin only; the response reports how many keys
+ * were written so the operator has a record of it.
+ */
+export const resetSettings = async (
+  actorId?: string,
+  req?: any,
+): Promise<{ resetCount: number }> => {
+  const resetCount = await resetSettingsToDefault(SETTINGS);
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'RESET',
+    entity: 'SystemSetting',
+    description: `Reset ${resetCount} settings to their seeded defaults`,
+  });
+
+  return { resetCount };
+};
+
+export const setMaintenanceMode = async (
+  input: { enabled: boolean; message?: string; allowedIps?: string[] },
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  await setSetting(
+    SETTING_KEY.MAINTENANCE_ENABLED,
+    Boolean(input.enabled),
+    SETTING_CATEGORY.SYSTEM,
+    actorId,
+  );
+
+  if (input.message !== undefined) {
+    await setSetting(
+      SETTING_KEY.MAINTENANCE_MESSAGE,
+      D.str(input.message),
+      SETTING_CATEGORY.SYSTEM,
+      actorId,
+      true,
+    );
+  }
+
+  if (input.allowedIps !== undefined) {
+    await setSetting(
+      SETTING_KEY.MAINTENANCE_ALLOWED_IPS,
+      D.strArr(input.allowedIps),
+      SETTING_CATEGORY.SYSTEM,
+      actorId,
+    );
+  }
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'TOGGLE',
+    entity: 'SystemSetting',
+    entityId: 'maintenance.enabled',
+    description: `Maintenance mode ${input.enabled ? 'enabled' : 'disabled'}`,
+  });
+
+  return getMaintenanceStatus();
+};
+
+// ═══ Sub-admin lifecycle ═══════════════════════════════════════════════════════
+
+export const updateSubAdmin = async (
+  userId: string,
+  input: { name?: string; email?: string; phone?: string },
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.user.findFirst({
+    where: { id: userId, role: ROLES.SUB_ADMIN },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
+  const row = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.name === undefined ? {} : { name: D.str(input.name) }),
+      ...(input.email === undefined ? {} : { email: D.str(input.email).toLowerCase() }),
+      ...(input.phone === undefined ? {} : { phone: D.str(input.phone) }),
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'UPDATE',
+    entity: 'User',
+    entityId: userId,
+    meta: { role: ROLES.SUB_ADMIN },
+  });
+
+  return row;
+};
+
+export const toggleSubAdmin = async (
+  userId: string,
+  isActive: boolean,
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.user.findFirst({
+    where: { id: userId, role: ROLES.SUB_ADMIN },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
+  const row = await prisma.user.update({ where: { id: userId }, data: { isActive } });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: isActive ? 'ACTIVATE' : 'SUSPEND',
+    entity: 'User',
+    entityId: userId,
+    meta: { role: ROLES.SUB_ADMIN },
+  });
+
+  return row;
+};
+
+/** Hard delete, so every role's permission set can be read in one call. */
+export const deleteSubAdmin = async (
+  userId: string,
+  actorId?: string,
+  req?: any,
+): Promise<void> => {
+  const existing = await prisma.user.findFirst({
+    where: { id: userId, role: ROLES.SUB_ADMIN },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
+  await prisma.user.delete({ where: { id: userId } });
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'DELETE',
+    entity: 'User',
+    entityId: userId,
+    description: 'Sub admin deleted',
+  });
+};
+
+export const listAllRolePermissions = async (): Promise<Record<string, string[]>> => {
+  const rows = await prisma.rolePermission.findMany({
+    where: { isAllowed: true },
+    select: { role: true, permission: true },
+    orderBy: [{ role: 'asc' }, { permission: 'asc' }],
+  });
+
+  const out: Record<string, string[]> = {};
+
+  for (const row of rows) {
+    const key = D.str(row.role);
+    out[key] = [...(out[key] ?? []), D.str(row.permission)];
+  }
+
+  return out;
 };

@@ -99,6 +99,33 @@ export const walletListSchema = z
   .merge(paginationSchema)
   .strict();
 
+/** POST /wallet/addMoney */
+export const walletTopUpSchema = z
+  .object({
+    amount: z.coerce.number().positive(VALIDATION.INVALID_PRICE),
+    method: z.enum(['UPI', 'BANK', 'CARD', 'NETBANKING', 'RAZORPAY', 'STRIPE']).optional(),
+    reference: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+/** POST /wallet/useForOrder */
+export const walletRedeemSchema = z
+  .object({
+    orderId: id,
+    amount: z.coerce.number().min(0).optional(),
+  })
+  .strict();
+
+/** POST /wallet/adminCredit */
+export const walletCreditSchema = walletAmountSchema.extend({
+  amount: z.coerce.number().positive(VALIDATION.INVALID_PRICE),
+});
+
+/** POST /wallet/adminDebit */
+export const walletDebitSchema = walletAmountSchema.extend({
+  amount: z.coerce.number().positive(VALIDATION.INVALID_PRICE),
+});
+
 // ─── Payout ───────────────────────────────────────────────────────────────────
 
 export const listPayoutsSchema = z
@@ -141,6 +168,57 @@ export const earningsSchema = z
   .strict();
 
 export const payoutIdParamSchema = z.object({ id });
+
+/** GET /payouts/getSummary */
+export const payoutSummarySchema = z.object({ vendorId: id.optional() }).strict();
+
+/** POST /payouts/bulkApprove */
+export const bulkApproveSchema = z
+  .object({
+    payoutIds: z.array(id).min(1, VALIDATION.REQUIRED('payoutIds')).max(200),
+    notes: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
+  })
+  .strict();
+
+export const vendorIdParamSchema = z.object({ vendorId: id });
+
+/** GET /payouts/getStatement/:vendorId */
+export const statementQuerySchema = z
+  .object({
+    from: common.isoDate.optional(),
+    to: common.isoDate.optional(),
+  })
+  .strict();
+
+// ─── Manual and gateway payments ──────────────────────────────────────────────
+
+/** POST /payments/verifyUpi/:orderId and /payments/verifyBank/:orderId */
+export const manualPaymentSchema = z
+  .object({
+    reference: z.string().trim().min(3, VALIDATION.REQUIRED('reference')).max(120),
+    amount: z.coerce.number().min(0).optional(),
+    paymentId: id.optional(),
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
+/** POST /payments/razorpay/createOrder and /payments/stripe/createIntent */
+export const gatewayOrderSchema = z
+  .object({
+    orderId: id,
+    amount: z.coerce.number().min(0).optional(),
+  })
+  .strict();
+
+/** POST /payments/razorpay/verify */
+export const gatewayVerifySchema = z
+  .object({
+    orderId: id,
+    razorpayOrderId: z.string().trim().min(1).max(120),
+    razorpayPaymentId: z.string().trim().min(1).max(120),
+    razorpaySignature: z.string().trim().min(1).max(400),
+  })
+  .strict();
 
 // ─── Return ───────────────────────────────────────────────────────────────────
 
@@ -196,6 +274,19 @@ export const returnStatusSchema = z
   })
   .strict();
 
+/** Status is fixed by the route, so only the free-text fields remain. */
+export const returnTransitionSchema = returnStatusSchema.omit({ status: true });
+
+/** A rejection has to say why, otherwise the customer cannot act on it. */
+export const rejectReturnSchema = returnTransitionSchema.refine(
+  (v) => Boolean(v.rejectReason && String(v.rejectReason).trim().length > 0),
+  { message: VALIDATION.REQUIRED('rejectReason') },
+);
+
+export const rejectPayoutSchema = payoutStatusSchema
+  .omit({ status: true })
+  .extend({ rejectReason: z.string().trim().min(3, VALIDATION.REQUIRED('rejectReason')).max(500) });
+
 /** POST /returns/confirmPickup — customer authorises the rider. */
 export const pickupConfirmSchema = z
   .object({
@@ -226,10 +317,9 @@ export const returnReasonSchema = z
   })
   .strict();
 
-export const returnReasonUpdateSchema = returnReasonSchema.partial().refine(
-  (v) => Object.keys(v).length > 0,
-  { message: VALIDATION.INVALID_JSON },
-);
+export const returnReasonUpdateSchema = returnReasonSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
 
 export const returnIdParamSchema = z.object({ id });
 export const returnOrderParamSchema = z.object({ orderId: id });

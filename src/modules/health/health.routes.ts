@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { APP } from '../../config/app.config';
+import { ENV } from '../../config/env.config';
+import { HEALTH_STATUS } from '../../constants/statuses';
+import { D } from '../../utils/defaults';
 import { isDatabaseHealthy, databaseLatencyMs } from '../../services/prisma.service';
 import { isRedisHealthy, isRedisAvailable } from '../../services/redis.service';
 import { getActiveWorkerCount } from '../../jobs/workers';
@@ -26,10 +29,10 @@ router.get('/', (_req, res) =>
   ApiResponse.success(res, {
     message: SUCCESS.SYSTEM.HEALTH_OK,
     result: {
-      status: 'UP',
+      status: HEALTH_STATUS.UP,
       service: APP.SERVER_NAME,
       version: APP.VERSION,
-      environment: process.env.NODE_ENV,
+      environment: D.str(ENV.NODE_ENV),
       uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       timestamp: new Date().toISOString(),
     },
@@ -41,10 +44,10 @@ router.get(
   asyncHandler(async (_req, res) => {
     const [healthy, latency] = await Promise.all([isDatabaseHealthy(), databaseLatencyMs()]);
     return ApiResponse.success(res, {
-      message: healthy ? SUCCESS.SYSTEM.HEALTH_OK : 'Database unreachable.',
+      message: healthy ? SUCCESS.SYSTEM.HEALTH_OK : SUCCESS.SYSTEM.DATABASE_UNREACHABLE,
       result: {
         ...baseResult(),
-        database: healthy ? 'UP' : 'DOWN',
+        database: healthy ? HEALTH_STATUS.UP : HEALTH_STATUS.DOWN,
         latencyMs: latency < 0 ? 0 : latency,
       },
     });
@@ -57,10 +60,14 @@ router.get(
     const configured = isRedisAvailable;
     const healthy = configured ? await isRedisHealthy() : false;
     return ApiResponse.success(res, {
-      message: configured && healthy ? SUCCESS.SYSTEM.HEALTH_OK : 'Redis not available.',
+      message: healthy ? SUCCESS.SYSTEM.HEALTH_OK : SUCCESS.SYSTEM.REDIS_UNAVAILABLE,
       result: {
         ...baseResult(),
-        redis: !configured ? 'NOT_CONFIGURED' : healthy ? 'UP' : 'DOWN',
+        redis: !configured
+          ? HEALTH_STATUS.NOT_CONFIGURED
+          : healthy
+            ? HEALTH_STATUS.UP
+            : HEALTH_STATUS.DOWN,
       },
     });
   }),
@@ -76,11 +83,20 @@ router.get(
         try {
           const { getQueue } = await import('../../jobs/queues');
           const queue = getQueue(name);
-          if (!queue) return { name, status: 'DISABLED', waiting: 0, active: 0, completed: 0, failed: 0 };
+          if (!queue) {
+            return {
+              name,
+              status: HEALTH_STATUS.DISABLED,
+              waiting: 0,
+              active: 0,
+              completed: 0,
+              failed: 0,
+            };
+          }
           const counts = (await queue.getJobCounts()) as Record<string, number>;
           return {
             name,
-            status: 'UP',
+            status: HEALTH_STATUS.UP,
             waiting: counts.wait ?? 0,
             active: counts.active ?? 0,
             completed: counts.completed ?? 0,
@@ -88,17 +104,24 @@ router.get(
             failed: counts.failed ?? 0,
           };
         } catch {
-          return { name, status: 'DOWN', waiting: 0, active: 0, completed: 0, failed: 0 };
+          return {
+            name,
+            status: HEALTH_STATUS.DOWN,
+            waiting: 0,
+            active: 0,
+            completed: 0,
+            failed: 0,
+          };
         }
       }),
     );
 
     const healthy = Boolean(connection);
     return ApiResponse.success(res, {
-      message: healthy ? SUCCESS.SYSTEM.HEALTH_OK : 'Queue not available.',
+      message: healthy ? SUCCESS.SYSTEM.HEALTH_OK : SUCCESS.SYSTEM.QUEUE_UNAVAILABLE,
       result: {
         ...baseResult(),
-        queue: healthy ? 'UP' : 'DISABLED',
+        queue: healthy ? HEALTH_STATUS.UP : HEALTH_STATUS.DISABLED,
         workerCount: getActiveWorkerCount(),
         queueList,
       },

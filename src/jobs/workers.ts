@@ -12,7 +12,7 @@ import { toDayKey, subtractDays } from '../utils/dates';
 import { emitToAdmins, emitToUser } from '../services/socket.service';
 import { SOCKET } from '../config/socket.config';
 import { ORDER_STATUS } from '../constants/statuses';
-import { PAYOUT_STATUS } from '../constants/roles';
+import { PAYOUT_STATUS, PAYMENT_STATUS, VENDOR_STATUS } from '../constants/roles';
 import { generatePayoutStatementPdf } from '../services/pdf.service';
 import { ANALYTICS } from '../config/analytics.config';
 
@@ -37,9 +37,14 @@ const register = (name: QueueName, jobName: JobName, handler: (data: any) => Pro
   );
 
   worker.on('failed', (job, err) =>
-    log.error({ err: err?.message, jobId: job?.id, attempts: job?.attemptsMade }, '[worker] failed'),
+    log.error(
+      { err: err?.message, jobId: job?.id, attempts: job?.attemptsMade },
+      '[worker] failed',
+    ),
   );
-  worker.on('completed', (job) => log.debug({ jobId: job.id, jobName: job.name }, '[worker] completed'));
+  worker.on('completed', (job) =>
+    log.debug({ jobId: job.id, jobName: job.name }, '[worker] completed'),
+  );
 
   workers.push(worker);
 };
@@ -76,7 +81,11 @@ register(QUEUE.NOTIFICATION, JOB.NOTIFICATION_BLAST, async (data) => {
       ? userIds
       : (
           await prisma.user.findMany({
-            where: { isActive: true, deletedAt: null, ...(data.segment?.role ? { role: data.segment.role } : {}) },
+            where: {
+              isActive: true,
+              deletedAt: null,
+              ...(data.segment?.role ? { role: data.segment.role } : {}),
+            },
             select: { id: true },
             take: 100_000,
           })
@@ -108,7 +117,14 @@ register(QUEUE.NOTIFICATION, JOB.TOKEN_BALANCE_REMINDER, async () => {
       isCancelled: false,
       status: { in: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.SHIPPED, ORDER_STATUS.OUT_FOR_DELIVERY] },
     },
-    select: { id: true, orderNumber: true, userId: true, balanceAmount: true, balanceDueDays: true, createdAt: true },
+    select: {
+      id: true,
+      orderNumber: true,
+      userId: true,
+      balanceAmount: true,
+      balanceDueDays: true,
+      createdAt: true,
+    },
     take: 5000,
   });
 
@@ -161,7 +177,7 @@ register(QUEUE.ORDER_STATUS, JOB.AUTO_CANCEL_UNPAID, async () => {
 
   const orders = await prisma.order.findMany({
     where: {
-      paymentStatus: 'PENDING',
+      paymentStatus: PAYMENT_STATUS.PENDING,
       status: { in: [ORDER_STATUS.PENDING, ORDER_STATUS.PENDING_TOKEN] },
       isCancelled: false,
       createdAt: { lt: cutoff },
@@ -228,7 +244,7 @@ const buildStockRestores = async (orderId: string) => {
 register(QUEUE.PAYOUT, JOB.GENERATE_PAYOUT_CYCLE, async (data) => {
   const period = data.period ?? new Date().toISOString().slice(0, 10);
   const vendors = await prisma.vendorProfile.findMany({
-    where: { status: 'APPROVED', ...(data.vendorId ? { id: data.vendorId } : {}) },
+    where: { status: VENDOR_STATUS.APPROVED, ...(data.vendorId ? { id: data.vendorId } : {}) },
     select: { id: true, shopName: true, payoutCycleDays: true },
   });
 
@@ -243,7 +259,11 @@ register(QUEUE.PAYOUT, JOB.GENERATE_PAYOUT_CYCLE, async (data) => {
     if (amount <= 0) continue;
 
     const exists = await prisma.payout.findFirst({
-      where: { vendorId: vendor.id, period, status: { in: [PAYOUT_STATUS.PENDING, PAYOUT_STATUS.APPROVED] } },
+      where: {
+        vendorId: vendor.id,
+        period,
+        status: { in: [PAYOUT_STATUS.PENDING, PAYOUT_STATUS.APPROVED] },
+      },
       select: { id: true },
     });
     if (exists) continue;
@@ -283,7 +303,10 @@ register(QUEUE.ANALYTICS, JOB.AGGREGATE_ANALYTICS, async (data) => {
 
   const [pageViews, visitors, sessions, orders, newUsers, crashes] = await Promise.all([
     prisma.pageView.count({ where: { createdAt: { gte: start, lte: end } } }),
-    prisma.visitorLog.groupBy({ by: ['sessionKey'], where: { createdAt: { gte: start, lte: end } } }),
+    prisma.visitorLog.groupBy({
+      by: ['sessionKey'],
+      where: { createdAt: { gte: start, lte: end } },
+    }),
     prisma.session.count({ where: { startedAt: { gte: start, lte: end } } }),
     prisma.order.aggregate({
       where: { createdAt: { gte: start, lte: end }, isCancelled: false },
@@ -319,7 +342,9 @@ register(QUEUE.ANALYTICS, JOB.AGGREGATE_ANALYTICS, async (data) => {
         completedSessions.reduce(
           (sum, s) => sum + ((s.endedAt?.getTime() ?? 0) - s.startedAt.getTime()),
           0,
-        ) / completedSessions.length / 1000,
+        ) /
+          completedSessions.length /
+          1000,
       )
     : 0;
 

@@ -1,24 +1,4 @@
-export const PAYMENT = {
-  CODE_LENGTH: 6,
-  REFERENCE_MAX_LENGTH: 100,
-  GATEWAY_TIMEOUT_MS: 20_000,
-  COD_MAX_AMOUNT_DEFAULT: 20_000,
-  UPI_MAX_AMOUNT_DEFAULT: 100_000,
-  BANK_MAX_AMOUNT_DEFAULT: 500_000,
-  MIN_AMOUNT_DEFAULT: 1,
-};
-
-export const PAYMENT_FLOW = {
-  TOKEN_MODE: { PERCENT: 'percent', FIXED: 'fixed' } as const,
-  REFUND_MODE: { ORIGINAL: 'original', WALLET: 'wallet', BANK: 'bank' } as const,
-  BALANCE_TRIGGER: { DELIVERY: 'DELIVERY', DAYS: 'DAYS', MANUAL: 'MANUAL' } as const,
-};
-
-export const ORDER_NUMBER_LENGTH = 12;
-export const RETURN_NUMBER_LENGTH = 10;
-export const TICKET_NUMBER_LENGTH = 10;
-
-/** SystemSetting keys used by the payment/token flow. */
+/** Every `SystemSetting.key` the code reads by name. */
 export const SETTING_KEY = {
   // general
   SITE_NAME: 'site.name',
@@ -123,6 +103,27 @@ export const SETTING_KEY = {
   COUPON_STACKABLE: 'coupon.stackable',
   COUPON_MIN_ORDER_AMOUNT: 'coupon.minOrderAmount',
   COUPON_MAX_DISCOUNT: 'coupon.maxDiscount',
+
+  // features
+  FEATURE_REVIEWS: 'feature.reviews',
+  FEATURE_WISHLIST: 'feature.wishlist',
+  FEATURE_COUPONS: 'feature.coupons',
+  FEATURE_CHAT: 'feature.chat',
+  FEATURE_MULTI_VENDOR: 'feature.multiVendor',
+  FEATURE_GUEST_CHECKOUT: 'feature.guestCheckout',
+  FEATURE_PRODUCT_COMPARE: 'feature.productCompare',
+  FEATURE_RECENTLY_VIEWED: 'feature.recentlyViewed',
+  FEATURE_LIVE_TRACKING: 'feature.liveTracking',
+  FEATURE_WALLET: 'feature.wallet',
+  FEATURE_LOYALTY: 'feature.loyalty',
+  FEATURE_REFERRAL: 'feature.referral',
+  FEATURE_GIFT_CARDS: 'feature.giftCards',
+  FEATURE_CHAT_SUPPORT: 'feature.chatSupport',
+  FEATURE_TICKET_SUPPORT: 'feature.ticketSupport',
+  FEATURE_SOCIAL_LOGIN: 'feature.socialLogin',
+  FEATURE_TWO_FACTOR: 'feature.twoFactor',
+  FEATURE_ANALYTICS: 'feature.analytics',
+  FEATURE_TRACKING: 'feature.tracking',
 
   // catalog
   CATALOG_PRODUCTS_PER_PAGE: 'catalog.productsPerPage',

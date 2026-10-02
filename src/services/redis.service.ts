@@ -158,18 +158,6 @@ export const releaseLock = async (key: string): Promise<void> => {
   }
 };
 
-/** SETNX guard used to dedupe tracking events within the dedup window. */
-export const setIfNotExists = async (key: string, ttlSec: number): Promise<boolean> => {
-  const redis = getRedis();
-  if (!redis) return true;
-  try {
-    const result = await redis.set(key, '1', 'EX', ttlSec, 'NX');
-    return result === 'OK';
-  } catch {
-    return true;
-  }
-};
-
 export const pushToList = async (key: string, value: unknown, maxLen = 100): Promise<void> => {
   const redis = getRedis();
   if (!redis) return;
@@ -208,11 +196,7 @@ export const removeFromList = async (key: string, value: unknown): Promise<void>
   }
 };
 
-export const sortedSetAdd = async (
-  key: string,
-  member: string,
-  score: number,
-): Promise<void> => {
+export const sortedSetAdd = async (key: string, member: string, score: number): Promise<void> => {
   const redis = getRedis();
   if (!redis) return;
   try {

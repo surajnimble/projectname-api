@@ -20,14 +20,15 @@ import {
 } from './auth.serializer';
 
 /** Extracts device/session context from headers populated by the tracking middleware. */
-const deviceFrom = (req: Request, input?: any): DeviceContext => ({
-  deviceId: req.deviceId ?? '',
-  platform: (input?.deviceData?.platform ?? req.device?.platform ?? 'WEB') as any,
-  ip: req.ip ?? '',
-  userAgent: req.headers['user-agent'] ?? '',
-  sessionKey: req.sessionKey ?? '',
-  appVersion: input?.deviceData?.appVersion ?? '',
-} as DeviceContext);
+const deviceFrom = (req: Request, input?: any): DeviceContext =>
+  ({
+    deviceId: req.deviceId ?? '',
+    platform: (input?.deviceData?.platform ?? req.device?.platform ?? 'WEB') as any,
+    ip: req.ip ?? '',
+    userAgent: req.headers['user-agent'] ?? '',
+    sessionKey: req.sessionKey ?? '',
+    appVersion: input?.deviceData?.appVersion ?? '',
+  }) as DeviceContext;
 
 /** Refresh token: cookie first, body second. */
 const refreshFrom = (req: Request): string => {
@@ -286,11 +287,12 @@ export const changePassword = asyncHandler(async (req, res) => {
     req.body.currentPassword,
     req.body.newPassword,
     req.body.logoutOtherDevices !== false,
+    req.body.otp,
   );
   clearRefreshCookie(res);
 
   return ApiResponse.success(res, {
-    message: SUCCESS.AUTH.PASSWORD_CHANGED,
+    message: SUCCESS.AUTH.PASSWORD_UPDATED,
     result: { isChanged: true },
   });
 });
@@ -387,7 +389,10 @@ export const checkAvailability = asyncHandler(async (req, res) => {
   const result = await authService.checkAvailability(req.body);
   return ApiResponse.success(res, {
     message: SUCCESS.COMMON.FETCHED,
-    result: serializeAvailability({ ...result, isAvailable: !result.emailExists && !result.phoneExists }),
+    result: serializeAvailability({
+      ...result,
+      isAvailable: !result.emailExists && !result.phoneExists,
+    }),
   });
 });
 

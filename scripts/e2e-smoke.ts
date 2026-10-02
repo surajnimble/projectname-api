@@ -13,6 +13,17 @@ import { createApp } from '../src/app';
 
 const app = createApp();
 
+/**
+ * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
+ * code predictable so a suite can run offline with no mail provider configured.
+ */
+const OTP = process.env.OTP_STATIC_CODE || '111111';
+
+const sendOtp = (identifier: string) =>
+  request(app)
+    .post('/api/v1/auth/sendOtp')
+    .send({ type: 'REGISTER', channel: 'EMAIL', identifier });
+
 interface Check {
   name: string;
   passed: boolean;
@@ -42,8 +53,10 @@ const assertEnvelope = (body: any, expected: boolean): string => {
   return ok ? '' : `keys=${keys.join(',')}`;
 };
 
-// Unique per run so re-runs never collide on the email/phone unique indexes.
-// E.164 caps a phone at 15 characters: "+7" + runId(9) + 2 digits = 12.
+/**
+ * Unique per run so re-runs never collide on the email/phone unique indexes. E.164 caps a
+ * phone at 15 characters: "+7" + runId(9) + 2 digits = 12.
+ */
 const runId = Date.now().toString().slice(-9);
 const uniqueEmail = `e2e_${runId}@projectname.com`;
 const uniquePhone = `+7${runId}11`;
@@ -68,14 +81,19 @@ const main = async (): Promise<void> => {
   );
 
   // ── Register a vendor (type: VENDOR) ─────────────────────────────────────
-  const register = await request(app).post('/api/v1/auth/register').send({
-    type: 'VENDOR',
-    name: 'E2E Vendor',
-    email: uniqueEmail,
-    phone: uniquePhone,
-    password: 'Secret@123',
-    shopName: `E2E Store ${runId}`,
-  });
+  await sendOtp(uniqueEmail);
+
+  const register = await request(app)
+    .post('/api/v1/auth/register')
+    .send({
+      type: 'VENDOR',
+      name: 'E2E Vendor',
+      otp: OTP,
+      email: uniqueEmail,
+      phone: uniquePhone,
+      password: 'Secret@123',
+      shopName: `E2E Store ${runId}`,
+    });
 
   record(
     'POST /auth/register (VENDOR) -> 201',
@@ -91,7 +109,11 @@ const main = async (): Promise<void> => {
 
   record('register issues an access token', Boolean(accessToken));
   record('register returns vendorData.vendorId', Boolean(vendorId), String(vendorId));
-  record('vendor role assigned', Array.isArray(roles) && roles[0] === 'VENDOR', JSON.stringify(roles));
+  record(
+    'vendor role assigned',
+    Array.isArray(roles) && roles[0] === 'VENDOR',
+    JSON.stringify(roles),
+  );
   record(
     'vendor.autoApprove=false leaves status PENDING',
     vendorStatus === 'PENDING',
@@ -203,8 +225,10 @@ const main = async (): Promise<void> => {
     .post('/api/v1/auth/register')
     .send({ type: 'ADMIN', name: 'X', email: `a_${Date.now()}@x.com`, password: 'Secret@123' });
 
-  // The message text is the contract (the code suffix is appended by the error
-  // handler), so assert on the human text rather than the code string.
+  /**
+   * The message text is the contract (the code suffix is appended by the error handler), so
+   * assert on the human text rather than the code string.
+   */
   record(
     'invalid type -> 400 "Invalid register type."',
     badType.status === 400 && String(badType.body?.message).startsWith('Invalid register type.'),
@@ -223,15 +247,16 @@ const main = async (): Promise<void> => {
   );
 
   // ── Duplicate email → 409 ─────────────────────────────────────────────────
-  const dupe = await request(app)
-    .post('/api/v1/auth/register')
-    .send({
-      type: 'VENDOR',
-      name: 'Dup',
-      email: uniqueEmail,
-      password: 'Secret@123',
-      shopName: 'Dup Store',
-    });
+  await sendOtp(uniqueEmail);
+
+  const dupe = await request(app).post('/api/v1/auth/register').send({
+    type: 'VENDOR',
+    name: 'Dup',
+    otp: OTP,
+    email: uniqueEmail,
+    password: 'Secret@123',
+    shopName: 'Dup Store',
+  });
 
   record(
     'duplicate email -> 409 EMAIL_EXISTS',
@@ -240,19 +265,23 @@ const main = async (): Promise<void> => {
   );
 
   // ── Slug collision auto-suffix ────────────────────────────────────────────
-  const secondVendor = await request(app).post('/api/v1/auth/register').send({
-    type: 'VENDOR',
-    name: 'E2E Vendor Two',
-    email: `e2e2_${runId}@projectname.com`,
-    password: 'Secret@123',
-    shopName: `E2E Store ${runId}`,
-  });
+  await sendOtp(`e2e2_${runId}@projectname.com`);
+
+  const secondVendor = await request(app)
+    .post('/api/v1/auth/register')
+    .send({
+      type: 'VENDOR',
+      name: 'E2E Vendor Two',
+      otp: OTP,
+      email: `e2e2_${runId}@projectname.com`,
+      password: 'Secret@123',
+      shopName: `E2E Store ${runId}`,
+    });
 
   const expectedSlug = `e2e-store-${runId}-2`;
   record(
     'duplicate shopName -> slug auto-suffixed',
-    secondVendor.status === 201 &&
-      secondVendor.body?.result?.vendorData?.slug === expectedSlug,
+    secondVendor.status === 201 && secondVendor.body?.result?.vendorData?.slug === expectedSlug,
     `got=${secondVendor.body?.result?.vendorData?.slug} want=${expectedSlug}`,
   );
 
@@ -296,9 +325,11 @@ const main = async (): Promise<void> => {
   /* eslint-enable no-console */
 };
 
-const extractRefreshCookie = (setCookie?: string[]): string => {
+// supertest types `set-cookie` as a bare string, but the real header is a list.
+const extractRefreshCookie = (setCookie?: string | string[]): string => {
   if (!setCookie) return '';
-  const match = setCookie.find((c) => c.startsWith('refreshToken='));
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  const match = cookies.find((c) => c.startsWith('refreshToken='));
   return match ? decodeURIComponent(match.split(';')[0].split('=')[1]) : '';
 };
 

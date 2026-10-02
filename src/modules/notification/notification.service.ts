@@ -5,9 +5,10 @@ import { D } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
 import { canTransitionTicket } from '../../constants/statuses';
-import type { NotificationChannel, TicketPriority } from '@prisma/client';
+import type { NotificationChannel, Platform, TicketPriority } from '@prisma/client';
 import { notifyUsers, notifyUser } from '../../services/notification.service';
 import { emitToConversation, emitToUser } from '../../services/socket.service';
+import { SOCKET } from '../../config/socket.config';
 import { writeActivityLog } from '../../services/audit.service';
 import { generateTicketNumber, uniqueTicketCategorySlug } from '../../utils/slug';
 
@@ -45,7 +46,9 @@ export const listNotifications = async (
   return { rows, total, unreadCount: unread };
 };
 
-export const getUnreadCount = async (userId: string): Promise<{ total: number; byType: Record<string, number> }> => {
+export const getUnreadCount = async (
+  userId: string,
+): Promise<{ total: number; byType: Record<string, number> }> => {
   const grouped = await prisma.notification.groupBy({
     by: ['type'],
     where: { userId, isRead: false },
@@ -69,7 +72,11 @@ export const markRead = async (
   ids: string[] | undefined,
   all = false,
 ): Promise<number> => {
-  const where: Prisma.NotificationWhereInput = { userId, isRead: false, ...(all ? {} : { id: { in: D.arr(ids).map(String) } }) };
+  const where: Prisma.NotificationWhereInput = {
+    userId,
+    isRead: false,
+    ...(all ? {} : { id: { in: D.arr(ids).map(String) } }),
+  };
 
   const { count } = await prisma.notification.updateMany({
     where,
@@ -77,9 +84,9 @@ export const markRead = async (
   });
 
   if (all) {
-    emitToUser(userId, 'notification:read-all', { count });
+    emitToUser(userId, SOCKET.EVENTS.NOTIFICATION_READ_ALL, { count });
   } else if (count) {
-    emitToUser(userId, 'notification:read', { ids: D.arr(ids).map(String), count });
+    emitToUser(userId, SOCKET.EVENTS.NOTIFICATION_READ, { ids: D.arr(ids).map(String), count });
   }
 
   return count;
@@ -114,7 +121,9 @@ export const setPreferences = async (
   await prisma.$transaction(
     preferences.map((p) =>
       prisma.notificationPreference.upsert({
-        where: { userId_channel_eventType: { userId, channel: p.channel as any, eventType: p.eventType } },
+        where: {
+          userId_channel_eventType: { userId, channel: p.channel as any, eventType: p.eventType },
+        },
         create: {
           userId,
           channel: p.channel as any,
@@ -142,7 +151,11 @@ export const broadcast = async (input: {
   const targets = D.arr(input.userIds).map(String);
 
   if (D.bool(input.toAll)) {
-    const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true }, take: 5000 });
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true },
+      take: 5000,
+    });
     return notifyUsers(
       users.map((u) => u.id),
       {
@@ -183,7 +196,10 @@ const CONVERSATION_INCLUDE = {
 type ConversationRow = Prisma.ConversationGetPayload<{ include: typeof CONVERSATION_INCLUDE }>;
 
 /** A conversation is only visible to the people in it. */
-const loadConversation = async (conversationId: string, userId: string): Promise<ConversationRow> => {
+const loadConversation = async (
+  conversationId: string,
+  userId: string,
+): Promise<ConversationRow> => {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: CONVERSATION_INCLUDE,
@@ -191,7 +207,9 @@ const loadConversation = async (conversationId: string, userId: string): Promise
 
   if (!conversation) throw AppError.notFound(ERROR.CHAT.NOT_FOUND);
 
-  const isParticipant = D.arr(conversation.participants).some((p: any) => D.str(p.userId) === userId);
+  const isParticipant = D.arr(conversation.participants).some(
+    (p: any) => D.str(p.userId) === userId,
+  );
 
   if (!isParticipant) throw AppError.notFound(ERROR.CHAT.NOT_FOUND);
 
@@ -302,10 +320,22 @@ export const startConversation = async (
     include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
   });
 
-  emitToConversation(conversationId, 'chat:message', { conversationId, messageId: firstMessage?.id });
-  emitToUser(vendor.userId, 'chat:conversation', { conversationId, vendorId: vendor.id });
+  emitToConversation(conversationId, SOCKET.EVENTS.CHAT_NEW, {
+    conversationId,
+    messageId: firstMessage?.id,
+  });
+  emitToUser(vendor.userId, SOCKET.EVENTS.CHAT_CONVERSATION, {
+    conversationId,
+    vendorId: vendor.id,
+  });
 
-  void writeActivityLog({ req, userId, action: 'CHAT_STARTED', entity: 'Conversation', entityId: conversationId });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'CHAT_STARTED',
+    entity: 'Conversation',
+    entityId: conversationId,
+  });
 
   return { conversation, message: firstMessage };
 };
@@ -331,19 +361,25 @@ export const listConversations = async (
   ]);
 
   // A conversation is unread when a message arrived after the caller's last read.
-  const unreadTotal = await prisma.conversationParticipant.aggregate({
-    where: { userId, isArchived: false },
-    _count: { _all: true },
-  }).then(async () => {
-    const parts = await prisma.conversationParticipant.findMany({
-      where: { userId },
-      include: { conversation: { include: { messages: { where: { isRead: false }, select: { senderId: true } } } } },
-    });
+  const unreadTotal = await prisma.conversationParticipant
+    .aggregate({
+      where: { userId, isArchived: false },
+      _count: { _all: true },
+    })
+    .then(async () => {
+      const parts = await prisma.conversationParticipant.findMany({
+        where: { userId },
+        include: {
+          conversation: {
+            include: { messages: { where: { isRead: false }, select: { senderId: true } } },
+          },
+        },
+      });
 
-    return parts.filter(
-      (p) => D.arr(p.conversation.messages).some((m: any) => D.str(m.senderId) !== userId),
-    ).length;
-  });
+      return parts.filter((p) =>
+        D.arr(p.conversation.messages).some((m: any) => D.str(m.senderId) !== userId),
+      ).length;
+    });
 
   void unreadTotal;
 
@@ -358,10 +394,12 @@ export const listConversations = async (
   );
 
   const unreadCounts: number[] = await Promise.all(
-    (await prisma.conversationParticipant.findMany({
-      where: { userId, isArchived: false },
-      select: { conversationId: true },
-    })).map(async (p) => {
+    (
+      await prisma.conversationParticipant.findMany({
+        where: { userId, isArchived: false },
+        select: { conversationId: true },
+      })
+    ).map(async (p) => {
       const count = await prisma.message.count({
         where: { conversationId: p.conversationId, isRead: false, senderId: { not: userId } },
       });
@@ -428,13 +466,25 @@ export const sendMessage = async (
     data: { lastMessageAt: new Date() },
   });
 
-  emitToConversation(conversationId, 'chat:message', { conversationId, messageId: message.id });
+  emitToConversation(conversationId, SOCKET.EVENTS.CHAT_NEW, {
+    conversationId,
+    messageId: message.id,
+  });
 
   for (const other of others) {
-    emitToUser(D.str(other.userId), 'chat:message', { conversationId, messageId: message.id });
+    emitToUser(D.str(other.userId), SOCKET.EVENTS.CHAT_NEW, {
+      conversationId,
+      messageId: message.id,
+    });
   }
 
-  void writeActivityLog({ req, userId, action: 'CHAT_MESSAGE_SENT', entity: 'Message', entityId: message.id });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'CHAT_MESSAGE_SENT',
+    entity: 'Message',
+    entityId: message.id,
+  });
 
   return message;
 };
@@ -448,8 +498,10 @@ export const markConversationRead = async (
 
   const at = lastReadAt ? new Date(D.str(lastReadAt)) : new Date();
 
-  // Only messages that actually exist are marked, so the cursor cannot be
-  // pushed past the tail and hide a message that has not arrived yet.
+  /**
+   * Only messages that actually exist are marked, so the cursor cannot be pushed past the tail
+   * and hide a message that has not arrived yet.
+   */
   const { count } = await prisma.message.updateMany({
     where: {
       conversationId,
@@ -465,12 +517,16 @@ export const markConversationRead = async (
     data: { lastReadAt: at },
   });
 
-  emitToConversation(conversationId, 'chat:read', { conversationId, userId, at });
+  emitToConversation(conversationId, SOCKET.EVENTS.CHAT_READ, { conversationId, userId, at });
 
   return count;
 };
 
-export const deleteMessage = async (messageId: string, userId: string, isAdmin = false): Promise<void> => {
+export const deleteMessage = async (
+  messageId: string,
+  userId: string,
+  isAdmin = false,
+): Promise<void> => {
   const message = await prisma.message.findUnique({
     where: { id: messageId },
     select: { id: true, senderId: true },
@@ -505,7 +561,13 @@ export const blockUser = async (
     update: { reason: D.str(reason) },
   });
 
-  void writeActivityLog({ req, userId, action: 'USER_BLOCKED', entity: 'User', entityId: targetId });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'USER_BLOCKED',
+    entity: 'User',
+    entityId: targetId,
+  });
 };
 
 export const unblockUser = async (userId: string, targetId: string): Promise<void> => {
@@ -605,8 +667,10 @@ export const listTickets = async (
     prisma.ticket.count({ where }),
   ]);
 
-  // Internal notes never leave the staff side, so the list projection omits
-  // them entirely rather than filtering after the fact.
+  /**
+   * Internal notes never leave the staff side, so the list projection omits them entirely rather
+   * than filtering after the fact.
+   */
   const safe = rows.map((t: any) => ({ ...t, messages: [] }));
 
   return { rows: (userId ? safe : rows) as TicketRow[], total };
@@ -678,7 +742,10 @@ export const getTicketById = async (
   userId?: string,
   isStaff = false,
 ): Promise<TicketRow> => {
-  const ticket = await prisma.ticket.findUnique({ where: { id: ticketId }, include: TICKET_INCLUDE });
+  const ticket = await prisma.ticket.findUnique({
+    where: { id: ticketId },
+    include: TICKET_INCLUDE,
+  });
 
   if (!ticket) throw AppError.notFound(ERROR.TICKET.NOT_FOUND);
 
@@ -688,7 +755,10 @@ export const getTicketById = async (
 
   // A customer must never see an internal staff note.
   if (!isStaff) {
-    return { ...ticket, messages: D.arr(ticket.messages).filter((m: any) => !D.bool(m.isInternal)) } as TicketRow;
+    return {
+      ...ticket,
+      messages: D.arr(ticket.messages).filter((m: any) => !D.bool(m.isInternal)),
+    } as TicketRow;
   }
 
   return ticket as TicketRow;
@@ -841,7 +911,11 @@ export const assignTicket = async (
 
   if (D.str(assignedToId)) {
     const agent = await prisma.user.findFirst({
-      where: { id: D.str(assignedToId), role: { in: ['SUPER_ADMIN', 'SUB_ADMIN'] }, isActive: true },
+      where: {
+        id: D.str(assignedToId),
+        role: { in: ['SUPER_ADMIN', 'SUB_ADMIN'] },
+        isActive: true,
+      },
       select: { id: true },
     });
 
@@ -880,4 +954,168 @@ export const getTicketStats = async (): Promise<Record<string, number>> => {
   }
 
   return out;
+};
+
+// ═══ Device tokens ═════════════════════════════════════════════════
+
+/**
+ * Push tokens live on the Device row rather than a separate table, because a token is only
+ * ever reachable through the device that owns it.
+ */
+export const registerDeviceToken = async (
+  userId: string,
+  input: { deviceId: string; fcmToken: string; platform?: string },
+): Promise<any> => {
+  const existing = await prisma.device.findUnique({
+    where: { deviceId: D.str(input.deviceId) },
+    select: { id: true, userId: true },
+  });
+
+  if (existing && existing.userId && existing.userId !== userId) {
+    throw AppError.forbidden('This device is registered to another account.');
+  }
+
+  return prisma.device.upsert({
+    where: { deviceId: D.str(input.deviceId) },
+    create: {
+      deviceId: D.str(input.deviceId),
+      userId,
+      fcmToken: D.str(input.fcmToken),
+      platform: (D.str(input.platform) || 'WEB') as Platform,
+      lastSeenAt: new Date(),
+    },
+    update: { userId, fcmToken: D.str(input.fcmToken), lastSeenAt: new Date() },
+  });
+};
+
+export const unregisterDeviceToken = async (
+  userId: string,
+  deviceId: string,
+): Promise<{ deviceId: string; isRemoved: boolean }> => {
+  const existing = await prisma.device.findFirst({
+    where: { deviceId: D.str(deviceId), userId },
+    select: { id: true },
+  });
+
+  if (!existing) return { deviceId: D.str(deviceId), isRemoved: false };
+
+  await prisma.device.update({
+    where: { id: existing.id },
+    data: { fcmToken: '' },
+  });
+
+  return { deviceId: D.str(deviceId), isRemoved: true };
+};
+
+// ═══ Notification templates ══════════════════════════════════════════════
+
+export const listNotificationTemplates = async (): Promise<any[]> =>
+  prisma.notificationTemplate.findMany({ orderBy: [{ channel: 'asc' }, { key: 'asc' }] });
+
+export const createNotificationTemplate = async (
+  input: {
+    key: string;
+    name?: string;
+    channel?: string;
+    title: string;
+    body: string;
+    variables?: string[];
+    isActive?: boolean;
+  },
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.notificationTemplate.findUnique({
+    where: { key: D.str(input.key) },
+    select: { id: true },
+  });
+
+  if (existing) throw AppError.conflict(ERROR.NOTIFICATION.TEMPLATE_KEY_TAKEN);
+
+  const row = await prisma.notificationTemplate.create({
+    data: {
+      key: D.str(input.key),
+      name: D.str(input.name),
+      channel: (D.str(input.channel) || 'PUSH') as NotificationChannel,
+      title: D.str(input.title),
+      body: D.str(input.body),
+      variables: D.strArr(input.variables),
+      isActive: input.isActive !== false,
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    action: 'CREATE',
+    entity: 'NotificationTemplate',
+    entityId: row.id,
+    meta: { key: input.key },
+  });
+
+  return row;
+};
+
+export const updateNotificationTemplate = async (
+  id: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.notificationTemplate.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.NOTIFICATION.TEMPLATE_NOT_FOUND);
+
+  const row = await prisma.notificationTemplate.update({
+    where: { id },
+    data: {
+      ...(input.name === undefined ? {} : { name: D.str(input.name) }),
+      ...(input.title === undefined ? {} : { title: D.str(input.title) }),
+      ...(input.body === undefined ? {} : { body: D.str(input.body) }),
+      ...(input.variables === undefined ? {} : { variables: D.strArr(input.variables) }),
+      ...(input.isActive === undefined ? {} : { isActive: Boolean(input.isActive) }),
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    action: 'UPDATE',
+    entity: 'NotificationTemplate',
+    entityId: id,
+  });
+
+  return row;
+};
+
+export const deleteNotificationTemplate = async (id: string, req?: any): Promise<void> => {
+  const existing = await prisma.notificationTemplate.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.NOTIFICATION.TEMPLATE_NOT_FOUND);
+
+  await prisma.notificationTemplate.delete({ where: { id } });
+
+  void writeActivityLog({
+    req,
+    action: 'DELETE',
+    entity: 'NotificationTemplate',
+    entityId: id,
+  });
+};
+
+// ═══ Ticket removal ═══════════════════════════════════════════
+
+export const deleteTicket = async (ticketId: string, req?: any): Promise<void> => {
+  const existing = await prisma.ticket.findUnique({
+    where: { id: ticketId },
+    select: { id: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.TICKET.NOT_FOUND);
+
+  await prisma.ticket.delete({ where: { id: ticketId } });
+
+  void writeActivityLog({ req, action: 'DELETE', entity: 'Ticket', entityId: ticketId });
 };

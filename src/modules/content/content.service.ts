@@ -5,9 +5,12 @@ import { D, money } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
 import { COUNTRIES } from '../../constants/countries';
+import { CURRENCY } from '../../config/currency.config';
 import { generateCode, uniquePageSlug, uniqueBlogSlug, uniqueBannerSlug } from '../../utils/slug';
 import { WebhookProvider } from '@prisma/client';
-import { hmacSha256, safeCompare } from '../../utils/crypto';
+import { hmacSha256, safeCompare, hashPassword, sha256 } from '../../utils/crypto';
+import { ENV } from '../../config/env.config';
+import { API_KEY } from '../../config/jwt.config';
 import { writeAuditLog, writeActivityLog } from '../../services/audit.service';
 import { isFuture, isPast } from '../../utils/dates';
 import { startOfDay, endOfDay, subtractDays } from '../../utils/dates';
@@ -27,7 +30,10 @@ export const listPages = async (
   isStaff = false,
 ): Promise<{ rows: any[]; total: number }> => {
   // A public caller only ever sees published pages.
-  const where: Prisma.PageWhereInput = { deletedAt: null, ...(isStaff ? {} : { isPublished: true }) };
+  const where: Prisma.PageWhereInput = {
+    deletedAt: null,
+    ...(isStaff ? {} : { isPublished: true }),
+  };
 
   if (D.str(query.isPublished) === 'true') where.isPublished = true;
   if (D.str(query.isPublished) === 'false') where.isPublished = false;
@@ -75,8 +81,15 @@ export const createPage = async (input: Record<string, any>, req?: any): Promise
   return row;
 };
 
-export const updatePage = async (pageId: string, input: Record<string, any>, req?: any): Promise<any> => {
-  const existing = await prisma.page.findFirst({ where: { id: pageId, deletedAt: null }, select: { id: true } });
+export const updatePage = async (
+  pageId: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.page.findFirst({
+    where: { id: pageId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CONTENT.PAGE_NOT_FOUND);
 
@@ -89,7 +102,9 @@ export const updatePage = async (pageId: string, input: Record<string, any>, req
       ...(input.image === undefined ? {} : { image: D.str(input.image) }),
       ...(input.isPublished === undefined ? {} : { isPublished: input.isPublished }),
       ...(input.metaTitle === undefined ? {} : { metaTitle: D.str(input.metaTitle) }),
-      ...(input.metaDescription === undefined ? {} : { metaDescription: D.str(input.metaDescription) }),
+      ...(input.metaDescription === undefined
+        ? {}
+        : { metaDescription: D.str(input.metaDescription) }),
     },
   });
 
@@ -99,11 +114,17 @@ export const updatePage = async (pageId: string, input: Record<string, any>, req
 };
 
 export const deletePage = async (pageId: string, req?: any): Promise<void> => {
-  const existing = await prisma.page.findFirst({ where: { id: pageId, deletedAt: null }, select: { id: true } });
+  const existing = await prisma.page.findFirst({
+    where: { id: pageId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CONTENT.PAGE_NOT_FOUND);
 
-  await prisma.page.update({ where: { id: pageId }, data: { deletedAt: new Date(), isPublished: false } });
+  await prisma.page.update({
+    where: { id: pageId },
+    data: { deletedAt: new Date(), isPublished: false },
+  });
 
   void writeAuditLog({ req, action: 'DELETE', entity: 'Page', entityId: pageId });
 };
@@ -114,7 +135,10 @@ export const listBlogs = async (
   query: Record<string, any>,
   isStaff = false,
 ): Promise<{ rows: any[]; total: number }> => {
-  const where: Prisma.BlogWhereInput = { deletedAt: null, ...(isStaff ? {} : { isPublished: true }) };
+  const where: Prisma.BlogWhereInput = {
+    deletedAt: null,
+    ...(isStaff ? {} : { isPublished: true }),
+  };
 
   if (D.str(query.isPublished) === 'true') where.isPublished = true;
   if (D.str(query.isPublished) === 'false') where.isPublished = false;
@@ -152,7 +176,10 @@ export const createBlog = async (
   req?: any,
 ): Promise<any> => {
   if (D.str(input.authorId)) {
-    const author = await prisma.user.findUnique({ where: { id: D.str(input.authorId) }, select: { id: true } });
+    const author = await prisma.user.findUnique({
+      where: { id: D.str(input.authorId) },
+      select: { id: true },
+    });
     if (!author) throw AppError.notFound(ERROR.USER.NOT_FOUND);
   }
 
@@ -182,12 +209,18 @@ export const updateBlog = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<Record<string, any>> => {
-  const existing = await prisma.blog.findFirst({ where: { id: blogId, deletedAt: null }, select: { id: true } });
+  const existing = await prisma.blog.findFirst({
+    where: { id: blogId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CONTENT.BLOG_NOT_FOUND);
 
   if (D.str(input.authorId)) {
-    const author = await prisma.user.findUnique({ where: { id: D.str(input.authorId) }, select: { id: true } });
+    const author = await prisma.user.findUnique({
+      where: { id: D.str(input.authorId) },
+      select: { id: true },
+    });
     if (!author) throw AppError.notFound(ERROR.USER.NOT_FOUND);
   }
 
@@ -203,7 +236,10 @@ export const updateBlog = async (
       ...(input.tags === undefined ? {} : { tags: D.strArr(input.tags) }),
       ...(input.isPublished === undefined
         ? {}
-        : { isPublished: input.isPublished, ...(input.isPublished ? { publishedAt: new Date() } : {}) }),
+        : {
+            isPublished: input.isPublished,
+            ...(input.isPublished ? { publishedAt: new Date() } : {}),
+          }),
     },
   });
 
@@ -213,11 +249,17 @@ export const updateBlog = async (
 };
 
 export const deleteBlog = async (blogId: string, req?: any): Promise<void> => {
-  const existing = await prisma.blog.findFirst({ where: { id: blogId, deletedAt: null }, select: { id: true } });
+  const existing = await prisma.blog.findFirst({
+    where: { id: blogId, deletedAt: null },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CONTENT.BLOG_NOT_FOUND);
 
-  await prisma.blog.update({ where: { id: blogId }, data: { deletedAt: new Date(), isPublished: false } });
+  await prisma.blog.update({
+    where: { id: blogId },
+    data: { deletedAt: new Date(), isPublished: false },
+  });
 
   void writeAuditLog({ req, action: 'DELETE', entity: 'Blog', entityId: blogId });
 };
@@ -263,7 +305,11 @@ export const createFaq = async (input: Record<string, any>, req?: any): Promise<
   return row;
 };
 
-export const updateFaq = async (faqId: string, input: Record<string, any>, req?: any): Promise<any> => {
+export const updateFaq = async (
+  faqId: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
   const existing = await prisma.faq.findUnique({ where: { id: faqId }, select: { id: true } });
 
   if (!existing) throw AppError.notFound(ERROR.CONTENT.FAQ_NOT_FOUND);
@@ -337,7 +383,11 @@ export const listBanners = async (
 };
 
 export const createBanner = async (input: Record<string, any>, req?: any): Promise<any> => {
-  if (D.str(input.startsAt) && D.str(input.endsAt) && new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))) {
+  if (
+    D.str(input.startsAt) &&
+    D.str(input.endsAt) &&
+    new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))
+  ) {
     throw AppError.unprocessable('Banner end time must be after start time.');
   }
 
@@ -363,15 +413,35 @@ export const createBanner = async (input: Record<string, any>, req?: any): Promi
   return row;
 };
 
-export const updateBanner = async (bannerId: string, input: Record<string, any>, req?: any): Promise<any> => {
-  const existing = await prisma.banner.findUnique({ where: { id: bannerId }, select: { id: true } });
+export const updateBanner = async (
+  bannerId: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.banner.findUnique({
+    where: { id: bannerId },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.BANNER.NOT_FOUND);
 
-  const startsAt = input.startsAt === undefined ? undefined : D.str(input.startsAt) ? new Date(D.str(input.startsAt)) : null;
-  const endsAt = input.endsAt === undefined ? undefined : D.str(input.endsAt) ? new Date(D.str(input.endsAt)) : null;
+  const startsAt =
+    input.startsAt === undefined
+      ? undefined
+      : D.str(input.startsAt)
+        ? new Date(D.str(input.startsAt))
+        : null;
+  const endsAt =
+    input.endsAt === undefined
+      ? undefined
+      : D.str(input.endsAt)
+        ? new Date(D.str(input.endsAt))
+        : null;
 
-  const current = await prisma.banner.findUnique({ where: { id: bannerId }, select: { startsAt: true, endsAt: true } });
+  const current = await prisma.banner.findUnique({
+    where: { id: bannerId },
+    select: { startsAt: true, endsAt: true },
+  });
 
   const nextStart = startsAt === undefined ? current?.startsAt : startsAt;
   const nextEnd = endsAt === undefined ? current?.endsAt : endsAt;
@@ -402,7 +472,10 @@ export const updateBanner = async (bannerId: string, input: Record<string, any>,
 };
 
 export const deleteBanner = async (bannerId: string, req?: any): Promise<void> => {
-  const existing = await prisma.banner.findUnique({ where: { id: bannerId }, select: { id: true } });
+  const existing = await prisma.banner.findUnique({
+    where: { id: bannerId },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.BANNER.NOT_FOUND);
 
@@ -413,7 +486,11 @@ export const deleteBanner = async (bannerId: string, req?: any): Promise<void> =
 
 // ═══ Contact / Newsletter ════════════════════════════════════════════════════
 
-export const submitContact = async (input: Record<string, any>, userId?: string, req?: any): Promise<any> => {
+export const submitContact = async (
+  input: Record<string, any>,
+  userId?: string,
+  req?: any,
+): Promise<any> => {
   const row = await prisma.contactSubmission.create({
     data: {
       userId: D.str(userId) || null,
@@ -425,12 +502,20 @@ export const submitContact = async (input: Record<string, any>, userId?: string,
     },
   });
 
-  void writeActivityLog({ req, userId, action: 'CONTACT_SUBMITTED', entity: 'ContactSubmission', entityId: row.id });
+  void writeActivityLog({
+    req,
+    userId,
+    action: 'CONTACT_SUBMITTED',
+    entity: 'ContactSubmission',
+    entityId: row.id,
+  });
 
   return row;
 };
 
-export const listContacts = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listContacts = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.ContactSubmissionWhereInput = {};
 
   if (D.str(query.isRead) === 'true') where.isRead = true;
@@ -450,7 +535,10 @@ export const listContacts = async (query: Record<string, any>): Promise<{ rows: 
 };
 
 export const markContactRead = async (id: string, isRead: boolean, req?: any): Promise<any> => {
-  const existing = await prisma.contactSubmission.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.contactSubmission.findUnique({
+    where: { id },
+    select: { id: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CONTACT.NOT_FOUND);
 
@@ -487,7 +575,12 @@ export const subscribe = async (email: string, req?: any): Promise<Record<string
     data: { email: address, isSubscribed: true, isActive: true, token: generateCode(32) },
   });
 
-  void writeActivityLog({ req, action: 'NEWSLETTER_SUBSCRIBED', entity: 'NewsletterSubscriber', entityId: row.id });
+  void writeActivityLog({
+    req,
+    action: 'NEWSLETTER_SUBSCRIBED',
+    entity: 'NewsletterSubscriber',
+    entityId: row.id,
+  });
 
   return { email: D.str(row.email), isSubscribed: true };
 };
@@ -510,7 +603,9 @@ export const unsubscribe = async (token: string): Promise<Record<string, any>> =
   return { email: D.str(row.email), isSubscribed: false };
 };
 
-export const listSubscribers = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listSubscribers = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.NewsletterSubscriberWhereInput = {};
 
   if (D.str(query.isActive) === 'true') where.isActive = true;
@@ -531,7 +626,9 @@ export const listSubscribers = async (query: Record<string, any>): Promise<{ row
 
 // ═══ Geo ═════════════════════════════════════════════════════════════════════
 
-export const listCountries = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listCountries = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.CountryWhereInput = {};
 
   if (D.str(query.isActive) === 'true') where.isActive = true;
@@ -558,14 +655,18 @@ export const listCountries = async (query: Record<string, any>): Promise<{ rows:
   return { rows, total };
 };
 
-export const listStates = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listStates = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.StateWhereInput = {};
 
   if (D.str(query.countryCode)) where.countryCode = D.str(query.countryCode).toUpperCase();
   if (D.str(query.isActive) === 'true') where.isActive = true;
 
-  // The nested cityList is only for a state -> city dropdown, so it stays opt-in;
-  // a plain list would otherwise ship every city of every state.
+  /**
+   * The nested cityList is only for a state -> city dropdown, so it stays opt-in; a plain list
+   * would otherwise ship every city of every state.
+   */
   const includeCities = D.str(query.includeCities) === 'true';
 
   const [rows, total] = await Promise.all([
@@ -587,7 +688,9 @@ export const listStates = async (query: Record<string, any>): Promise<{ rows: an
   return { rows, total };
 };
 
-export const listCities = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listCities = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.CityWhereInput = {};
 
   if (D.str(query.stateCode)) where.stateCode = D.str(query.stateCode);
@@ -628,7 +731,8 @@ export const checkPincode = async (pincode: string): Promise<Record<string, any>
   return {
     pincode: D.str(pincode),
     isKnown: true,
-    isServiceable: D.bool(city.isServiceable) && D.bool(city.isActive) && D.bool(city.state.isActive),
+    isServiceable:
+      D.bool(city.isServiceable) && D.bool(city.isActive) && D.bool(city.state.isActive),
     cityName: D.str(city.name),
     stateName: D.str(city.state.name),
     stateCode: D.str(city.state.code),
@@ -637,7 +741,9 @@ export const checkPincode = async (pincode: string): Promise<Record<string, any>
 };
 
 /** Seeds the country/state reference list from the shared constants. */
-export const seedCountries = async (req?: any): Promise<{ countries: number; states: number; cities: number }> => {
+export const seedCountries = async (
+  req?: any,
+): Promise<{ countries: number; states: number; cities: number }> => {
   let states = 0;
   let cities = 0;
 
@@ -656,7 +762,10 @@ export const seedCountries = async (req?: any): Promise<{ countries: number; sta
   }
 
   for (const state of INDIAN_STATES) {
-    const existing = await prisma.state.findUnique({ where: { code: state.code }, select: { id: true } });
+    const existing = await prisma.state.findUnique({
+      where: { code: state.code },
+      select: { id: true },
+    });
 
     await prisma.state.upsert({
       where: { code: state.code },
@@ -668,7 +777,10 @@ export const seedCountries = async (req?: any): Promise<{ countries: number; sta
 
     // Cities carry the pincodes that serviceability and checkout both need.
     for (const city of INDIAN_CITIES.filter((c) => c.stateCode === state.code)) {
-      const known = await prisma.city.findFirst({ where: { pincode: city.pincode }, select: { id: true } });
+      const known = await prisma.city.findFirst({
+        where: { pincode: city.pincode },
+        select: { id: true },
+      });
 
       await prisma.city.upsert({
         where: { id: known?.id ?? `seed_${city.pincode}` },
@@ -716,8 +828,10 @@ const INDIAN_STATES: { code: string; name: string }[] = [
   { code: 'BR', name: 'Bihar' },
 ];
 
-// A few real pincodes per state. Without cities the pincode lookup and the
-// serviceability check have nothing to resolve against.
+/**
+ * A few real pincodes per state. Without cities the pincode lookup and the serviceability
+ * check have nothing to resolve against.
+ */
 const INDIAN_CITIES: { name: string; stateCode: string; pincode: string }[] = [
   { name: 'Mumbai', stateCode: 'MH', pincode: '400001' },
   { name: 'Pune', stateCode: 'MH', pincode: '411001' },
@@ -782,19 +896,32 @@ export const createCurrency = async (input: Record<string, any>, req?: any): Pro
     });
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'Currency', entityId: row.id, meta: { code } });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'Currency',
+    entityId: row.id,
+    meta: { code },
+  });
 
   return row;
 };
 
-export const updateCurrency = async (id: string, input: Record<string, any>, req?: any): Promise<any> => {
+export const updateCurrency = async (
+  id: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
   const existing = await prisma.currency.findUnique({ where: { id }, select: { id: true } });
 
   if (!existing) throw AppError.notFound(ERROR.CURRENCY.NOT_FOUND);
 
   const row = await prisma.$transaction(async (tx) => {
     if (input.isDefault) {
-      await tx.currency.updateMany({ where: { isDefault: true, id: { not: id } }, data: { isDefault: false } });
+      await tx.currency.updateMany({
+        where: { isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      });
     }
 
     return tx.currency.update({
@@ -820,7 +947,10 @@ export const updateCurrency = async (id: string, input: Record<string, any>, req
  * anchored to it, so it has to be demoted before it can be removed.
  */
 export const deleteCurrency = async (id: string, req?: any): Promise<void> => {
-  const existing = await prisma.currency.findUnique({ where: { id }, select: { id: true, isDefault: true } });
+  const existing = await prisma.currency.findUnique({
+    where: { id },
+    select: { id: true, isDefault: true },
+  });
 
   if (!existing) throw AppError.notFound(ERROR.CURRENCY.NOT_FOUND);
 
@@ -832,7 +962,10 @@ export const deleteCurrency = async (id: string, req?: any): Promise<void> => {
 };
 
 /** Converts an amount using a currency rate. */
-export const convertCurrency = async (amount: number, toCode: string): Promise<Record<string, any>> => {
+export const convertCurrency = async (
+  amount: number,
+  toCode: string,
+): Promise<Record<string, any>> => {
   const code = D.str(toCode).toUpperCase();
 
   const target = await prisma.currency.findFirst({ where: { code, isActive: true } });
@@ -845,7 +978,7 @@ export const convertCurrency = async (amount: number, toCode: string): Promise<R
   const converted = money(D.float(amount) * (D.float(target.rate) / fromRate));
 
   return {
-    fromCurrency: D.str(base?.code) || 'INR',
+    fromCurrency: D.str(base?.code) || CURRENCY.CODE,
     toCurrency: code,
     amount: D.float(amount),
     rate: D.float(target.rate) / fromRate,
@@ -866,10 +999,14 @@ export const createTaxConfig = async (input: Record<string, any>, req?: any): Pr
 
   const existing = await prisma.taxConfig.findUnique({ where: { slug }, select: { id: true } });
 
-  if (existing) throw AppError.conflict('A tax config with this slug exists.', ERROR_CODE.DUPLICATE);
+  if (existing)
+    throw AppError.conflict('A tax config with this slug exists.', ERROR_CODE.DUPLICATE);
 
   if (D.str(input.vendorId)) {
-    const vendor = await prisma.vendorProfile.findUnique({ where: { id: D.str(input.vendorId) }, select: { id: true } });
+    const vendor = await prisma.vendorProfile.findUnique({
+      where: { id: D.str(input.vendorId) },
+      select: { id: true },
+    });
     if (!vendor) throw AppError.notFound(ERROR.VENDOR.NOT_FOUND);
   }
 
@@ -888,12 +1025,22 @@ export const createTaxConfig = async (input: Record<string, any>, req?: any): Pr
     },
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'TaxConfig', entityId: row.id, meta: { slug } });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'TaxConfig',
+    entityId: row.id,
+    meta: { slug },
+  });
 
   return row;
 };
 
-export const updateTaxConfig = async (id: string, input: Record<string, any>, req?: any): Promise<any> => {
+export const updateTaxConfig = async (
+  id: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
   const existing = await prisma.taxConfig.findUnique({ where: { id }, select: { id: true } });
 
   if (!existing) throw AppError.notFound(ERROR.TAX.NOT_FOUND);
@@ -929,7 +1076,10 @@ export const deleteTaxConfig = async (id: string, req?: any): Promise<void> => {
 };
 
 const toSlugValue = (value: string): string =>
-  D.str(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  D.str(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
 export const listTranslations = async (locale?: string, namespace?: string): Promise<any[]> =>
   prisma.translation.findMany({
@@ -962,12 +1112,20 @@ export const upsertTranslations = async (
     }
   });
 
-  void writeAuditLog({ req, action: 'UPDATE', entity: 'Translation', entityId: locale, meta: { written } });
+  void writeAuditLog({
+    req,
+    action: 'UPDATE',
+    entity: 'Translation',
+    entityId: locale,
+    meta: { written },
+  });
 
   return written;
 };
 
-export const listDropdowns = async (query: Record<string, any>): Promise<{ rows: any[]; total: number }> => {
+export const listDropdowns = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
   const where: Prisma.DropdownWhereInput = {};
 
   if (D.str(query.type)) where.type = D.str(query.type);
@@ -991,9 +1149,13 @@ export const createDropdown = async (input: Record<string, any>, req?: any): Pro
   const type = D.str(input.type);
   const value = D.str(input.value);
 
-  const existing = await prisma.dropdown.findUnique({ where: { type_value: { type, value } }, select: { id: true } });
+  const existing = await prisma.dropdown.findUnique({
+    where: { type_value: { type, value } },
+    select: { id: true },
+  });
 
-  if (existing) throw AppError.conflict('This dropdown option already exists.', ERROR_CODE.DUPLICATE);
+  if (existing)
+    throw AppError.conflict('This dropdown option already exists.', ERROR_CODE.DUPLICATE);
 
   const row = await prisma.dropdown.create({
     data: {
@@ -1006,12 +1168,22 @@ export const createDropdown = async (input: Record<string, any>, req?: any): Pro
     },
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'Dropdown', entityId: row.id, meta: { type, value } });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'Dropdown',
+    entityId: row.id,
+    meta: { type, value },
+  });
 
   return row;
 };
 
-export const updateDropdown = async (id: string, input: Record<string, any>, req?: any): Promise<any> => {
+export const updateDropdown = async (
+  id: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
   const existing = await prisma.dropdown.findUnique({ where: { id }, select: { id: true } });
 
   if (!existing) throw AppError.notFound(ERROR.DROPDOWN.NOT_FOUND);
@@ -1022,7 +1194,9 @@ export const updateDropdown = async (id: string, input: Record<string, any>, req
       ...(input.label === undefined ? {} : { label: D.str(input.label) }),
       ...(input.sortOrder === undefined ? {} : { sortOrder: D.num(input.sortOrder) }),
       ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
-      ...(input.metadata === undefined ? {} : { metadata: input.metadata as Prisma.InputJsonValue }),
+      ...(input.metadata === undefined
+        ? {}
+        : { metadata: input.metadata as Prisma.InputJsonValue }),
     },
   });
 
@@ -1091,7 +1265,13 @@ export const createWebhook = async (input: Record<string, any>, req?: any): Prom
     select: { id: true, url: true, events: true, provider: true, isActive: true, createdAt: true },
   });
 
-  void writeAuditLog({ req, action: 'CREATE', entity: 'WebhookEndpoint', entityId: row.id, meta: { url: row.url } });
+  void writeAuditLog({
+    req,
+    action: 'CREATE',
+    entity: 'WebhookEndpoint',
+    entityId: row.id,
+    meta: { url: row.url },
+  });
 
   return { ...row, secret, note: 'Store this signing secret now — it is not shown again.' };
 };
@@ -1130,7 +1310,13 @@ export const rotateWebhookSecret = async (id: string, req?: any): Promise<Record
 
   await prisma.webhookEndpoint.update({ where: { id }, data: { secret } });
 
-  void writeAuditLog({ req, action: 'UPDATE', entity: 'WebhookEndpoint', entityId: id, meta: { rotated: true } });
+  void writeAuditLog({
+    req,
+    action: 'UPDATE',
+    entity: 'WebhookEndpoint',
+    entityId: id,
+    meta: { rotated: true },
+  });
 
   return { webhookId: id, secret, note: 'Store this now — it is not shown again.' };
 };
@@ -1161,6 +1347,31 @@ export const verifyWebhookSignature = async (
   return safeCompare(hmacSha256(rawBody, endpoint.secret), D.str(signature));
 };
 
+/**
+ * Verifies an inbound provider's signature.
+ *
+ * Each provider keeps its secret in its own environment variable, so a leaked Razorpay secret
+ * cannot be replayed against the shipping endpoint.
+ */
+export const verifyProviderSignature = async (
+  provider: string,
+  rawBody: string,
+  signature: string,
+): Promise<boolean> => {
+  const secrets: Record<string, string> = {
+    RAZORPAY: D.str(ENV.RAZORPAY_WEBHOOK_SECRET),
+    STRIPE: D.str(ENV.STRIPE_WEBHOOK_SECRET),
+    SHIPPING: D.str(ENV.SHIPPING_PARTNER_WEBHOOK_SECRET),
+  };
+
+  const secret = secrets[D.str(provider).toUpperCase()];
+
+  // Without a configured secret the delivery is recorded but cannot be trusted.
+  if (!secret) return false;
+
+  return safeCompare(hmacSha256(rawBody, secret), D.str(signature));
+};
+
 export const listWebhookLogs = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {
@@ -1186,7 +1397,14 @@ export const listWebhookLogs = async (
 
 /** Records an inbound webhook, marking it processed when the signature held. */
 export const recordWebhook = async (
-  input: { endpointId?: string; event: string; eventId?: string; payload: any; signature?: string; direction?: string },
+  input: {
+    endpointId?: string;
+    event: string;
+    eventId?: string;
+    payload: any;
+    signature?: string;
+    direction?: string;
+  },
   isProcessed: boolean,
 ): Promise<Record<string, any>> => {
   const row = await prisma.webhookLog.create({
@@ -1242,16 +1460,20 @@ export const bulkImportProducts = async (
       const row = rows[i];
 
       const { createProduct } = await import('../product/product.service');
-      await createProduct(D.str(vendorId), {
-        name: D.str(row.name),
-        price: D.float(row.price),
-        mrpPrice: row.mrpPrice === undefined ? undefined : D.float(row.mrpPrice),
-        stock: D.num(row.stock),
-        sku: D.str(row.sku),
-        categoryId: D.str(row.categoryId),
-        brandId: D.str(row.brandId),
-        taxPercent: row.taxPercent === undefined ? undefined : D.float(row.taxPercent),
-      }, req);
+      await createProduct(
+        D.str(vendorId),
+        {
+          name: D.str(row.name),
+          price: D.float(row.price),
+          mrpPrice: row.mrpPrice === undefined ? undefined : D.float(row.mrpPrice),
+          stock: D.num(row.stock),
+          sku: D.str(row.sku),
+          categoryId: D.str(row.categoryId),
+          brandId: D.str(row.brandId),
+          taxPercent: row.taxPercent === undefined ? undefined : D.float(row.taxPercent),
+        },
+        req,
+      );
 
       successCount += 1;
     } catch (err: any) {
@@ -1378,7 +1600,9 @@ export const salesReport = async (query: Record<string, any>): Promise<Record<st
     where: {
       deletedAt: null,
       createdAt: { gte: from, lte: to },
-      ...(D.str(query.vendorId) ? { subOrders: { some: { vendorId: D.str(query.vendorId) } } } : {}),
+      ...(D.str(query.vendorId)
+        ? { subOrders: { some: { vendorId: D.str(query.vendorId) } } }
+        : {}),
     },
     select: {
       orderNumber: true,
@@ -1397,14 +1621,30 @@ export const salesReport = async (query: Record<string, any>): Promise<Record<st
   const revenue = money(orders.reduce((s, o) => s + D.float(o.total), 0));
 
   return toReport(
-    ['orderNumber', 'date', 'status', 'paymentMethod', 'paymentStatus', 'subtotal', 'discount', 'tax', 'shipping', 'total'],
+    [
+      'orderNumber',
+      'date',
+      'status',
+      'paymentMethod',
+      'paymentStatus',
+      'subtotal',
+      'discount',
+      'tax',
+      'shipping',
+      'total',
+    ],
     orders.map((o) => ({
       orderNumber: D.str(o.orderNumber),
       date: new Date(o.createdAt).toISOString().slice(0, 10),
       status: D.str(o.status),
       paymentMethod: D.str(o.paymentMethod),
       paymentStatus: D.str(o.paymentStatus),
-      subtotal: money(D.float(o.total) - D.float(o.taxAmount) - D.float(o.shippingAmount) + D.float(o.couponDiscount)),
+      subtotal: money(
+        D.float(o.total) -
+          D.float(o.taxAmount) -
+          D.float(o.shippingAmount) +
+          D.float(o.couponDiscount),
+      ),
       discount: money(D.float(o.couponDiscount)),
       tax: money(D.float(o.taxAmount)),
       shipping: money(D.float(o.shippingAmount)),
@@ -1412,7 +1652,17 @@ export const salesReport = async (query: Record<string, any>): Promise<Record<st
     })),
     {
       __label: 'TOTAL',
-      subtotal: money(orders.reduce((s, o) => s + D.float(o.total) - D.float(o.taxAmount) - D.float(o.shippingAmount) + D.float(o.couponDiscount), 0)),
+      subtotal: money(
+        orders.reduce(
+          (s, o) =>
+            s +
+            D.float(o.total) -
+            D.float(o.taxAmount) -
+            D.float(o.shippingAmount) +
+            D.float(o.couponDiscount),
+          0,
+        ),
+      ),
       discount: money(orders.reduce((s, o) => s + D.float(o.couponDiscount), 0)),
       tax: money(orders.reduce((s, o) => s + D.float(o.taxAmount), 0)),
       shipping: money(orders.reduce((s, o) => s + D.float(o.shippingAmount), 0)),
@@ -1426,7 +1676,13 @@ export const ordersReport = async (query: Record<string, any>): Promise<Record<s
 
   const orders = await prisma.order.findMany({
     where: { deletedAt: null, createdAt: { gte: from, lte: to } },
-    select: { orderNumber: true, createdAt: true, status: true, total: true, items: { select: { qty: true } } },
+    select: {
+      orderNumber: true,
+      createdAt: true,
+      status: true,
+      total: true,
+      items: { select: { qty: true } },
+    },
   });
 
   return toReport(
@@ -1691,7 +1947,14 @@ export const createReportSchedule = async (
     },
   });
 
-  void writeAuditLog({ req, actorId, action: 'CREATE', entity: 'ReportSchedule', entityId: row.id, meta: { type: row.reportType } });
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'CREATE',
+    entity: 'ReportSchedule',
+    entityId: row.id,
+    meta: { type: row.reportType },
+  });
 
   return row;
 };
@@ -1710,7 +1973,9 @@ export const updateReportSchedule = async (
     data: {
       ...(input.name === undefined ? {} : { name: D.str(input.name) }),
       ...(input.cron === undefined ? {} : { cron: D.str(input.cron) }),
-      ...(input.recipients === undefined ? {} : { recipients: D.strArr(input.recipients).map((r) => r.toLowerCase()) }),
+      ...(input.recipients === undefined
+        ? {}
+        : { recipients: D.strArr(input.recipients).map((r) => r.toLowerCase()) }),
       ...(input.format === undefined ? {} : { format: D.str(input.format) }),
       ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
     },
@@ -1760,4 +2025,507 @@ export const runReport = async (
   }
 };
 
+// ═══ Newsletter campaign ══════════════════════════════════════════════════════
+
+/**
+ * Queues one email per active subscriber.
+ *
+ * Delivery goes through the email queue one job per recipient rather than a single fan-out job,
+ * so a retry after a partial failure cannot resend to somebody who already got the mail.
+ */
+export const sendCampaign = async (
+  input: { subject: string; body: string; templateKey?: string },
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  const subscribers = await prisma.newsletterSubscriber.findMany({
+    where: { isActive: true },
+    select: { id: true, email: true },
+  });
+
+  const jobId = `campaign_${generateCode(12)}`;
+  const { enqueueEmail } = await import('../../jobs/queues');
+
+  await prisma.bulkJob.create({
+    data: {
+      jobId,
+      type: 'NEWSLETTER_CAMPAIGN',
+      status: 'QUEUED',
+      totalRows: subscribers.length,
+      successCount: 0,
+      failCount: 0,
+      createdById: D.str(actorId) || null,
+      errors: [],
+    },
+  });
+
+  for (const subscriber of subscribers) {
+    await enqueueEmail({
+      to: D.str(subscriber.email),
+      subject: D.str(input.subject),
+      html: D.str(input.body),
+      templateKey: D.str(input.templateKey) || 'newsletter_campaign',
+      templateData: { jobId, campaignSubject: D.str(input.subject) },
+    });
+  }
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'CAMPAIGN_SENT',
+    entity: 'NewsletterSubscriber',
+    meta: { jobId, recipientCount: subscribers.length },
+  });
+
+  return { jobId, recipientCount: subscribers.length, status: 'QUEUED' };
+};
+
+// ═══ Bulk import — orders and users ════════════════════════════════════════════
+
+const openBulkJob = async (type: string, totalRows: number, actorId?: string): Promise<string> => {
+  const jobId = `bulk_${generateCode(12)}`;
+
+  await prisma.bulkJob.create({
+    data: {
+      jobId,
+      type,
+      status: 'RUNNING',
+      totalRows,
+      successCount: 0,
+      failCount: 0,
+      createdById: D.str(actorId) || null,
+      startedAt: new Date(),
+      errors: [],
+    },
+  });
+
+  return jobId;
+};
+
+const closeBulkJob = async (
+  jobId: string,
+  successCount: number,
+  errors: { row: number; message: string }[],
+): Promise<void> => {
+  await prisma.bulkJob.update({
+    where: { jobId },
+    data: {
+      // A run with some bad rows is still a completed run; FAILED is reserved for a crash.
+      status: 'COMPLETED',
+      successCount,
+      failCount: errors.length,
+      completedAt: new Date(),
+      errors: errors as unknown as Prisma.InputJsonValue,
+    },
+  });
+};
+
+export const bulkImportOrders = async (
+  input: { rows: any[]; continueOnError?: boolean },
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  const rows = D.arr(input.rows) as any[];
+  const errors: { row: number; message: string }[] = [];
+  let successCount = 0;
+
+  const jobId = await openBulkJob('ORDERS', rows.length, actorId);
+
+  for (const [index, row] of rows.entries()) {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email: D.str(row.email).toLowerCase() },
+        select: { id: true },
+      });
+
+      if (!user) throw new Error(`No user with email ${D.str(row.email)}`);
+
+      const order = await prisma.order.create({
+        data: {
+          orderNumber: `IMP${D.str(row.orderNumber) || generateCode(10)}`,
+          userId: user.id,
+          status: (D.str(row.status).toUpperCase() || 'CONFIRMED') as any,
+          paymentMethod: (D.str(row.paymentMethod).toUpperCase() || 'COD') as any,
+          paymentStatus: (D.str(row.paymentStatus).toUpperCase() || 'PAID') as any,
+          subtotal: D.float(row.subtotal ?? row.total),
+          total: D.float(row.total),
+          notes: D.str(row.notes),
+        },
+      });
+
+      for (const item of D.arr(row.items) as any[]) {
+        await prisma.orderItem.create({
+          data: {
+            orderId: order.id,
+            productId: D.str(item.productId),
+            name: D.str(item.name),
+            sku: D.str(item.sku),
+            qty: Math.max(1, D.num(item.qty)),
+            price: D.float(item.price),
+            total: money(D.num(item.qty) * D.float(item.price)),
+          },
+        });
+      }
+
+      successCount += 1;
+    } catch (err) {
+      errors.push({ row: index + 1, message: (err as Error)?.message ?? 'unknown error' });
+      if (input.continueOnError === false) break;
+    }
+  }
+
+  await closeBulkJob(jobId, successCount, errors);
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'ORDERS_IMPORTED',
+    entity: 'Order',
+    meta: { jobId, successCount, failCount: errors.length },
+  });
+
+  return {
+    jobId,
+    type: 'ORDERS',
+    totalCount: rows.length,
+    successCount,
+    failCount: errors.length,
+    errorList: errors,
+  };
+};
+
+export const bulkImportUsers = async (
+  input: { rows: any[]; continueOnError?: boolean },
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  const rows = D.arr(input.rows) as any[];
+  const errors: { row: number; message: string }[] = [];
+  let successCount = 0;
+
+  const jobId = await openBulkJob('USERS', rows.length, actorId);
+
+  for (const [index, row] of rows.entries()) {
+    try {
+      const email = D.str(row.email).toLowerCase();
+
+      if (!email) throw new Error('email is required');
+
+      const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+
+      if (existing) throw new Error(`${email} already exists`);
+
+      await prisma.user.create({
+        data: {
+          email,
+          name: D.str(row.name) || email,
+          phone: D.str(row.phone),
+          passwordHash: await hashPassword(D.str(row.password) || generateCode(16)),
+          role: (D.str(row.role).toUpperCase() || 'CUSTOMER') as any,
+          isActive: row.isActive !== false,
+          isEmailVerified: D.bool(row.isEmailVerified),
+        },
+      });
+
+      successCount += 1;
+    } catch (err) {
+      errors.push({ row: index + 1, message: (err as Error)?.message ?? 'unknown error' });
+      if (input.continueOnError === false) break;
+    }
+  }
+
+  await closeBulkJob(jobId, successCount, errors);
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'USERS_IMPORTED',
+    entity: 'User',
+    meta: { jobId, successCount, failCount: errors.length },
+  });
+
+  return {
+    jobId,
+    type: 'USERS',
+    totalCount: rows.length,
+    successCount,
+    failCount: errors.length,
+    errorList: errors,
+  };
+};
+
+// ═══ Translations (single-key CRUD) ═════════════════════════════════════════════
+
+/** Locales that actually have at least one key, plus how many keys each holds. */
+export const listLocales = async (): Promise<any[]> => {
+  const grouped = await prisma.translation.groupBy({
+    by: ['locale'],
+    _count: { _all: true },
+    orderBy: { locale: 'asc' },
+  });
+
+  return grouped.map((g: any) => ({ locale: D.str(g.locale), keyCount: D.num(g._count._all) }));
+};
+
+export const getTranslationsByLocale = async (
+  locale: string,
+): Promise<{ locale: string; namespaceList: any[] }> => {
+  const rows = await listTranslations(locale);
+
+  const byNamespace = new Map<string, any[]>();
+
+  for (const row of rows) {
+    const namespace = D.str(row.namespace) || 'common';
+    const bucket = byNamespace.get(namespace) ?? [];
+    bucket.push({
+      translationId: D.str(row.id),
+      key: D.str(row.key),
+      value: D.str(row.value),
+      updatedAt: D.date(row.updatedAt),
+    });
+    byNamespace.set(namespace, bucket);
+  }
+
+  return {
+    locale: D.str(locale),
+    namespaceList: Array.from(byNamespace.entries())
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([namespace, entryList]) => ({
+        namespace,
+        keyCount: entryList.length,
+        entryList,
+      })),
+  };
+};
+
+export const createTranslation = async (
+  input: { locale: string; key: string; value: string; namespace?: string },
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const locale = D.str(input.locale);
+  const namespace = D.str(input.namespace) || 'common';
+
+  const existing = await prisma.translation.findFirst({
+    where: { locale, key: D.str(input.key), namespace },
+    select: { id: true },
+  });
+
+  if (existing) throw AppError.conflict(ERROR.I18N.ALREADY_EXISTS, ERROR_CODE.DUPLICATE);
+
+  const row = await prisma.translation.create({
+    data: {
+      locale,
+      key: D.str(input.key),
+      value: D.str(input.value),
+      namespace,
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'CREATE',
+    entity: 'Translation',
+    entityId: row.id,
+    meta: { locale, key: input.key },
+  });
+
+  return row;
+};
+
+export const updateTranslation = async (
+  id: string,
+  input: { value: string; key?: string },
+  actorId?: string,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.translation.findUnique({ where: { id }, select: { id: true } });
+
+  if (!existing) throw AppError.notFound(ERROR.I18N.NOT_FOUND);
+
+  const row = await prisma.translation.update({
+    where: { id },
+    data: {
+      value: D.str(input.value),
+      ...(input.key === undefined ? {} : { key: D.str(input.key) }),
+    },
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'UPDATE',
+    entity: 'Translation',
+    entityId: id,
+  });
+
+  return row;
+};
+
+export const deleteTranslation = async (id: string, req?: any): Promise<void> => {
+  const existing = await prisma.translation.findUnique({ where: { id }, select: { id: true } });
+
+  if (!existing) throw AppError.notFound(ERROR.I18N.NOT_FOUND);
+
+  await prisma.translation.delete({ where: { id } });
+
+  void writeActivityLog({ req, action: 'DELETE', entity: 'Translation', entityId: id });
+};
+
 export { isBannerLive };
+
+// ═══ API keys ══════════════════════════════════════════════════════════════════
+
+export const listApiKeys = async (): Promise<any[]> =>
+  // The secret is never selected - only the prefix, which is safe to show.
+  prisma.apiKey.findMany({
+    select: {
+      id: true,
+      name: true,
+      prefix: true,
+      scopes: true,
+      isActive: true,
+      expiresAt: true,
+      lastUsedAt: true,
+      usageCount: true,
+      createdAt: true,
+      revokedAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+/**
+ * Creates a key and returns the secret exactly once.
+ * Only a hash is stored, so a lost key cannot be recovered and must be rotated.
+ */
+export const createApiKey = async (
+  input: { name: string; scopes?: string[]; expiresInDays?: number },
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  const secret = generateCode(40);
+  const prefix = secret.slice(0, API_KEY.PREFIX_LENGTH);
+
+  const row = await prisma.apiKey.create({
+    data: {
+      name: D.str(input.name),
+      key: `pn_${prefix}_${secret.slice(API_KEY.PREFIX_LENGTH, 20)}`,
+      secretHash: sha256(secret),
+      prefix,
+      scopes: D.strArr(input.scopes),
+      isActive: true,
+      expiresAt: D.num(input.expiresInDays)
+        ? new Date(Date.now() + D.num(input.expiresInDays) * 86_400_000)
+        : null,
+      createdById: D.str(actorId) || null,
+    },
+    select: {
+      id: true,
+      name: true,
+      key: true,
+      prefix: true,
+      scopes: true,
+      expiresAt: true,
+      createdAt: true,
+    },
+  });
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'CREATE',
+    entity: 'ApiKey',
+    entityId: row.id,
+    description: `API key "${row.name}" created`,
+  });
+
+  return { ...row, secret, note: 'Store this secret now - it is not shown again.' };
+};
+
+export const revokeApiKey = async (keyId: string, actorId?: string, req?: any): Promise<any> => {
+  const existing = await prisma.apiKey.findUnique({
+    where: { id: keyId },
+    select: { id: true, name: true, revokedAt: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.API_KEY.NOT_FOUND);
+
+  if (existing.revokedAt) {
+    throw AppError.unprocessable(ERROR.API_KEY.REVOKED);
+  }
+
+  const row = await prisma.apiKey.update({
+    where: { id: keyId },
+    data: { isActive: false, revokedAt: new Date() },
+    select: { id: true, name: true, prefix: true, scopes: true, isActive: true, revokedAt: true },
+  });
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'DELETE',
+    entity: 'ApiKey',
+    entityId: keyId,
+    description: `API key "${existing.name}" revoked`,
+  });
+
+  return row;
+};
+
+export const deleteApiKey = async (keyId: string, actorId?: string, req?: any): Promise<void> => {
+  const existing = await prisma.apiKey.findUnique({
+    where: { id: keyId },
+    select: { id: true, name: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.API_KEY.NOT_FOUND);
+
+  await prisma.apiKey.delete({ where: { id: keyId } });
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: 'DELETE',
+    entity: 'ApiKey',
+    entityId: keyId,
+    description: `API key "${existing.name}" deleted`,
+  });
+};
+
+/** Per-key call counters, so an integrator can see whether a key is still in use. */
+export const getApiKeyUsage = async (keyId: string): Promise<Record<string, any>> => {
+  const key = await prisma.apiKey.findUnique({
+    where: { id: keyId },
+    select: {
+      id: true,
+      name: true,
+      prefix: true,
+      scopes: true,
+      isActive: true,
+      usageCount: true,
+      lastUsedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      createdAt: true,
+    },
+  });
+
+  if (!key) throw AppError.notFound(ERROR.API_KEY.NOT_FOUND);
+
+  const calls = await prisma.auditLog.count({ where: { actorId: keyId } });
+
+  return {
+    apiKeyId: D.str(key.id),
+    name: D.str(key.name),
+    prefix: D.str(key.prefix),
+    scopes: D.arr(key.scopes),
+    isActive: D.bool(key.isActive),
+    usageCount: D.num(key.usageCount),
+    auditedCallCount: calls,
+    lastUsedAt: D.date(key.lastUsedAt),
+    expiresAt: D.date(key.expiresAt),
+    revokedAt: D.date(key.revokedAt),
+    createdAt: D.date(key.createdAt),
+  };
+};

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { AppError } from '../../utils/AppError';
@@ -31,20 +32,41 @@ const vendorId = (req: Request): string => req.auth!.vendorId;
 /** Guards for routes that operate on the caller's own shop. */
 export const guards = {
   own: [requireRole('VENDOR')],
-  ownApproved: [requireRole('VENDOR'), asyncHandler(async (req, _res, next) => {
-    await service.requireApprovedVendor(req.auth!.vendorId);
-    next();
-  })],
-  adminList: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_LIST)],
-  adminView: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_VIEW)],
-  adminApprove: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_APPROVE)],
-  adminReject: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_REJECT)],
-  adminSuspend: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_SUSPEND)],
+  ownApproved: [
+    requireRole('VENDOR'),
+    asyncHandler(async (req, _res, next) => {
+      await service.requireApprovedVendor(req.auth!.vendorId);
+      next();
+    }),
+  ],
+  adminList: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_LIST),
+  ],
+  adminView: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_VIEW),
+  ],
+  adminApprove: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_APPROVE),
+  ],
+  adminReject: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_REJECT),
+  ],
+  adminSuspend: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_SUSPEND),
+  ],
   adminCommission: [
-    requireRole('SUPER_ADMIN', 'SUB_ADMIN'),
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
     requirePermission(PERMISSION.VENDOR_COMMISSION_UPDATE),
   ],
-  adminKyc: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.VENDOR_KYC_VERIFY)],
+  adminKyc: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.VENDOR_KYC_VERIFY),
+  ],
 };
 
 // ── Vendor: own shop ─────────────────────────────────────────────────────────
@@ -166,7 +188,11 @@ export const getRatings = asyncHandler(async (req, res) => {
 export const getProducts = asyncHandler(async (req, res) => {
   const vendor = await service.getVendorById(req.params.id);
   if (vendor.status !== 'APPROVED') {
-    throw new AppError(ERROR.VENDOR.NOT_APPROVED, HTTP_STATUS.FORBIDDEN, ERROR_CODE.VENDOR_NOT_APPROVED);
+    throw new AppError(
+      ERROR.VENDOR.NOT_APPROVED,
+      HTTP_STATUS.FORBIDDEN,
+      ERROR_CODE.VENDOR_NOT_APPROVED,
+    );
   }
 
   const { rows, total } = await service.getVendorProducts(req.params.id, req.query);
@@ -175,7 +201,10 @@ export const getProducts = asyncHandler(async (req, res) => {
   return ApiResponse.paginated(res, {
     message: SUCCESS.VENDOR.PRODUCTS_FETCHED,
     result: {
-      filterData: { search: D.str(req.query?.['search'] as string), status: D.str(req.query?.['status'] as string) },
+      filterData: {
+        search: D.str(req.query?.['search'] as string),
+        status: D.str(req.query?.['status'] as string),
+      },
       vendorData: serializeVendorPublic(vendor),
       ...serializeProductList(rows),
     },

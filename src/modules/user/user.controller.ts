@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { requireRole } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/rbac.middleware';
@@ -20,7 +21,7 @@ import {
 } from './user.serializer';
 
 const userId = (req: Request): string => req.auth!.userId;
-const adminOnly = requireRole('SUPER_ADMIN', 'SUB_ADMIN');
+const adminOnly = requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN);
 
 // ── Self ─────────────────────────────────────────────────────────────────────
 
@@ -225,12 +226,27 @@ export const impersonate = asyncHandler(async (req, res) => {
 export const guards = {
   self: [],
   customer: [requireRole('CUSTOMER')],
-  adminList: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.USER_LIST)],
-  adminView: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.USER_VIEW)],
-  adminUpdate: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.USER_UPDATE)],
-  adminSuspend: [requireRole('SUPER_ADMIN', 'SUB_ADMIN'), requirePermission(PERMISSION.USER_SUSPEND)],
-  adminDelete: [requireRole('SUPER_ADMIN'), requirePermission(PERMISSION.USER_DELETE)],
-  adminImpersonate: [requireRole('SUPER_ADMIN'), requirePermission(PERMISSION.USER_IMPERSONATE)],
+  adminList: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.USER_LIST),
+  ],
+  adminView: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.USER_VIEW),
+  ],
+  adminUpdate: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.USER_UPDATE),
+  ],
+  adminSuspend: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.USER_SUSPEND),
+  ],
+  adminDelete: [requireRole(ROLES.SUPER_ADMIN), requirePermission(PERMISSION.USER_DELETE)],
+  adminImpersonate: [
+    requireRole(ROLES.SUPER_ADMIN),
+    requirePermission(PERMISSION.USER_IMPERSONATE),
+  ],
 };
 
 export { adminOnly, schema };

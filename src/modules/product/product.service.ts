@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import fs from 'fs';
 import path from 'path';
 import { prisma } from '../../services/prisma.service';
 import { AppError } from '../../utils/AppError';
@@ -6,13 +7,10 @@ import { D, money, round } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
 import { VALIDATION } from '../../messages/validation';
-import { ADMIN_ACTION, PRODUCT_STATUS, ProductStatus } from '../../constants/roles';
+import { ADMIN_ACTION, PRODUCT_STATUS, ProductStatus, isAdminRole } from '../../constants/roles';
 import { getPagination } from '../../utils/pagination';
-import {
-  uniqueProductSlug,
-  generateAwb,
-  toSlug,
-} from '../../utils/slug';
+import { uniqueProductSlug, generateAwb, toSlug } from '../../utils/slug';
+import { toDayKey } from '../../utils/dates';
 import { writeActivityLog, writeAuditLog, diffChanges } from '../../services/audit.service';
 import { uploadToCloudinary, deleteFromCloudinary } from '../../services/cloudinary.service';
 import { deleteTempFiles } from '../../middlewares/upload.middleware';
@@ -56,7 +54,7 @@ export const requireOwnProduct = async (
     throw AppError.notFound(ERROR.PRODUCT.NOT_FOUND, ERROR_CODE.NOT_FOUND);
   }
 
-  const isAdmin = req?.auth?.role === 'SUPER_ADMIN' || req?.auth?.role === 'SUB_ADMIN';
+  const isAdmin = isAdminRole(D.str(req?.auth?.role));
   if (!isAdmin && product.vendorId !== req?.auth?.vendorId) {
     throw AppError.forbidden(ERROR.COMMON.FORBIDDEN, ERROR_CODE.FORBIDDEN);
   }
@@ -215,11 +213,7 @@ const validateReferences = async (input: any): Promise<void> => {
   }
 };
 
-export const createProduct = async (
-  vendorId: string,
-  input: any,
-  req?: any,
-): Promise<any> => {
+export const createProduct = async (vendorId: string, input: any, req?: any): Promise<any> => {
   await requireApprovedVendor(vendorId);
   await validateReferences(input);
 
@@ -291,11 +285,7 @@ export const getProductBySlug = async (slug: string): Promise<any> => {
   return product;
 };
 
-export const updateProduct = async (
-  productId: string,
-  input: any,
-  req?: any,
-): Promise<any> => {
+export const updateProduct = async (productId: string, input: any, req?: any): Promise<any> => {
   await requireOwnProduct(productId, req);
   await validateReferences(input);
 
@@ -326,7 +316,8 @@ export const updateProduct = async (
   if (input.costPrice !== undefined) data.costPrice = money(input.costPrice);
   if (input.taxPercent !== undefined) data.taxPercent = Number(input.taxPercent);
   if (input.stock !== undefined) data.stock = D.num(input.stock);
-  if (input.lowStockThreshold !== undefined) data.lowStockThreshold = D.num(input.lowStockThreshold);
+  if (input.lowStockThreshold !== undefined)
+    data.lowStockThreshold = D.num(input.lowStockThreshold);
   if (input.weight !== undefined) data.weight = Number(input.weight);
   if (input.allowBackorder !== undefined) data.allowBackorder = Boolean(input.allowBackorder);
   if (input.status !== undefined) data.status = input.status as ProductStatus;
@@ -686,7 +677,7 @@ export const listProducts = async (
     if (filters.status) {
       where.status = filters.status;
     }
-  } else if (req?.auth?.role === 'SUPER_ADMIN' || req?.auth?.role === 'SUB_ADMIN') {
+  } else if (isAdminRole(D.str(req?.auth?.role))) {
     if (filters.status) {
       where.status = filters.status;
     }
@@ -741,9 +732,11 @@ export const getFilters = async (query: any): Promise<any> => {
   const vendorMap = new Map<string, number>();
 
   for (const row of grouped) {
-    if (row.categoryId) categoryMap.set(row.categoryId, (categoryMap.get(row.categoryId) ?? 0) + row._count._all);
+    if (row.categoryId)
+      categoryMap.set(row.categoryId, (categoryMap.get(row.categoryId) ?? 0) + row._count._all);
     if (row.brandId) brandMap.set(row.brandId, (brandMap.get(row.brandId) ?? 0) + row._count._all);
-    if (row.vendorId) vendorMap.set(row.vendorId, (vendorMap.get(row.vendorId) ?? 0) + row._count._all);
+    if (row.vendorId)
+      vendorMap.set(row.vendorId, (vendorMap.get(row.vendorId) ?? 0) + row._count._all);
   }
 
   const [categories, brands, vendors, attributes] = await Promise.all([
@@ -921,10 +914,7 @@ export const getFrequentlyBought = async (
     .sort((a, b) => b.boughtCount - a.boughtCount);
 };
 
-export const getRecentlyViewed = async (
-  query: any,
-  req?: any,
-): Promise<any[]> => {
+export const getRecentlyViewed = async (query: any, req?: any): Promise<any[]> => {
   const { limit } = getPagination(query);
 
   if (!req?.auth?.userId) return [];
@@ -1037,7 +1027,7 @@ export const bulkUpdate = async (
   input: { productIds: string[]; updates: Record<string, any> },
   req?: any,
 ): Promise<BulkResult & { updated: any[] }> => {
-  const isAdmin = req?.auth?.role === 'SUPER_ADMIN' || req?.auth?.role === 'SUB_ADMIN';
+  const isAdmin = isAdminRole(D.str(req?.auth?.role));
 
   // A vendor may only touch its own rows.
   const owned = isAdmin
@@ -1090,7 +1080,14 @@ export const bulkUpdate = async (
 
     return tx.product.findMany({
       where: { id: { in: owned } },
-      select: { id: true, name: true, status: true, isFeatured: true, categoryId: true, brandId: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        isFeatured: true,
+        categoryId: true,
+        brandId: true,
+      },
     });
   });
 
@@ -1111,11 +1108,8 @@ export const bulkUpdate = async (
   };
 };
 
-export const bulkDelete = async (
-  productIds: string[],
-  req?: any,
-): Promise<BulkResult> => {
-  const isAdmin = req?.auth?.role === 'SUPER_ADMIN' || req?.auth?.role === 'SUB_ADMIN';
+export const bulkDelete = async (productIds: string[], req?: any): Promise<BulkResult> => {
+  const isAdmin = isAdminRole(D.str(req?.auth?.role));
 
   const owned = isAdmin
     ? productIds
@@ -1155,7 +1149,7 @@ export const bulkPriceUpdate = async (
   input: { productIds: string[]; type: PriceChangeType; value: number; roundTo: number },
   req?: any,
 ): Promise<{ updated: any[]; failed: string[] }> => {
-  const isAdmin = req?.auth?.role === 'SUPER_ADMIN' || req?.auth?.role === 'SUB_ADMIN';
+  const isAdmin = isAdminRole(D.str(req?.auth?.role));
 
   const rows = await prisma.product.findMany({
     where: isAdmin
@@ -1164,9 +1158,7 @@ export const bulkPriceUpdate = async (
     select: { id: true, name: true, price: true },
   });
 
-  const failed = input.productIds.filter(
-    (id) => !rows.some((r) => r.id === id),
-  );
+  const failed = input.productIds.filter((id) => !rows.some((r) => r.id === id));
 
   const updated: any[] = [];
 
@@ -1200,6 +1192,168 @@ export const bulkPriceUpdate = async (
   });
 
   return { updated, failed };
+};
+
+// ═══ CSV import and export ════════════════════════════════════════════════════════
+
+/**
+ * Column aliases accepted on import.
+ *
+ * A merchant's spreadsheet never matches our field names, and silently dropping a column is
+ * worse than accepting a couple of spellings of it.
+ */
+const CSV_COLUMNS: Record<string, string[]> = {
+  name: ['name', 'title', 'productname', 'product_name'],
+  price: ['price', 'saleprice', 'sale_price'],
+  mrpPrice: ['mrp', 'mrpprice', 'mrp_price'],
+  stock: ['stock', 'quantity', 'qty', 'inventory'],
+  sku: ['sku', 'code', 'productcode'],
+  description: ['description', 'details'],
+  categorySlug: ['category', 'categoryslug', 'category_slug'],
+  brandName: ['brand', 'brandname', 'brand_name'],
+};
+
+/** Maps one CSV row onto the bulk-create input shape, ignoring blank cells. */
+const csvRowToProduct = (row: Record<string, any>): Record<string, any> => {
+  const pick = (field: string): string => {
+    for (const alias of CSV_COLUMNS[field]) {
+      const key = Object.keys(row).find((k) => k.trim().toLowerCase() === alias);
+      if (key && D.str(row[key])) return D.str(row[key]);
+    }
+    return '';
+  };
+
+  return {
+    name: pick('name'),
+    price: Number(pick('price')) || 0,
+    ...(pick('mrpPrice') ? { mrpPrice: Number(pick('mrpPrice')) } : {}),
+    stock: Number(pick('stock')) || 0,
+    ...(pick('sku') ? { sku: pick('sku') } : {}),
+    ...(pick('description') ? { description: pick('description') } : {}),
+  };
+};
+
+/**
+ * Imports products from an uploaded CSV.
+ *
+ * The file is streamed through csv-parser rather than read whole, so a large sheet cannot
+ * exhaust memory, and rows that fail are reported instead of aborting the import.
+ */
+export const importCsv = async (
+  vendorId: string,
+  filePath: string,
+  input: { continueOnError?: boolean } = {},
+  actorId?: string,
+  req?: any,
+): Promise<Record<string, any>> => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const parse = require('csv-parser');
+
+  const rows: Record<string, any>[] = await new Promise((resolve, reject) => {
+    const collected: Record<string, any>[] = [];
+
+    fs.createReadStream(filePath)
+      .pipe(parse({ headers: true, skip_empty_lines: true, trim: true }))
+      .on('data', (row: Record<string, any>) => collected.push(row))
+      .on('end', () => resolve(collected))
+      .on('error', reject);
+  });
+
+  const products = rows.map(csvRowToProduct).filter((p) => D.str(p.name));
+
+  if (!products.length) {
+    throw AppError.badRequest(ERROR.BULK.NO_ROWS);
+  }
+
+  const result = await bulkCreate(
+    vendorId,
+    {
+      products,
+      continueOnError: input.continueOnError !== false,
+    },
+    req,
+  );
+
+  void writeAuditLog({
+    req,
+    actorId,
+    action: ADMIN_ACTION.IMPORT,
+    entity: 'Product',
+    description: `CSV import created ${result.successCount} products (${result.failCount} failed)`,
+  });
+
+  return {
+    fileName: path.basename(filePath),
+    totalRowCount: rows.length,
+    ...result,
+  };
+};
+
+const CSV_HEADER = [
+  'productId',
+  'name',
+  'slug',
+  'sku',
+  'category',
+  'brand',
+  'price',
+  'mrpPrice',
+  'stock',
+  'status',
+  'createdAt',
+];
+
+const csvCell = (value: unknown): string => {
+  const text = D.str(value as string);
+
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+/** Renders the caller's catalogue as CSV, capped so one request cannot stream the table. */
+export const exportCsv = async (
+  query: Record<string, any>,
+  vendorId?: string,
+): Promise<{ fileName: string; csv: string; totalRecord: number }> => {
+  const limit = Math.min(10_000, D.num(query.limit) || 1000);
+
+  const rows = await prisma.product.findMany({
+    where: {
+      deletedAt: null,
+      ...(vendorId ? { vendorId } : {}),
+      ...(D.str(query.categoryId) ? { categoryId: D.str(query.categoryId) } : {}),
+      ...(D.str(query.status) ? { status: D.str(query.status) as ProductStatus } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    include: {
+      category: { select: { name: true } },
+      brand: { select: { name: true } },
+    },
+  });
+
+  const body = rows.map((p: any) =>
+    [
+      D.str(p.id),
+      D.str(p.name),
+      D.str(p.slug),
+      D.str(p.sku),
+      D.str(p.category?.name),
+      D.str(p.brand?.name),
+      D.float(p.price),
+      D.float(p.mrpPrice),
+      D.num(p.stock),
+      D.str(p.status),
+      D.date(p.createdAt),
+    ]
+      .map(csvCell)
+      .join(','),
+  );
+
+  return {
+    fileName: `products-${toDayKey(new Date()).toISOString().slice(0, 10)}.csv`,
+    csv: [CSV_HEADER.join(','), ...body].join('\n'),
+    totalRecord: rows.length,
+  };
 };
 
 export { generateAwb };

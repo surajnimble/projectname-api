@@ -7,7 +7,9 @@
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'silent';
 process.env.PORT = '5999';
-process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/projectname_test?schema=public';
+process.env.DATABASE_URL =
+  process.env.TEST_DATABASE_URL ??
+  'postgresql://postgres:postgres@localhost:5432/projectname_test?schema=public';
 process.env.REDIS_URL = process.env.TEST_REDIS_URL ?? '';
 process.env.JWT_ACCESS_SECRET = 'test-access-secret-at-least-16-chars-long';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-at-least-16-chars-long';
@@ -23,3 +25,14 @@ process.env.WORKER_ENABLED = 'false';
 process.env.TRACKING_ENABLED = 'false';
 process.env.RATE_LIMIT_ENABLED = 'false';
 process.env.SEED_DEMO_DATA = 'false';
+
+/**
+ * No provider is configured in tests, so codes are only "deliverable" through the static-code
+ * channel. That mirrors a local dev machine and keeps the OTP enforcement paths reachable
+ * without a network call.
+ */
+process.env.OTP_REQUIRED = 'true';
+process.env.OTP_SMS_ENABLED = 'false';
+process.env.OTP_STATIC_CODE = '111111';
+process.env.BREVO_API_KEY = '';
+process.env.MSG91_AUTHKEY = '';

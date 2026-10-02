@@ -3,6 +3,7 @@ export const SOCKET = {
   EVENTS: {
     CHAT_NEW: 'chat:new',
     CHAT_READ: 'chat:read',
+    CHAT_CONVERSATION: 'chat:conversation',
     TYPING_START: 'typing:start',
     TYPING_STOP: 'typing:stop',
     USER_ONLINE: 'user:online',
@@ -10,12 +11,15 @@ export const SOCKET = {
     ORDER_STATUS: 'order:status',
     ANALYTICS_LIVE: 'analytics:live',
     NOTIFICATION_NEW: 'notification:new',
+    NOTIFICATION_READ: 'notification:read',
+    NOTIFICATION_READ_ALL: 'notification:read-all',
   },
   EMIT: {
     CHAT_SEND: 'chat:send',
     CHAT_TYPING: 'chat:typing',
     CHAT_READ: 'chat:read',
     ORDER_JOIN: 'order:join',
+    ORDER_LEAVE: 'order:leave',
     ANALYTICS_JOIN: 'analytics:join',
     PING: 'ping',
   },

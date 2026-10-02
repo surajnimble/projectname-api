@@ -181,8 +181,10 @@ export const calculateTotals = async (
 
     const lineSubtotal = money(unitPrice * qty);
 
-    // For inclusive pricing the tax is already inside the line total, so it is
-    // extracted rather than added on top.
+    /**
+     * For inclusive pricing the tax is already inside the line total, so it is extracted rather
+     * than added on top.
+     */
     const lineTax = taxInclusive
       ? money((lineSubtotal * taxPercent) / (100 + taxPercent))
       : money((lineSubtotal * taxPercent) / 100);
@@ -206,10 +208,12 @@ export const calculateTotals = async (
   let couponInvalid = false;
 
   if (requestedCode) {
-    // A cart read must never fail because the stored coupon stopped qualifying
-    // (the cart shrank, the coupon expired, ...). The discount is simply dropped
-    // and `couponInvalid` tells the client to clear it. Explicit application via
-    // applyCoupon still throws with the specific reason.
+    /**
+     * A cart read must never fail because the stored coupon stopped qualifying (the cart shrank,
+     * the coupon expired, ...). The discount is simply dropped and `couponInvalid` tells the
+     * client to clear it. Explicit application via applyCoupon still throws with the specific
+     * reason.
+     */
     try {
       const resolved = await resolveCoupon(requestedCode, subtotal, lines);
       coupon = resolved.coupon;
@@ -223,7 +227,10 @@ export const calculateTotals = async (
   }
 
   // ── Shipping ──────────────────────────────────────────────────────────────
-  const weightKg = money(lines.reduce((sum, l) => sum + D.float(l.item.product?.weight), 0), 3);
+  const weightKg = money(
+    lines.reduce((sum, l) => sum + D.float(l.item.product?.weight), 0),
+    3,
+  );
   const goodsValue = money(subtotal - couponDiscount + taxAmount);
 
   let shippingAmount = 0;
@@ -251,8 +258,10 @@ export const calculateTotals = async (
   }
 
   // ── Wallet ────────────────────────────────────────────────────────────────
-  // The wallet settles the whole payable amount, shipping included, so a fully
-  // redeemed order can actually reach zero.
+  /**
+   * The wallet settles the whole payable amount, shipping included, so a fully redeemed order
+   * can actually reach zero.
+   */
   const payable = money(Math.max(0, subtotal - couponDiscount + taxAmount + shippingAmount));
 
   let walletAmount = 0;
@@ -344,8 +353,10 @@ const resolveCoupon = async (
     throw AppError.unprocessable(ERROR.COUPON.INVALID);
   }
 
-  // A start date in the past means the coupon is already live, so only a
-  // future start date makes it invalid.
+  /**
+   * A start date in the past means the coupon is already live, so only a future start date makes
+   * it invalid.
+   */
   if (isFuture(row.startsAt)) throw AppError.unprocessable(ERROR.COUPON.INVALID);
 
   if (row.expiresAt && isPast(row.expiresAt)) {
@@ -356,9 +367,7 @@ const resolveCoupon = async (
   const minRequired = Math.max(D.float(row.minOrderAmount), D.float(config.minOrderAmount));
 
   if (minRequired > 0 && subtotal < minRequired) {
-    throw AppError.unprocessable(
-      `${ERROR.COUPON.MIN_NOT_MET} (minimum ${minRequired})`,
-    );
+    throw AppError.unprocessable(`${ERROR.COUPON.MIN_NOT_MET} (minimum ${minRequired})`);
   }
 
   if (row.maxUsage > 0 && row.usedCount >= row.maxUsage) {
@@ -432,7 +441,10 @@ interface SellableProduct {
 }
 
 /** Loads a product that may legally be added to a cart, or throws the reason. */
-const loadSellableProduct = async (productId: string, variantId: string): Promise<SellableProduct> => {
+const loadSellableProduct = async (
+  productId: string,
+  variantId: string,
+): Promise<SellableProduct> => {
   const product = await prisma.product.findFirst({
     where: { id: productId, deletedAt: null },
     select: {
@@ -528,8 +540,9 @@ export const addItem = async (
     select: { id: true, qty: true },
   });
 
-  // Adding the same product twice increases the quantity rather than
-  // creating a second line.
+  /**
+   * Adding the same product twice increases the quantity rather than creating a second line.
+   */
   const newQty = D.num(existing?.qty) + qty;
   assertStock(sellable.stock, newQty, sellable.allowBackorder);
 
@@ -544,8 +557,10 @@ export const addItem = async (
 
   const lineData = { qty: newQty, price: sellable.unitPrice };
 
-  // The compound unique key cannot address a NULL variantId, so a plain product
-  // line is written through its cart-item id.
+  /**
+   * The compound unique key cannot address a NULL variantId, so a plain product line is written
+   * through its cart-item id.
+   */
   const item = existing
     ? await prisma.cartItem.update({ where: { id: existing.id }, data: lineData })
     : await prisma.cartItem.create({
@@ -831,8 +846,10 @@ export const mergeGuestCart = async (
 
   const incoming: { productId: string; variantId: string; qty: number }[] = [];
 
-  // Anything the server already recorded against the anonymous session, plus
-  // whatever the client kept locally. De-duplicated by product+variant below.
+  /**
+   * Anything the server already recorded against the anonymous session, plus whatever the client
+   * kept locally. De-duplicated by product+variant below.
+   */
   if (sessionKey) {
     const sessionCarts = await prisma.cart.findMany({
       where: { sessionKey },
@@ -867,8 +884,10 @@ export const mergeGuestCart = async (
     return { mergedCount: 0, skippedCount: 0, totals: await calculateTotals(cart) };
   }
 
-  // Merge same product+variant first, otherwise the second upsert would
-  // overwrite the first one's quantity instead of adding to it.
+  /**
+   * Merge same product+variant first, otherwise the second upsert would overwrite the first
+   * one's quantity instead of adding to it.
+   */
   const merged = new Map<string, { productId: string; variantId: string; qty: number }>();
   for (const entry of incoming) {
     const key = `${entry.productId}:${entry.variantId}`;
@@ -897,9 +916,7 @@ export const mergeGuestCart = async (
       const wanted = D.num(existing?.qty) + entry.qty;
 
       // Clamp rather than reject: a guest cart can hold a stale quantity.
-      const qty = sellable.allowBackorder
-        ? wanted
-        : Math.min(wanted, sellable.stock);
+      const qty = sellable.allowBackorder ? wanted : Math.min(wanted, sellable.stock);
 
       if (qty <= 0) {
         skippedCount += 1;
@@ -946,14 +963,22 @@ export const mergeGuestCart = async (
     meta: { mergedCount, skippedCount },
   });
 
-  return { mergedCount, skippedCount, totals: await calculateTotals(await getOrCreateCart(userId)) };
+  return {
+    mergedCount,
+    skippedCount,
+    totals: await calculateTotals(await getOrCreateCart(userId)),
+  };
 };
 
 /** Balance is credits minus debits, derived from the transaction ledger. */
 export const getWalletBalance = async (userId: string): Promise<number> => {
   const [credits, debits] = await Promise.all([
     prisma.walletTransaction.aggregate({
-      where: { userId, status: 'SUCCESS', type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] } },
+      where: {
+        userId,
+        status: 'SUCCESS',
+        type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] },
+      },
       _sum: { amount: true },
     }),
     prisma.walletTransaction.aggregate({
@@ -1000,7 +1025,11 @@ export const listWishlist = async (userId: string): Promise<any[]> => {
   });
 };
 
-export const addWishlistItem = async (userId: string, productId: string, req?: any): Promise<any> => {
+export const addWishlistItem = async (
+  userId: string,
+  productId: string,
+  req?: any,
+): Promise<any> => {
   const product = await prisma.product.findFirst({
     where: { id: D.str(productId), deletedAt: null },
     select: { id: true },
@@ -1037,7 +1066,11 @@ export const addWishlistItem = async (userId: string, productId: string, req?: a
 };
 
 /** Accepts either the wishlist-item id or the product id. */
-export const removeWishlistItem = async (userId: string, reference: string, req?: any): Promise<void> => {
+export const removeWishlistItem = async (
+  userId: string,
+  reference: string,
+  req?: any,
+): Promise<void> => {
   const wishlist = await getOrCreateWishlist(userId);
 
   const item = await prisma.wishlistItem.findFirst({
@@ -1058,7 +1091,10 @@ export const removeWishlistItem = async (userId: string, reference: string, req?
   });
 };
 
-export const clearWishlist = async (userId: string, req?: any): Promise<{ removedCount: number }> => {
+export const clearWishlist = async (
+  userId: string,
+  req?: any,
+): Promise<{ removedCount: number }> => {
   const wishlist = await getOrCreateWishlist(userId);
 
   const { count } = await prisma.wishlistItem.deleteMany({ where: { wishlistId: wishlist.id } });

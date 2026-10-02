@@ -1,5 +1,6 @@
 import { D } from '../../utils/defaults';
 import { ACCESS_TOKEN_TTL_SEC } from '../../config/jwt.config';
+import { OTP } from '../../config/otp.config';
 import { AuthUserWithVendor } from './auth.types';
 
 /**
@@ -74,7 +75,7 @@ export const serializeOtpResponse = (input: {
   identifier: D.str(input.identifier),
   channel: D.str(input.channel),
   expiresIn: D.num(input.expiresIn),
-  otpLength: 6,
+  otpLength: OTP.LENGTH,
   isNewUser: D.bool(input.isNewUser),
 });
 

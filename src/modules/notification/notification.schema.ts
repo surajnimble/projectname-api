@@ -1,20 +1,20 @@
 import { z } from 'zod';
-import { NotificationChannel, TicketPriority, TicketStatus } from '@prisma/client';
+import { NotificationChannel, Platform, TicketPriority, TicketStatus } from '@prisma/client';
 import { VALIDATION } from '../../messages/validation';
+import { ERROR } from '../../messages/error';
 import { NAME } from '../../config/password.config';
 import { common, paginationSchema } from '../../middlewares/validate.middleware';
+import { D } from '../../utils/defaults';
 
 const id = common.cuid;
-
-const ERROR_EMPTY_MESSAGE = 'Message cannot be empty.';
-const ERROR_MESSAGE_REQUIRED = 'Reply message is required.';
-const D_arr = (v: any): any[] => (Array.isArray(v) ? v : []);
 
 // ─── Notification ─────────────────────────────────────────────────────────────
 
 export const listNotificationsSchema = z
   .object({
-    type: z.enum(['ORDER', 'PAYMENT', 'PAYOUT', 'RETURN', 'TICKET', 'PROMO', 'SYSTEM', 'ALERT']).optional(),
+    type: z
+      .enum(['ORDER', 'PAYMENT', 'PAYOUT', 'RETURN', 'TICKET', 'PROMO', 'SYSTEM', 'ALERT'])
+      .optional(),
     channel: z.nativeEnum(NotificationChannel).optional(),
     isRead: z.enum(['true', 'false']).optional(),
   })
@@ -61,18 +61,14 @@ export const startConversationSchema = z
   .object({
     vendorId: id,
     subject: z.string().trim().max(NAME.TITLE_MAX_LENGTH).optional(),
-    message: z
-      .string()
-      .trim()
-      .min(1, ERROR_EMPTY_MESSAGE)
-      .max(NAME.COMMENT_MAX_LENGTH),
+    message: z.string().trim().min(1, ERROR.CHAT.EMPTY_MESSAGE).max(NAME.COMMENT_MAX_LENGTH),
   })
   .strict();
 
 /** POST /chat/:id/sendMessage */
 export const sendMessageSchema = z
   .object({
-    body: z.string().trim().min(1, ERROR_EMPTY_MESSAGE).max(NAME.COMMENT_MAX_LENGTH),
+    body: z.string().trim().min(1, ERROR.CHAT.EMPTY_MESSAGE).max(NAME.COMMENT_MAX_LENGTH),
     attachments: z.array(z.string().trim().max(300)).max(6).optional().default([]),
   })
   .strict();
@@ -127,11 +123,7 @@ export const createTicketSchema = z
 /** POST /tickets/:id/reply */
 export const replyTicketSchema = z
   .object({
-    message: z
-      .string()
-      .trim()
-      .min(1, ERROR_MESSAGE_REQUIRED)
-      .max(NAME.COMMENT_MAX_LENGTH),
+    message: z.string().trim().min(1, ERROR.TICKET.MESSAGE_REQUIRED).max(NAME.COMMENT_MAX_LENGTH),
     /** Staff-only note, hidden from the customer. */
     isInternal: z.boolean().optional().default(false),
   })
@@ -155,11 +147,7 @@ export const assignTicketSchema = z
 /** POST /tickets/categories — admin */
 export const ticketCategorySchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, VALIDATION.MIN_LENGTH('name', 2))
-      .max(NAME.TITLE_MAX_LENGTH),
+    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.TITLE_MAX_LENGTH),
     isActive: z.boolean().optional().default(true),
     sortOrder: z.coerce.number().int().min(0).optional().default(0),
   })
@@ -171,7 +159,9 @@ export const ticketIdParamSchema = z.object({ id });
 export const broadcastSchema = z
   .object({
     userIds: z.array(id).max(5000).optional(),
-    type: z.enum(['ORDER', 'PAYMENT', 'PAYOUT', 'RETURN', 'TICKET', 'PROMO', 'SYSTEM', 'ALERT']).default('PROMO'),
+    type: z
+      .enum(['ORDER', 'PAYMENT', 'PAYOUT', 'RETURN', 'TICKET', 'PROMO', 'SYSTEM', 'ALERT'])
+      .default('PROMO'),
     channel: z.nativeEnum(NotificationChannel).optional().default('IN_APP'),
     title: z.string().trim().min(2, VALIDATION.MIN_LENGTH('title', 2)).max(120),
     body: z.string().trim().max(1000).optional(),
@@ -180,9 +170,31 @@ export const broadcastSchema = z
     toAll: z.boolean().optional().default(false),
   })
   .strict()
-  .refine((v) => Boolean(D_arr(v.userIds).length) || v.toAll, {
+  .refine((v) => Boolean(D.arr(v.userIds).length) || v.toAll, {
     message: 'Provide userIds or set toAll.',
   });
+
+/** POST /notifications/registerDevice and /notifications/unregisterDevice */
+export const deviceTokenSchema = z
+  .object({
+    deviceId: z.string().trim().min(4, VALIDATION.REQUIRED('deviceId')).max(120),
+    fcmToken: z.string().trim().max(400).optional().default(''),
+    platform: z.nativeEnum(Platform).optional(),
+  })
+  .strict();
+
+/** Notification template create / update. */
+export const templateSchema = z
+  .object({
+    key: z.string().trim().min(2, VALIDATION.REQUIRED('key')).max(80),
+    name: z.string().trim().max(120).optional(),
+    channel: z.nativeEnum(NotificationChannel).optional().default('PUSH'),
+    title: z.string().trim().min(2, VALIDATION.REQUIRED('title')).max(200),
+    body: z.string().trim().min(1, VALIDATION.REQUIRED('body')).max(2000),
+    variables: z.array(z.string().trim().max(60)).max(50).optional().default([]),
+    isActive: z.boolean().optional().default(true),
+  })
+  .strict();
 
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

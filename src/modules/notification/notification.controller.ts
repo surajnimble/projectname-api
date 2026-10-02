@@ -2,6 +2,7 @@ import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { isAdminRole, ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
@@ -16,14 +17,13 @@ import {
 
 const userId = (req: Request): string => req.auth!.userId;
 
-
 export const guards = {
-  admin: [requireRole('SUPER_ADMIN', 'SUB_ADMIN')],
-  superAdmin: [requireRole('SUPER_ADMIN')],
+  admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
+  superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
 };
 
 /** Staff are the only side that may see internal notes. */
-const isStaff = (req: Request): boolean => D.str(req.auth!.role).includes('ADMIN');
+const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth!.role));
 
 // ═══ Notifications ═══════════════════════════════════════════════════════════
 
@@ -77,12 +77,22 @@ export const getUnreadCount = asyncHandler(async (req, res) => {
  *     responses:
  *       200: { description: How many were marked }
  */
-export const markNotificationsRead = asyncHandler(async (req, res) => {
-  const all = D.arr(req.body.ids).length === 0;
-  const count = await service.markRead(userId(req), req.body.ids, all);
+/** PATCH /notifications/markRead/:id — marks one notification */
+export const markNotificationRead = asyncHandler(async (req, res) => {
+  const count = await service.markRead(userId(req), [D.str(req.params.id)], false);
 
   return ApiResponse.success(res, {
-    message: all ? SUCCESS.NOTIFICATION.MARKED_ALL_READ : SUCCESS.NOTIFICATION.MARKED_READ,
+    message: SUCCESS.NOTIFICATION.MARKED_READ,
+    result: { markedCount: D.num(count) },
+  });
+});
+
+/** PATCH /notifications/markAllRead */
+export const markAllNotificationsRead = asyncHandler(async (req, res) => {
+  const count = await service.markRead(userId(req), [], true);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.MARKED_ALL_READ,
     result: { markedCount: D.num(count) },
   });
 });
@@ -98,7 +108,10 @@ export const markNotificationsRead = asyncHandler(async (req, res) => {
  */
 export const remove = asyncHandler(async (req, res) => {
   await service.deleteNotification(userId(req), D.str(req.params.id));
-  return ApiResponse.success(res, { message: SUCCESS.NOTIFICATION.DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });
 
 /**
@@ -167,7 +180,10 @@ export const getConversations = asyncHandler(async (req, res) => {
     message: SUCCESS.CHAT.CONVERSATIONS_FETCHED,
     result: {
       unreadTotal: D.num(unreadTotal),
-      itemList: rows.map((c: any) => ({ ...serializeConversation(c), unreadCount: D.num(c.unreadCount) })),
+      itemList: rows.map((c: any) => ({
+        ...serializeConversation(c),
+        unreadCount: D.num(c.unreadCount),
+      })),
     },
     totalRecord: total,
     currentPage: page,
@@ -247,8 +263,15 @@ export const sendMessage = asyncHandler(async (req, res) => {
  *       200: { description: How many were marked }
  */
 export const markConversationRead = asyncHandler(async (req, res) => {
-  const count = await service.markConversationRead(D.str(req.params.id), userId(req), req.body.lastReadAt);
-  return ApiResponse.success(res, { message: SUCCESS.CHAT.READ, result: { markedCount: D.num(count) } });
+  const count = await service.markConversationRead(
+    D.str(req.params.id),
+    userId(req),
+    req.body.lastReadAt,
+  );
+  return ApiResponse.success(res, {
+    message: SUCCESS.CHAT.READ,
+    result: { markedCount: D.num(count) },
+  });
 });
 
 /**
@@ -262,7 +285,10 @@ export const markConversationRead = asyncHandler(async (req, res) => {
  */
 export const deleteMessage = asyncHandler(async (req, res) => {
   await service.deleteMessage(D.str(req.params.id), userId(req), isStaff(req));
-  return ApiResponse.success(res, { message: SUCCESS.CHAT.MESSAGE_DELETED, result: { id: D.str(req.params.id) } });
+  return ApiResponse.success(res, {
+    message: SUCCESS.CHAT.MESSAGE_DELETED,
+    result: { id: D.str(req.params.id) },
+  });
 });
 
 /**
@@ -398,8 +424,15 @@ export const createTicket = asyncHandler(async (req, res) => {
  *       404: { description: Not found or not the caller's ticket }
  */
 export const getById = asyncHandler(async (req, res) => {
-  const row = await service.getTicketById(D.str(req.params.id), isStaff(req) ? undefined : userId(req), isStaff(req));
-  return ApiResponse.success(res, { message: SUCCESS.TICKET.RETRIEVED, result: serializeTicket(row) });
+  const row = await service.getTicketById(
+    D.str(req.params.id),
+    isStaff(req) ? undefined : userId(req),
+    isStaff(req),
+  );
+  return ApiResponse.success(res, {
+    message: SUCCESS.TICKET.RETRIEVED,
+    result: serializeTicket(row),
+  });
 });
 
 /**
@@ -414,7 +447,13 @@ export const getById = asyncHandler(async (req, res) => {
  *       422: { description: Ticket is closed }
  */
 export const reply = asyncHandler(async (req, res) => {
-  const message = await service.replyTicket(D.str(req.params.id), userId(req), req.body, isStaff(req), req);
+  const message = await service.replyTicket(
+    D.str(req.params.id),
+    userId(req),
+    req.body,
+    isStaff(req),
+    req,
+  );
   return ApiResponse.created(res, SUCCESS.TICKET.REPLIED, { messageId: D.str(message.id) });
 });
 
@@ -430,8 +469,17 @@ export const reply = asyncHandler(async (req, res) => {
  *       403: { description: Customer attempting a staff-only transition }
  */
 export const updateStatus = asyncHandler(async (req, res) => {
-  const row = await service.updateTicketStatus(D.str(req.params.id), D.str(req.body.status), D.str(req.body.remark), isStaff(req), req);
-  return ApiResponse.success(res, { message: SUCCESS.TICKET.STATUS_UPDATED, result: serializeTicket(row) });
+  const row = await service.updateTicketStatus(
+    D.str(req.params.id),
+    D.str(req.body.status),
+    D.str(req.body.remark),
+    isStaff(req),
+    req,
+  );
+  return ApiResponse.success(res, {
+    message: SUCCESS.TICKET.STATUS_UPDATED,
+    result: serializeTicket(row),
+  });
 });
 
 /**
@@ -445,7 +493,10 @@ export const updateStatus = asyncHandler(async (req, res) => {
  */
 export const assign = asyncHandler(async (req, res) => {
   const row = await service.assignTicket(D.str(req.params.id), D.str(req.body.assignedToId), req);
-  return ApiResponse.success(res, { message: SUCCESS.TICKET.ASSIGNED, result: serializeTicket(row) });
+  return ApiResponse.success(res, {
+    message: SUCCESS.TICKET.ASSIGNED,
+    result: serializeTicket(row),
+  });
 });
 
 /** GET /tickets/getCategories */
@@ -482,4 +533,113 @@ export const getStats = asyncHandler(async (_req, res) => {
 export const broadcast = asyncHandler(async (req, res) => {
   const count = await service.broadcast(req.body);
   return ApiResponse.accepted(res, SUCCESS.NOTIFICATION.BULK_SENT, { sentCount: D.num(count) });
+});
+
+// ═══ Push device tokens ═══════════════════════════════════════════════════════
+
+/** POST /notifications/registerDevice */
+export const registerDevice = asyncHandler(async (req, res) => {
+  const row = await service.registerDeviceToken(userId(req), req.body);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.DEVICE_REGISTERED,
+    result: {
+      deviceId: D.str(row.deviceId),
+      platform: D.str(row.platform),
+      hasToken: D.bool(row.fcmToken),
+      lastSeenAt: D.date(row.lastSeenAt),
+    },
+  });
+});
+
+/** POST /notifications/unregisterDevice */
+export const unregisterDevice = asyncHandler(async (req, res) => {
+  const result = await service.unregisterDeviceToken(userId(req), D.str(req.body.deviceId));
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.DEVICE_UNREGISTERED,
+    result,
+  });
+});
+
+// ═══ Notification templates ═══════════════════════════════════════════════════
+
+/** GET /notifications/getTemplates — admin */
+export const getTemplates = asyncHandler(async (_req, res) => {
+  const rows = await service.listNotificationTemplates();
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.TEMPLATES_FETCHED,
+    result: {
+      itemCount: rows.length,
+      itemList: rows.map((t: any) => ({
+        templateId: D.str(t.id),
+        key: D.str(t.key),
+        name: D.str(t.name),
+        channel: D.str(t.channel),
+        title: D.str(t.title),
+        body: D.str(t.body),
+        variables: D.strArr(t.variables),
+        isActive: D.bool(t.isActive),
+        updatedAt: D.date(t.updatedAt),
+      })),
+    },
+  });
+});
+
+/** POST /notifications/createTemplate — admin */
+export const createTemplate = asyncHandler(async (req, res) => {
+  const row = await service.createNotificationTemplate(req.body, req);
+  return ApiResponse.created(res, SUCCESS.NOTIFICATION.TEMPLATE_CREATED, {
+    templateId: D.str(row.id),
+    key: D.str(row.key),
+    channel: D.str(row.channel),
+  });
+});
+
+/** PATCH /notifications/updateTemplate/:id — admin */
+export const updateTemplate = asyncHandler(async (req, res) => {
+  const row = await service.updateNotificationTemplate(D.str(req.params.id), req.body, req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.TEMPLATE_UPDATED,
+    result: { templateId: D.str(row.id), isActive: D.bool(row.isActive) },
+  });
+});
+
+/** DELETE /notifications/deleteTemplate/:id — admin */
+export const deleteTemplate = asyncHandler(async (req, res) => {
+  await service.deleteNotificationTemplate(D.str(req.params.id), req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.NOTIFICATION.TEMPLATE_DELETED,
+    result: { templateId: D.str(req.params.id), isDeleted: true },
+  });
+});
+
+// ═══ Ticket shortcuts ════════════════════════════════════════════════════════
+
+/** PATCH /tickets/close/:id — either side may close a thread. */
+export const closeTicket = asyncHandler(async (req, res) => {
+  const row = await service.updateTicketStatus(
+    D.str(req.params.id),
+    'CLOSED',
+    D.str(req.body?.remark),
+    isStaff(req),
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.TICKET.CLOSED,
+    result: { ticketId: D.str(row.id), status: D.str(row.status) },
+  });
+});
+
+/** DELETE /tickets/delete/:id — admin */
+export const deleteTicket = asyncHandler(async (req, res) => {
+  await service.deleteTicket(D.str(req.params.id), req);
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.TICKET.DELETED,
+    result: { ticketId: D.str(req.params.id), isDeleted: true },
+  });
 });

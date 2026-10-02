@@ -1,3 +1,5 @@
+import { ENV } from './env.config';
+
 export const UPLOAD = {
   IMAGE: {
     MAX_SIZE_MB: 5,
@@ -34,7 +36,11 @@ export const UPLOAD = {
     MAX_COUNT: 5,
     ALLOWED_MIME: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
   },
-  CLOUDINARY_FOLDER: 'projectname',
+  /**
+   * Fallback top-level media folder. `CLOUDINARY_FOLDER` overrides this at
+   * runtime — the constant is only the default for a checkout with no .env.
+   */
+  CLOUDINARY_FOLDER: ENV.CLOUDINARY_FOLDER || 'projectname',
   TEMP_DIR: 'uploads/tmp',
   SIGNED_URL_EXPIRY_SEC: 3600,
 };

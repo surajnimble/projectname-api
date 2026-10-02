@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { validate, paginationSchema } from '../../middlewares/validate.middleware';
 import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
 import { uploadRateLimit } from '../../middlewares/rateLimit.middleware';
-import { uploadFiles } from '../../middlewares/upload.middleware';
+import { uploadFiles, uploadSingle } from '../../middlewares/upload.middleware';
 import { UPLOAD_KIND } from '../../config/upload.config';
 import * as controller from './product.controller';
 import * as schema from './product.schema';
@@ -46,7 +46,12 @@ router.get(
  *     parameters:
  *       - { name: id, in: path, required: true, schema: { type: string } }
  */
-router.get('/getById/:id', optionalAuth, validate({ params: schema.productIdParamSchema }), controller.getById);
+router.get(
+  '/getById/:id',
+  optionalAuth,
+  validate({ params: schema.productIdParamSchema }),
+  controller.getById,
+);
 
 /**
  * @openapi
@@ -105,7 +110,12 @@ router.get(
 );
 
 /** POST /products/trackView/:id */
-router.post('/trackView/:id', optionalAuth, validate({ params: schema.relatedParamsSchema }), controller.trackView);
+router.post(
+  '/trackView/:id',
+  optionalAuth,
+  validate({ params: schema.relatedParamsSchema }),
+  controller.trackView,
+);
 
 // ── Vendor: own catalog ──────────────────────────────────────────────────────
 
@@ -240,6 +250,24 @@ router.post(
   authenticate,
   validate({ body: schema.bulkPriceUpdateSchema }),
   controller.bulkPriceUpdate,
+);
+
+/** POST /products/bulkImportCsv — multipart upload; per-row errors are reported, not thrown. */
+router.post(
+  '/bulkImportCsv',
+  authenticate,
+  uploadRateLimit,
+  ...controller.guards.vendor,
+  uploadSingle(UPLOAD_KIND.CSV, 'file'),
+  controller.bulkImportCsv,
+);
+
+/** GET /products/exportCsv */
+router.get(
+  '/exportCsv',
+  authenticate,
+  validate({ query: schema.listProductsSchema }),
+  controller.exportCsv,
 );
 
 export default router;

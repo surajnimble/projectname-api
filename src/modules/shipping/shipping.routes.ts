@@ -1,42 +1,42 @@
 import { Router } from 'express';
-import { validate } from '../../middlewares/validate.middleware';
+import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
 import * as controller from './shipping.controller';
 import * as schema from './shipping.schema';
 
-const router = Router();
-
 // ── Zones ─────────────────────────────────────────────────────────────────────
 
-/** GET /shipping/zones/getAll */
+const router = Router();
+
+/** GET /shipping/getZones */
 router.get(
-  '/zones/getAll',
+  '/getZones',
   authenticate,
   validate({ query: schema.listZonesSchema }),
   controller.zoneList,
 );
 
-/** POST /shipping/zones/createZone */
+/** POST /shipping/createZone — admin */
 router.post(
-  '/zones/createZone',
+  '/createZone',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createZoneSchema }),
   controller.zoneCreate,
 );
 
-/** PATCH /shipping/zones/updateZone/:id */
+/** PATCH /shipping/updateZone/:id — admin */
 router.patch(
-  '/zones/updateZone/:id',
+  '/updateZone/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.zoneIdParamSchema, body: schema.updateZoneSchema }),
   controller.zoneUpdate,
 );
 
-/** DELETE /shipping/zones/deleteZone/:id */
+/** DELETE /shipping/deleteZone/:id — admin */
 router.delete(
-  '/zones/deleteZone/:id',
+  '/deleteZone/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.zoneIdParamSchema }),
@@ -45,35 +45,35 @@ router.delete(
 
 // ── Methods ───────────────────────────────────────────────────────────────────
 
-/** GET /shipping/methods/getAll */
+/** GET /shipping/getMethods */
 router.get(
-  '/methods/getAll',
+  '/getMethods',
   authenticate,
   validate({ query: schema.listMethodsSchema }),
   controller.methodList,
 );
 
-/** POST /shipping/methods/createMethod */
+/** POST /shipping/createMethod — admin */
 router.post(
-  '/methods/createMethod',
+  '/createMethod',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createMethodSchema }),
   controller.methodCreate,
 );
 
-/** PATCH /shipping/methods/updateMethod/:id */
+/** PATCH /shipping/updateMethod/:id — admin */
 router.patch(
-  '/methods/updateMethod/:id',
+  '/updateMethod/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.zoneIdParamSchema, body: schema.updateMethodSchema }),
   controller.methodUpdate,
 );
 
-/** DELETE /shipping/methods/deleteMethod/:id */
+/** DELETE /shipping/deleteMethod/:id — admin */
 router.delete(
-  '/methods/deleteMethod/:id',
+  '/deleteMethod/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.zoneIdParamSchema }),
@@ -82,26 +82,26 @@ router.delete(
 
 // ── Partners ──────────────────────────────────────────────────────────────────
 
-/** GET /shipping/partners/getAll */
+/** GET /shipping/getPartners */
 router.get(
-  '/partners/getAll',
+  '/getPartners',
   authenticate,
   validate({ query: schema.listMethodsSchema }),
   controller.partnerList,
 );
 
-/** POST /shipping/partners/createPartner */
+/** POST /shipping/createPartner — admin */
 router.post(
-  '/partners/createPartner',
+  '/createPartner',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createPartnerSchema }),
   controller.partnerCreate,
 );
 
-/** PATCH /shipping/partners/updatePartner/:id */
+/** PATCH /shipping/updatePartner/:id — admin */
 router.patch(
-  '/partners/updatePartner/:id',
+  '/updatePartner/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.partnerIdParamSchema, body: schema.updatePartnerSchema }),
@@ -110,9 +110,9 @@ router.patch(
 
 // ── Serviceability ────────────────────────────────────────────────────────────
 
-/** POST /shipping/checkServiceable */
+/** POST /shipping/checkServiceability */
 router.post(
-  '/checkServiceable',
+  '/checkServiceability',
   authenticate,
   validate({ body: schema.checkServiceableSchema }),
   controller.checkServiceable,
@@ -128,79 +128,102 @@ router.post(
 
 // ── Shipments ─────────────────────────────────────────────────────────────────
 
-/** PATCH /shipping/shipments/updateStatus/:id */
-router.patch(
-  '/shipments/updateStatus/:id',
+/** POST /shipping/createShipment/:subOrderId — vendor */
+router.post(
+  '/createShipment/:subOrderId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.zoneIdParamSchema, body: schema.toggleDeliveryBoySchema }),
+  ...controller.guards.vendor,
+  validate({ params: idParamSchema, body: schema.createShipmentSchema }),
+  controller.shipmentCreate,
+);
+
+/** GET /shipping/track/:awb — public */
+router.get('/track/:awb', controller.shipmentTrack);
+
+/** PATCH /shipping/updateStatus/:id */
+router.patch(
+  '/updateStatus/:id',
+  authenticate,
+  validate({ params: idParamSchema, body: schema.toggleDeliveryBoySchema }),
   controller.shipmentStatus,
 );
 
+export const shippingRoutes = router;
+
 // ── Delivery boys ─────────────────────────────────────────────────────────────
 
-/** GET /shipping/delivery-boys/getAll */
-router.get(
-  '/delivery-boys/getAll',
+const deliveryBoy = Router();
+
+/** GET /deliveryBoys/getAll */
+deliveryBoy.get(
+  '/getAll',
   authenticate,
   validate({ query: schema.listDeliveryBoysSchema }),
   controller.deliveryBoyList,
 );
 
-/** POST /shipping/delivery-boys/createDeliveryBoy */
-router.post(
-  '/delivery-boys/createDeliveryBoy',
+/** POST /deliveryBoys/create — admin */
+deliveryBoy.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createDeliveryBoySchema }),
   controller.deliveryBoyCreate,
 );
 
-/** PATCH /shipping/delivery-boys/updateDeliveryBoy/:id */
-router.patch(
-  '/delivery-boys/updateDeliveryBoy/:id',
+/** PATCH /deliveryBoys/update/:id — admin */
+deliveryBoy.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.deliveryBoyIdParamSchema, body: schema.updateDeliveryBoySchema }),
   controller.deliveryBoyUpdate,
 );
 
-/** PATCH /shipping/delivery-boys/toggleStatus/:id */
-router.patch(
-  '/delivery-boys/toggleStatus/:id',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.deliveryBoyIdParamSchema, body: schema.toggleDeliveryBoySchema }),
-  controller.deliveryBoyToggle,
-);
-
-/** DELETE /shipping/delivery-boys/deleteDeliveryBoy/:id */
-router.delete(
-  '/delivery-boys/deleteDeliveryBoy/:id',
+/** DELETE /deliveryBoys/delete/:id — admin */
+deliveryBoy.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.deliveryBoyIdParamSchema }),
   controller.deliveryBoyDelete,
 );
 
-/** GET /shipping/delivery-boys/getDeliveries */
-router.get(
-  '/delivery-boys/getDeliveries',
+/** PATCH /deliveryBoys/toggleStatus/:id — admin */
+deliveryBoy.patch(
+  '/toggleStatus/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.deliveryBoyIdParamSchema, body: schema.toggleDeliveryBoySchema }),
+  controller.deliveryBoyToggle,
+);
+
+/** GET /deliveryBoys/getMyDeliveries */
+deliveryBoy.get(
+  '/getMyDeliveries',
   authenticate,
   validate({ query: schema.listDeliveryBoysSchema }),
   controller.deliveryList,
 );
 
-export const shippingRoutes = router;
+/** PATCH /deliveryBoys/updateDeliveryStatus/:id */
+deliveryBoy.patch(
+  '/updateDeliveryStatus/:id',
+  authenticate,
+  validate({ params: idParamSchema, body: schema.shipmentStatusSchema }),
+  controller.deliveryStatusUpdate,
+);
+
+export const deliveryBoyRoutes = deliveryBoy;
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 const settings = Router();
 
-/** GET /settings/getPublic */
-settings.get('/getPublic', authenticate, controller.settingsPublic);
+/** GET /settings/getPublicSettings */
+settings.get('/getPublicSettings', controller.settingsPublic);
 
-/** GET /settings/getAll */
+/** GET /settings/getAll — admin */
 settings.get(
   '/getAll',
   authenticate,
@@ -209,22 +232,63 @@ settings.get(
   controller.settingsList,
 );
 
-/** PATCH /settings/update */
+/** PATCH /settings/updateSetting — admin */
 settings.patch(
-  '/update',
+  '/updateSetting',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.updateSettingSchema }),
   controller.settingsUpdate,
 );
 
-/** PATCH /settings/bulkUpdate */
-settings.patch(
-  '/bulkUpdate',
+/** POST /settings/bulkUpdateSettings — admin */
+settings.post(
+  '/bulkUpdateSettings',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.bulkUpdateSettingsSchema }),
   controller.settingsBulkUpdate,
+);
+
+/** GET /settings/getByCategory/:category — admin */
+settings.get(
+  '/getByCategory/:category',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.settingCategoryParamSchema }),
+  controller.settingsByCategory,
+);
+
+/** POST /settings/resetToDefault — super admin */
+settings.post(
+  '/resetToDefault',
+  authenticate,
+  ...controller.guards.superAdmin,
+  controller.settingsReset,
+);
+
+/** GET /settings/getFeatureFlags */
+settings.get('/getFeatureFlags', controller.featureFlags);
+
+/** PATCH /settings/toggleFeature — admin */
+settings.patch(
+  '/toggleFeature',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.toggleFeatureSchema }),
+  controller.featureToggle,
+);
+
+/** GET /settings/getMaintenance */
+settings.get('/getMaintenance', controller.maintenanceStatus);
+
+/** PATCH /settings/updateMaintenance — super admin */
+settings.patch(
+  '/updateMaintenance',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ body: schema.updateMaintenanceSchema }),
+  controller.maintenanceUpdate,
 );
 
 export const settingsRoutes = settings;
@@ -233,94 +297,164 @@ export const settingsRoutes = settings;
 
 const admin = Router();
 
-/** GET /admin/dashboard */
-admin.get('/dashboard', authenticate, ...controller.guards.admin, controller.dashboard);
+/** GET /admin/getDashboardStats */
+admin.get('/getDashboardStats', authenticate, ...controller.guards.admin, controller.dashboard);
 
-/** GET /admin/health */
-admin.get('/health', authenticate, ...controller.guards.admin, controller.health);
+/** GET /admin/getSystemHealth */
+admin.get('/getSystemHealth', authenticate, ...controller.guards.admin, controller.health);
 
-/** POST /admin/sub-admins — super admin only */
+/** POST /admin/createSubAdmin — super admin only */
 admin.post(
-  '/sub-admins',
+  '/createSubAdmin',
   authenticate,
   ...controller.guards.superAdmin,
   validate({ body: schema.createSubAdminSchema }),
   controller.subAdminCreate,
 );
 
-/** GET /admin/sub-admins */
+/** GET /admin/getAllSubAdmins */
 admin.get(
-  '/sub-admins',
+  '/getAllSubAdmins',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listSettingsSchema }),
   controller.subAdminList,
 );
 
-/** GET /admin/permissions/:role */
-admin.get(
-  '/permissions/:role',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.roleParamSchema }),
-  controller.permissionsGet,
-);
-
-/** PATCH /admin/permissions/:role */
+/** PATCH /admin/updateSubAdmin/:id — super admin */
 admin.patch(
-  '/permissions/:role',
+  '/updateSubAdmin/:id',
   authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.roleParamSchema, body: schema.setPermissionsSchema }),
-  controller.permissionsSet,
+  ...controller.guards.superAdmin,
+  validate({ params: idParamSchema, body: schema.updateSubAdminSchema }),
+  controller.subAdminUpdate,
 );
 
-/** GET /admin/audit-logs */
+/** DELETE /admin/deleteSubAdmin/:id — super admin */
+admin.delete(
+  '/deleteSubAdmin/:id',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ params: idParamSchema }),
+  controller.subAdminDelete,
+);
+
+/** PATCH /admin/toggleSubAdminStatus/:id — super admin */
+admin.patch(
+  '/toggleSubAdminStatus/:id',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ params: idParamSchema, body: schema.toggleFeatureSchema }),
+  controller.subAdminToggle,
+);
+
+/** GET /admin/getPermissions — every role's permission matrix */
+admin.get('/getPermissions', authenticate, ...controller.guards.admin, controller.allPermissions);
+
+/** PATCH /admin/updatePermissions/:id — super admin */
+admin.patch(
+  '/updatePermissions/:id',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ params: idParamSchema, body: schema.setPermissionsSchema }),
+  controller.permissionsSetByRole,
+);
+
+/** GET /admin/getAuditLogs */
 admin.get(
-  '/audit-logs',
+  '/getAuditLogs',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listAuditLogsSchema }),
   controller.auditLogs,
 );
 
-/** GET /admin/activity-logs */
+/** GET /admin/getActivityLogs */
 admin.get(
-  '/activity-logs',
+  '/getActivityLogs',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listActivityLogsSchema }),
   controller.activityLogs,
 );
 
-/** GET /admin/api-keys */
-admin.get('/api-keys', authenticate, ...controller.guards.admin, controller.apiKeyList);
+/** POST /admin/clearCache — super admin */
+admin.post('/clearCache', authenticate, ...controller.guards.superAdmin, controller.clearCache);
 
-/** POST /admin/api-keys */
+/** GET /admin/getCronJobs — super admin */
+admin.get('/getCronJobs', authenticate, ...controller.guards.superAdmin, controller.cronJobs);
+
+/** POST /admin/triggerJob — super admin */
 admin.post(
-  '/api-keys',
+  '/triggerJob',
   authenticate,
   ...controller.guards.superAdmin,
-  validate({ body: schema.createApiKeySchema }),
-  controller.apiKeyCreate,
-);
-
-/** POST /admin/api-keys/revoke/:id */
-admin.post(
-  '/api-keys/revoke/:id',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.apiKeyIdParamSchema }),
-  controller.apiKeyRevoke,
-);
-
-/** DELETE /admin/api-keys/:id */
-admin.delete(
-  '/api-keys/:id',
-  authenticate,
-  ...controller.guards.superAdmin,
-  validate({ params: schema.apiKeyIdParamSchema }),
-  controller.apiKeyDelete,
+  validate({ body: schema.triggerJobSchema }),
+  controller.triggerJob,
 );
 
 export const adminRoutes = admin;
+
+// ── Audit logs ────────────────────────────────────────────────────────────────
+
+const audit = Router();
+
+/** GET /auditLogs/getAll */
+audit.get(
+  '/getAll',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.listAuditLogsSchema }),
+  controller.auditLogs,
+);
+
+/** GET /auditLogs/getById/:id */
+audit.get(
+  '/getById/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.auditLogById,
+);
+
+/** GET /auditLogs/getByActor/:userId */
+audit.get(
+  '/getByActor/:userId',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.actorParamSchema, query: schema.listAuditLogsSchema }),
+  controller.auditLogsByActor,
+);
+
+/** GET /auditLogs/export — streams CSV */
+audit.get(
+  '/export',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.listAuditLogsSchema }),
+  controller.exportAuditLogs,
+);
+
+/** DELETE /auditLogs/purge — super admin */
+audit.delete(
+  '/purge',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ body: schema.purgeAuditLogsSchema }),
+  controller.purgeAuditLogs,
+);
+
+export const auditRoutes = audit;
+
+// ── Activity logs ─────────────────────────────────────────────────────────────
+
+/** GET /activityLogs/getAll */
+export const activityLogRoutes = Router().get(
+  '/getAll',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.listActivityLogsSchema }),
+  controller.activityLogs,
+);
+
+export default router;

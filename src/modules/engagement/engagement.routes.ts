@@ -8,11 +8,11 @@ import * as schema from './engagement.schema';
 
 const loyalty = Router();
 
-/** GET /loyalty/getSummary */
-loyalty.get('/getSummary', authenticate, controller.getSummary);
+/** GET /loyalty/getPoints */
+loyalty.get('/getPoints', authenticate, controller.getSummary);
 
 /** GET /loyalty/getTiers */
-loyalty.get('/getTiers', authenticate, controller.getTiers);
+loyalty.get('/getTiers', controller.getTiers);
 
 /** GET /loyalty/getHistory */
 loyalty.get(
@@ -23,7 +23,12 @@ loyalty.get(
 );
 
 /** POST /loyalty/redeem */
-loyalty.post('/redeem', authenticate, validate({ body: schema.redeemPointsSchema }), controller.redeemPoints);
+loyalty.post(
+  '/redeem',
+  authenticate,
+  validate({ body: schema.redeemPointsSchema }),
+  controller.redeemPoints,
+);
 
 /** POST /loyalty/adjust/:userId — admin */
 loyalty.post(
@@ -38,24 +43,29 @@ loyalty.post(
 
 const referrals = Router();
 
-/** GET /referrals/getSummary */
-referrals.get('/getSummary', authenticate, controller.getReferralSummary);
+/** GET /referral/getMyCode */
+referrals.get('/getMyCode', authenticate, controller.getReferralSummary);
 
-/** POST /referrals/apply */
-referrals.post('/apply', authenticate, validate({ body: schema.applyReferralSchema }), controller.applyCode);
+/** POST /referral/applyCode */
+referrals.post(
+  '/applyCode',
+  authenticate,
+  validate({ body: schema.applyReferralSchema }),
+  controller.applyCode,
+);
 
-/** GET /referrals/getAll */
+/** GET /referral/getRewards */
 referrals.get(
-  '/getAll',
+  '/getRewards',
   authenticate,
   validate({ query: schema.listReferralsSchema }),
   controller.getMyReferrals,
 );
 
-/** GET /referrals/leaderboard */
-referrals.get('/leaderboard', authenticate, controller.getLeaderboard);
+/** GET /referral/getLeaderboard */
+referrals.get('/getLeaderboard', authenticate, controller.getLeaderboard);
 
-/** GET /referrals/admin/getAll — admin */
+/** GET /referral/admin/getAll — admin */
 referrals.get(
   '/admin/getAll',
   authenticate,
@@ -64,18 +74,18 @@ referrals.get(
   controller.getAllReferrals,
 );
 
-/** POST /referrals/:id/complete — admin */
+/** POST /referral/complete/:id — admin */
 referrals.post(
-  '/:id/complete',
+  '/complete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.referralIdParamSchema }),
   controller.complete,
 );
 
-/** PATCH /referrals/:id/updateStatus — admin */
+/** PATCH /referral/updateStatus/:id — admin */
 referrals.patch(
-  '/:id/updateStatus',
+  '/updateStatus/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.referralIdParamSchema, body: schema.referralStatusSchema }),
@@ -86,33 +96,31 @@ referrals.patch(
 
 const giftCards = Router();
 
-/** GET /gift-cards/getAll */
+/** GET /giftCards/checkBalance/:code */
 giftCards.get(
-  '/getAll',
-  authenticate,
-  validate({ query: schema.listGiftCardsSchema }),
-  controller.getMyGiftCards,
+  '/checkBalance/:code',
+  validate({ params: schema.giftCardCodeParamSchema }),
+  controller.check,
 );
 
-/** GET /gift-cards/balance */
-giftCards.get('/balance', authenticate, controller.getBalance);
+/** POST /giftCards/redeem */
+giftCards.post(
+  '/redeem',
+  authenticate,
+  validate({ body: schema.redeemGiftCardSchema }),
+  controller.redeemGiftCard,
+);
 
-/** GET /gift-cards/check */
-giftCards.get('/check', authenticate, validate({ query: schema.checkGiftCardSchema }), controller.check);
-
-/** POST /gift-cards/redeem */
-giftCards.post('/redeem', authenticate, validate({ body: schema.redeemGiftCardSchema }), controller.redeemGiftCard);
-
-/** GET /gift-cards/admin/getAll — admin */
+/** GET /giftCards/getAll — admin */
 giftCards.get(
-  '/admin/getAll',
+  '/getAll',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listAllGiftCardsSchema }),
   controller.getAllGiftCards,
 );
 
-/** POST /gift-cards/create — admin */
+/** POST /giftCards/create — admin */
 giftCards.post(
   '/create',
   authenticate,
@@ -121,18 +129,18 @@ giftCards.post(
   controller.createGiftCard,
 );
 
-/** PATCH /gift-cards/:id/disable — admin */
+/** PATCH /giftCards/disable/:id — admin */
 giftCards.patch(
-  '/:id/disable',
+  '/disable/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.giftCardIdParamSchema }),
   controller.disableGiftCard,
 );
 
-/** DELETE /gift-cards/:id/delete — admin */
+/** DELETE /giftCards/delete/:id — admin */
 giftCards.delete(
-  '/:id/delete',
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.giftCardIdParamSchema }),

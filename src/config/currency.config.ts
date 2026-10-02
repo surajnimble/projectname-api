@@ -38,5 +38,3 @@ export const LOYALTY_TIER = [
   { name: 'PLATINUM', minPoints: 5000, multiplier: 2 },
   { name: 'DIAMOND', minPoints: 10000, multiplier: 3 },
 ];
-
-export const RATE_LIMIT_PRESET_BY_ROUTE: Record<string, string> = {};

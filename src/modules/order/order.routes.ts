@@ -9,14 +9,10 @@ const router = Router();
 // ─── Public ───────────────────────────────────────────────────────────────────
 
 /**
- * GET /orders/track/:orderNumber — public tracking, no auth.
+ * GET /orders/track/:id — public tracking, no auth.
  * Declared before the authenticated routes so `track` is never shadowed.
  */
-router.get(
-  '/track/:orderNumber',
-  validate({ params: schema.trackParamSchema }),
-  controller.track,
-);
+router.get('/track/:id', validate({ params: schema.trackParamSchema }), controller.track);
 
 // ─── Customer ─────────────────────────────────────────────────────────────────
 
@@ -36,11 +32,11 @@ router.post(
   controller.placeOrder,
 );
 
-/** POST /orders/reorder */
+/** POST /orders/reorder/:id — body may carry `skipUnavailable` */
 router.post(
-  '/reorder',
+  '/reorder/:id',
   authenticate,
-  validate({ body: schema.reorderSchema }),
+  validate({ params: schema.orderIdParamSchema, body: schema.reorderSchema.partial() }),
   controller.reorder,
 );
 
@@ -52,12 +48,12 @@ router.post(
   controller.cancelOrder,
 );
 
-/** GET /orders/getByNumber/:orderNumber */
+/** GET /orders/getById/:id — accepts an id or an order number */
 router.get(
-  '/getByNumber/:orderNumber',
+  '/getById/:id',
   authenticate,
-  validate({ params: schema.orderNumberParamSchema }),
-  controller.getByNumber,
+  validate({ params: schema.orderIdParamSchema }),
+  controller.getById,
 );
 
 /** GET /orders/getTimeline/:id */
@@ -76,41 +72,53 @@ router.get(
   controller.getInvoice,
 );
 
-/** GET /orders/getById/:id */
-router.get(
-  '/getById/:id',
+/** POST /orders/returnRequest/:id */
+router.post(
+  '/returnRequest/:id',
   authenticate,
-  validate({ params: schema.orderIdParamSchema }),
-  controller.getById,
+  validate({ params: schema.orderIdParamSchema, body: schema.returnRequestSchema }),
+  controller.returnRequest,
 );
 
 // ─── Vendor ───────────────────────────────────────────────────────────────────
 
-/** GET /orders/vendorOrders */
+/** GET /orders/getVendorOrders */
 router.get(
-  '/vendorOrders',
+  '/getVendorOrders',
   authenticate,
   ...controller.guards.vendor,
   validate({ query: schema.vendorOrdersSchema }),
   controller.vendorOrders,
 );
 
-/** PATCH /orders/updateSubOrderStatus/:id */
+/** PATCH /orders/updateVendorStatus/:subOrderId */
 router.patch(
-  '/updateSubOrderStatus/:id',
+  '/updateVendorStatus/:subOrderId',
   authenticate,
   ...controller.guards.vendor,
-  validate({ params: schema.orderIdParamSchema, body: schema.updateSubOrderStatusSchema }),
+  validate({
+    params: schema.subOrderParamSchema,
+    body: schema.updateSubOrderStatusSchema,
+  }),
   controller.updateSubOrderStatus,
 );
 
-/** POST /orders/vendorCancelSubOrder/:id */
-router.post(
-  '/vendorCancelSubOrder/:id',
+/** GET /orders/getPackingSlip/:id — targets a sub-order id */
+router.get(
+  '/getPackingSlip/:id',
   authenticate,
   ...controller.guards.vendor,
-  validate({ params: schema.orderIdParamSchema, body: schema.cancelSubOrderSchema }),
-  controller.vendorCancelSubOrder,
+  validate({ params: schema.subOrderParamSchema, query: schema.invoiceQuerySchema }),
+  controller.getPackingSlip,
+);
+
+/** GET /orders/getShippingLabel/:subOrderId */
+router.get(
+  '/getShippingLabel/:subOrderId',
+  authenticate,
+  ...controller.guards.vendor,
+  validate({ params: schema.subOrderParamSchema, query: schema.invoiceQuerySchema }),
+  controller.getShippingLabel,
 );
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
@@ -124,31 +132,37 @@ router.patch(
   controller.updateStatus,
 );
 
-/** POST /orders/assignDeliveryBoy/:id — targets a sub-order id */
-router.post(
-  '/assignDeliveryBoy/:id',
+/** PATCH /orders/assignDeliveryBoy/:subOrderId */
+router.patch(
+  '/assignDeliveryBoy/:subOrderId',
   authenticate,
   ...controller.guards.admin,
-  validate({ params: schema.orderIdParamSchema, body: schema.assignDeliveryBoySchema }),
+  validate({ params: schema.subOrderParamSchema, body: schema.assignDeliveryBoySchema }),
   controller.assignDeliveryBoy,
 );
 
-/** POST /orders/confirmDelivery/:id — targets a sub-order id */
+/** POST /orders/verifyDeliveryOtp/:subOrderId — vendor or admin */
 router.post(
-  '/confirmDelivery/:id',
+  '/verifyDeliveryOtp/:subOrderId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.orderIdParamSchema, body: schema.confirmDeliverySchema }),
-  controller.confirmDelivery,
+  validate({ params: schema.subOrderParamSchema, body: schema.confirmDeliverySchema }),
+  controller.verifyDeliveryOtp,
 );
 
-/** GET /orders/adminGetById/:id — any order, ignoring ownership */
-router.get(
-  '/adminGetById/:id',
+/** PATCH /orders/approveReturn/:returnId — vendor or admin */
+router.patch(
+  '/approveReturn/:returnId',
   authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.orderIdParamSchema }),
-  controller.adminGetById,
+  validate({ params: schema.returnIdParamSchema, body: schema.returnDecisionSchema }),
+  controller.approveReturn,
+);
+
+/** PATCH /orders/rejectReturn/:returnId — vendor or admin */
+router.patch(
+  '/rejectReturn/:returnId',
+  authenticate,
+  validate({ params: schema.returnIdParamSchema, body: schema.rejectReturnDecisionSchema }),
+  controller.rejectReturn,
 );
 
 export default router;

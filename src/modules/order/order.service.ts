@@ -4,7 +4,12 @@ import { AppError } from '../../utils/AppError';
 import { D, money } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
-import { ORDER_STATUS, canTransitionOrder, canTransitionSubOrder, TERMINAL_ORDER_STATUSES } from '../../constants/statuses';
+import {
+  ORDER_STATUS,
+  canTransitionOrder,
+  canTransitionSubOrder,
+  TERMINAL_ORDER_STATUSES,
+} from '../../constants/statuses';
 import { PaymentMethod, PaymentStatus, type OrderStatus as OrderStatusType } from '@prisma/client';
 import { calcCommission, calcTokenAmount } from '../../utils/calculations';
 import { generateOrderNumber } from '../../utils/slug';
@@ -22,7 +27,7 @@ import { cacheDel, cacheSet, cacheGet } from '../../services/redis.service';
 import { writeActivityLog } from '../../services/audit.service';
 import { notifyUser } from '../../services/notification.service';
 import { getOrCreateCart, calculateTotals, getWalletBalance } from '../cart/cart.service';
-import { recordEarning } from '../payment/payment.service';
+import { recordEarning, requestReturn, updateReturnStatus } from '../payment/payment.service';
 import { addMinutes, daysBetween } from '../../utils/dates';
 
 /**
@@ -182,8 +187,10 @@ export const placeOrder = async (
     }
   }
 
-  // Skipping is only allowed when the caller opted in; otherwise the shortfall
-  // must be resolved before checkout.
+  /**
+   * Skipping is only allowed when the caller opted in; otherwise the shortfall must be resolved
+   * before checkout.
+   */
   if (skipped.length && !D.bool(input.skipUnavailable)) {
     throw AppError.unprocessable(ERROR.ORDER.STOCK_CHANGED, ERROR_CODE.STOCK_CHANGED);
   }
@@ -194,8 +201,9 @@ export const placeOrder = async (
     throw AppError.unprocessable(ERROR.ORDER.STOCK_CHANGED, ERROR_CODE.STOCK_CHANGED);
   }
 
-  // Recompute the money from the usable lines only, since a skipped line must
-  // not be paid for.
+  /**
+   * Recompute the money from the usable lines only, since a skipped line must not be paid for.
+   */
   const usableSubtotal = money(usable.reduce((sum, l) => sum + l.lineSubtotal, 0));
   const usableTax = money(usable.reduce((sum, l) => sum + l.lineTax, 0));
 
@@ -205,9 +213,8 @@ export const placeOrder = async (
     couponDiscount = Math.min(totals.couponDiscount, usableSubtotal);
   }
 
-  const shipping = D.bool(input.skipUnavailable) && skipped.length
-    ? 0
-    : D.float(totals.shippingAmount);
+  const shipping =
+    D.bool(input.skipUnavailable) && skipped.length ? 0 : D.float(totals.shippingAmount);
 
   const payable = money(Math.max(0, usableSubtotal - couponDiscount + usableTax + shipping));
 
@@ -250,8 +257,10 @@ export const placeOrder = async (
     }
   }
 
-  // Tax and shipping are apportioned across vendors proportionally to their
-  // goods value, so each sub-order adds up to the parent.
+  /**
+   * Tax and shipping are apportioned across vendors proportionally to their goods value, so each
+   * sub-order adds up to the parent.
+   */
   const orderNumber = generateOrderNumber();
 
   const result = await prisma.$transaction(
@@ -261,9 +270,13 @@ export const placeOrder = async (
           orderNumber,
           userId,
           addressId,
-          status: (tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.PENDING) as OrderStatusType,
+          status: (tokenRequired
+            ? ORDER_STATUS.PENDING_TOKEN
+            : ORDER_STATUS.PENDING) as OrderStatusType,
           paymentMethod: method as PaymentMethod,
-          paymentStatus: (tokenRequired ? PaymentStatus.PENDING : PaymentStatus.COD_PENDING) as PaymentStatus,
+          paymentStatus: (tokenRequired
+            ? PaymentStatus.PENDING
+            : PaymentStatus.COD_PENDING) as PaymentStatus,
           subtotal: usableSubtotal,
           couponDiscount,
           taxAmount: usableTax,
@@ -286,18 +299,20 @@ export const placeOrder = async (
         const vendorId = vendorIds[i];
         const lines = byVendor.get(vendorId)!;
 
-        // The last vendor absorbs the rounding remainder so the parts always sum
-        // to the whole.
+        /**
+         * The last vendor absorbs the rounding remainder so the parts always sum to the whole.
+         */
         const isLast = i === vendorIds.length - 1;
-        const share = usableSubtotal > 0 ? money(usableSubtotal ? lines.reduce((s, l) => s + l.lineSubtotal, 0) / usableSubtotal : 0) : 0;
+        const share =
+          usableSubtotal > 0
+            ? money(
+                usableSubtotal ? lines.reduce((s, l) => s + l.lineSubtotal, 0) / usableSubtotal : 0,
+              )
+            : 0;
 
         const vendorTax = money(lines.reduce((s, l) => s + l.lineTax, 0));
-        const vendorShipping = isLast
-          ? money(apportionedShipping)
-          : money(shipping * share);
-        const vendorCoupon = isLast
-          ? money(apportionedCoupon)
-          : money(couponDiscount * share);
+        const vendorShipping = isLast ? money(apportionedShipping) : money(shipping * share);
+        const vendorCoupon = isLast ? money(apportionedCoupon) : money(couponDiscount * share);
 
         apportionedShipping = money(apportionedShipping - vendorShipping);
         apportionedCoupon = money(apportionedCoupon - vendorCoupon);
@@ -311,7 +326,9 @@ export const placeOrder = async (
           data: {
             orderId: created.id,
             vendorId,
-            status: (tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.PENDING) as OrderStatusType,
+            status: (tokenRequired
+              ? ORDER_STATUS.PENDING_TOKEN
+              : ORDER_STATUS.PENDING) as OrderStatusType,
             subtotal: vendorSubtotal,
             taxAmount: vendorTax,
             shippingAmount: vendorShipping,
@@ -346,8 +363,9 @@ export const placeOrder = async (
             },
           });
 
-          // Stock comes off the variant when one is chosen, otherwise the
-          // product's own stock.
+          /**
+           * Stock comes off the variant when one is chosen, otherwise the product's own stock.
+           */
           if (item.variantId) {
             await tx.productVariant.update({
               where: { id: D.str(item.variantId) },
@@ -363,8 +381,10 @@ export const placeOrder = async (
             });
           }
 
-          // A product that drops to zero is no longer buyable, so it goes to
-          // DRAFT rather than staying ACTIVE with no stock.
+          /**
+           * A product that drops to zero is no longer buyable, so it goes to DRAFT rather than staying
+           * ACTIVE with no stock.
+           */
           const remaining = line.availableStock - D.num(item.qty);
           if (remaining <= 0 && !D.bool(item.product?.allowBackorder)) {
             if (item.variantId) {
@@ -390,11 +410,12 @@ export const placeOrder = async (
           amount: total,
           paidAmount: walletAmount,
           method: method as PaymentMethod,
-          status: walletAmount >= total
-            ? PaymentStatus.PAID
-            : tokenRequired
-              ? PaymentStatus.PENDING
-              : PaymentStatus.COD_PENDING,
+          status:
+            walletAmount >= total
+              ? PaymentStatus.PAID
+              : tokenRequired
+                ? PaymentStatus.PENDING
+                : PaymentStatus.COD_PENDING,
           isBalancePayment: walletAmount > 0,
           paidAt: walletAmount >= total ? new Date() : null,
         },
@@ -446,7 +467,10 @@ export const placeOrder = async (
         const nextStatus = tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.CONFIRMED;
 
         await tx.order.update({ where: { id: created.id }, data: { status: nextStatus } });
-        await tx.subOrder.updateMany({ where: { orderId: created.id }, data: { status: nextStatus } });
+        await tx.subOrder.updateMany({
+          where: { orderId: created.id },
+          data: { status: nextStatus },
+        });
       }
 
       return created;
@@ -558,9 +582,8 @@ export const listVendorOrders = async (
     };
   }
 
-  const orderBy: Prisma.SubOrderOrderByWithRelationInput = D.str(query.sort) === 'total'
-    ? { total: 'desc' }
-    : { createdAt: 'desc' };
+  const orderBy: Prisma.SubOrderOrderByWithRelationInput =
+    D.str(query.sort) === 'total' ? { total: 'desc' } : { createdAt: 'desc' };
 
   const [rows, total] = await Promise.all([
     prisma.subOrder.findMany({
@@ -591,8 +614,22 @@ export const listVendorOrders = async (
   return { rows, total };
 };
 
-export const getOrderById = async (orderId: string, userId?: string): Promise<OrderRow> => {
-  const order = await withRelations(orderId);
+/**
+ * One order by id or by its human-facing order number.
+ *
+ * The number is what a customer reads off a confirmation message, so both are accepted here
+ * rather than making the client decide which column it happens to hold.
+ */
+export const getOrderById = async (orderRef: string, userId?: string): Promise<OrderRow> => {
+  const byId = await withRelations(orderRef);
+
+  const order =
+    byId && !byId.deletedAt
+      ? byId
+      : await prisma.order.findUnique({
+          where: { orderNumber: D.str(orderRef) },
+          include: ORDER_INCLUDE,
+        });
 
   if (!order || order.deletedAt) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
 
@@ -604,10 +641,7 @@ export const getOrderById = async (orderId: string, userId?: string): Promise<Or
   return order;
 };
 
-export const getOrderByNumber = async (
-  orderNumber: string,
-  userId?: string,
-): Promise<OrderRow> => {
+export const getOrderByNumber = async (orderNumber: string, userId?: string): Promise<OrderRow> => {
   const order = (await prisma.order.findUnique({
     where: { orderNumber },
     include: ORDER_INCLUDE,
@@ -623,6 +657,7 @@ export const getTimeline = async (orderId: string): Promise<any[]> =>
   prisma.orderTimeline.findMany({ where: { orderId }, orderBy: { createdAt: 'asc' } });
 
 /** Public tracking view — no customer data beyond the delivery address. */
+/** Looks up an order by its human-facing order number for public tracking. */
 export const trackOrder = async (orderNumber: string): Promise<any> => {
   const order = await prisma.order.findFirst({
     where: { orderNumber, deletedAt: null },
@@ -642,10 +677,15 @@ export const trackOrder = async (orderNumber: string): Promise<any> => {
           status: true,
           trackingNumber: true,
           vendor: { select: { shopName: true } },
-          shipments: { select: { awb: true, trackingUrl: true, status: true, estimatedDays: true } },
+          shipments: {
+            select: { awb: true, trackingUrl: true, status: true, estimatedDays: true },
+          },
         },
       },
-      timelines: { orderBy: { createdAt: 'asc' }, select: { status: true, remark: true, location: true, createdAt: true } },
+      timelines: {
+        orderBy: { createdAt: 'asc' },
+        select: { status: true, remark: true, location: true, createdAt: true },
+      },
     },
   });
 
@@ -694,7 +734,10 @@ export const updateOrderStatus = async (
     if (input.status === ORDER_STATUS.DELIVERED && order.paymentMethod === PaymentMethod.COD) {
       await tx.payment.updateMany({
         where: { orderId, status: PaymentStatus.COD_PENDING },
-        data: { status: PaymentStatus.COD_COLLECTED, paidAmount: { increment: order.total - order.walletAmount } },
+        data: {
+          status: PaymentStatus.COD_COLLECTED,
+          paidAmount: { increment: order.total - order.walletAmount },
+        },
       });
       await tx.order.update({
         where: { id: orderId },
@@ -736,8 +779,10 @@ export const updateOrderStatus = async (
     });
   }
 
-  // Delivery is what makes a vendor's slice payable, so the earning is booked
-  // here rather than at checkout.
+  /**
+   * Delivery is what makes a vendor's slice payable, so the earning is booked here rather than
+   * at checkout.
+   */
   if (D.str(input.status) === ORDER_STATUS.DELIVERED) {
     await bookVendorEarnings(orderId);
   }
@@ -772,7 +817,10 @@ const bookVendorEarnings = async (orderId: string): Promise<void> => {
 
     await prisma.vendorProfile.update({
       where: { id: sub.vendorId },
-      data: { totalSales: { increment: D.float(sub.subtotal) }, pendingAmount: { increment: D.float(sub.subtotal) } },
+      data: {
+        totalSales: { increment: D.float(sub.subtotal) },
+        pendingAmount: { increment: D.float(sub.subtotal) },
+      },
     });
   }
 };
@@ -828,7 +876,10 @@ export const updateSubOrderStatus = async (
     meta: { from: sub.status, to: input.status },
   });
 
-  return prisma.subOrder.findUnique({ where: { id: subOrderId }, include: { items: true, vendor: true } });
+  return prisma.subOrder.findUnique({
+    where: { id: subOrderId },
+    include: { items: true, vendor: true },
+  });
 };
 
 /** Puts sold stock back, optionally limited to one vendor's sub-order. */
@@ -898,7 +949,10 @@ export const cancelOrder = async (
     if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
 
     if (!canTransitionSubOrder(sub.status, ORDER_STATUS.CANCELLED)) {
-      throw AppError.unprocessable(ERROR.ORDER.INVALID_STATUS_TRANSITION, ERROR_CODE.INVALID_STATUS_TRANSITION);
+      throw AppError.unprocessable(
+        ERROR.ORDER.INVALID_STATUS_TRANSITION,
+        ERROR_CODE.INVALID_STATUS_TRANSITION,
+      );
     }
 
     await prisma.$transaction(async (tx) => {
@@ -1101,7 +1155,10 @@ export const confirmDelivery = async (
   }
 
   if (!canTransitionSubOrder(sub.status, ORDER_STATUS.DELIVERED)) {
-    throw AppError.unprocessable(ERROR.ORDER.INVALID_STATUS_TRANSITION, ERROR_CODE.INVALID_STATUS_TRANSITION);
+    throw AppError.unprocessable(
+      ERROR.ORDER.INVALID_STATUS_TRANSITION,
+      ERROR_CODE.INVALID_STATUS_TRANSITION,
+    );
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -1112,8 +1169,10 @@ export const confirmDelivery = async (
 
     const shipment = D.arr(sub.shipments)[0];
 
-    // A delivery row needs a shipment to hang off, so one is created on the fly
-    // when the vendor never raised a label.
+    /**
+     * A delivery row needs a shipment to hang off, so one is created on the fly when the vendor
+     * never raised a label.
+     */
     let shipmentId = D.str(shipment?.id);
 
     if (!shipmentId) {
@@ -1154,7 +1213,8 @@ export const confirmDelivery = async (
 
     // COD is collected at the door, so the payment settles here.
     if (sub.order.paymentMethod === PaymentMethod.COD) {
-      const collected = D.num(input.collectedAmount) || money(sub.order.total - sub.order.walletAmount);
+      const collected =
+        D.num(input.collectedAmount) || money(sub.order.total - sub.order.walletAmount);
 
       await tx.payment.updateMany({
         where: { orderId: sub.orderId, status: PaymentStatus.COD_PENDING },
@@ -1225,12 +1285,20 @@ export const reorder = async (
       const { addItem } = await import('../cart/cart.service');
       await addItem(
         userId,
-        { productId: D.str(item.productId), variantId: D.str(item.variantId), qty: D.num(item.qty) },
+        {
+          productId: D.str(item.productId),
+          variantId: D.str(item.variantId),
+          qty: D.num(item.qty),
+        },
         req,
       );
       added += 1;
     } catch (err: any) {
-      skipped.push({ productId: D.str(item.productId), name: D.str(item.name), reason: D.str(err?.message) });
+      skipped.push({
+        productId: D.str(item.productId),
+        name: D.str(item.name),
+        reason: D.str(err?.message),
+      });
     }
   }
 
@@ -1251,5 +1319,63 @@ export const getOrderSummary = async (orderId: string): Promise<string | null> =
   const cached = await cacheGet(`order:${orderId}`);
   return cached ? '1' : null;
 };
+
+/**
+ * One sub-order with everything a vendor needs to pack and label it.
+ *
+ * The vendor id is mandatory here: a packing slip reveals quantities and addresses, so it is
+ * never reachable by guessing a sub-order id.
+ */
+export const getSubOrderForVendor = async (subOrderId: string, vendorId: string): Promise<any> => {
+  const sub = await prisma.subOrder.findFirst({
+    where: { id: subOrderId, vendorId },
+    include: {
+      vendor: { select: { id: true, shopName: true, slug: true, gstNumber: true } },
+      items: {
+        include: { product: { select: { id: true, name: true, sku: true, images: true } } },
+      },
+      shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
+      order: {
+        include: {
+          address: true,
+          user: { select: { id: true, name: true, phone: true, email: true } },
+        },
+      },
+    },
+  });
+
+  if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+
+  return sub;
+};
+
+/**
+ * Order-level shortcut onto the returns module.
+ *
+ * The return lifecycle itself lives with returns; this exists so the order screen can raise a
+ * return without a second round trip to learn which rules apply.
+ */
+export const requestReturnForOrder = async (
+  userId: string,
+  input: {
+    orderId: string;
+    subOrderId?: string;
+    reasonId?: string;
+    reasonText?: string;
+    comment?: string;
+    images?: string[];
+    items: { orderItemId: string; qty: number }[];
+  },
+  req?: any,
+): Promise<any> => requestReturn(userId, input, req);
+
+export const decideReturnForOrder = async (
+  returnId: string,
+  status: string,
+  actorId?: string,
+  vendorId?: string,
+  req?: any,
+): Promise<any> =>
+  updateReturnStatus(returnId, { ...(req?.body ?? {}), status }, actorId, vendorId, req);
 
 export { daysBetween, addMinutes, getShippingConfig };

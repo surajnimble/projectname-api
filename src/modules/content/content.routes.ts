@@ -1,339 +1,419 @@
 import { Router } from 'express';
-import { validate } from '../../middlewares/validate.middleware';
+import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
+import { asyncHandler } from '../../utils/asyncHandler';
 import * as controller from './content.controller';
 import * as schema from './content.schema';
 
-const router = Router();
+// ── Pages ────────────────────────────────────────────────────────────────────
 
-// ── Pages ─────────────────────────────────────────────────────────────────────
+const page = Router();
 
-/** GET /content/pages */
-router.get(
-  '/pages',
+/** GET /pages/getAll */
+page.get(
+  '/getAll',
   optionalAuth,
   validate({ query: schema.listPagesSchema }),
   controller.listPages,
 );
 
-/** GET /content/pages/by-slug/:slug */
-router.get(
-  '/pages/by-slug/:slug',
+/** GET /pages/getBySlug/:slug */
+page.get(
+  '/getBySlug/:slug',
   optionalAuth,
   validate({ params: schema.pageSlugParamSchema }),
   controller.getPageBySlug,
 );
 
-/** POST /content/pages/createPage */
-router.post(
-  '/pages/createPage',
+/** POST /pages/create — admin */
+page.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createPageSchema }),
   controller.createPage,
 );
 
-/** PATCH /content/pages/updatePage/:id */
-router.patch(
-  '/pages/updatePage/:id',
+/** PATCH /pages/update/:id — admin */
+page.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema, body: schema.updatePageSchema }),
   controller.updatePage,
 );
 
-/** DELETE /content/pages/deletePage/:id */
-router.delete(
-  '/pages/deletePage/:id',
+/** DELETE /pages/delete/:id — admin */
+page.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema }),
   controller.deletePage,
 );
 
-// ── Blog ──────────────────────────────────────────────────────────────────────
+export const pageRoutes = page;
 
-/** GET /content/blogs */
-router.get(
-  '/blogs',
+// ── Blogs ────────────────────────────────────────────────────────────────────
+
+const blog = Router();
+
+/** GET /blogs/getAll */
+blog.get(
+  '/getAll',
   optionalAuth,
   validate({ query: schema.listBlogsSchema }),
   controller.listBlogs,
 );
 
-/** GET /content/blogs/by-slug/:slug */
-router.get(
-  '/blogs/by-slug/:slug',
+/** GET /blogs/getBySlug/:slug */
+blog.get(
+  '/getBySlug/:slug',
   optionalAuth,
   validate({ params: schema.blogSlugParamSchema }),
   controller.getBlogBySlug,
 );
 
-/** POST /content/blogs/createBlog */
-router.post(
-  '/blogs/createBlog',
+/** POST /blogs/create — admin */
+blog.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createBlogSchema }),
   controller.createBlog,
 );
 
-/** PATCH /content/blogs/updateBlog/:id */
-router.patch(
-  '/blogs/updateBlog/:id',
+/** PATCH /blogs/update/:id — admin */
+blog.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema, body: schema.updateBlogSchema }),
   controller.updateBlog,
 );
 
-/** DELETE /content/blogs/deleteBlog/:id */
-router.delete(
-  '/blogs/deleteBlog/:id',
+/** DELETE /blogs/delete/:id — admin */
+blog.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteBlog,
 );
 
-// ── FAQ ───────────────────────────────────────────────────────────────────────
+export const blogRoutes = blog;
 
-/** GET /content/faqs */
-router.get('/faqs', validate({ query: schema.listFaqsSchema }), controller.listFaqs);
+// ── FAQs ─────────────────────────────────────────────────────────────────────
 
-/** POST /content/faqs/createFaq */
-router.post(
-  '/faqs/createFaq',
+const faq = Router();
+
+/** GET /faqs/getAll */
+faq.get('/getAll', validate({ query: schema.listFaqsSchema }), controller.listFaqs);
+
+/** POST /faqs/create — admin */
+faq.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createFaqSchema }),
   controller.createFaq,
 );
 
-/** PATCH /content/faqs/updateFaq/:id */
-router.patch(
-  '/faqs/updateFaq/:id',
+/** PATCH /faqs/update/:id — admin */
+faq.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.faqIdParamSchema, body: schema.updateFaqSchema }),
   controller.updateFaq,
 );
 
-/** DELETE /content/faqs/deleteFaq/:id */
-router.delete(
-  '/faqs/deleteFaq/:id',
+/** DELETE /faqs/delete/:id — admin */
+faq.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.faqIdParamSchema }),
   controller.deleteFaq,
 );
 
-// ── Banners ───────────────────────────────────────────────────────────────────
+export const faqRoutes = faq;
 
-/** GET /content/banners */
-router.get('/banners', validate({ query: schema.listBannersSchema }), controller.listBanners);
+// ── Banners ──────────────────────────────────────────────────────────────────
 
-/** POST /content/banners/createBanner */
-router.post(
-  '/banners/createBanner',
+const banner = Router();
+
+/** GET /banners/getAll */
+banner.get('/getAll', validate({ query: schema.listBannersSchema }), controller.listBanners);
+
+/** POST /banners/create — admin */
+banner.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createBannerSchema }),
   controller.createBanner,
 );
 
-/** PATCH /content/banners/updateBanner/:id */
-router.patch(
-  '/banners/updateBanner/:id',
+/** PATCH /banners/update/:id — admin */
+banner.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.bannerIdParamSchema, body: schema.updateBannerSchema }),
   controller.updateBanner,
 );
 
-/** DELETE /content/banners/deleteBanner/:id */
-router.delete(
-  '/banners/deleteBanner/:id',
+/** DELETE /banners/delete/:id — admin */
+banner.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.bannerIdParamSchema }),
   controller.deleteBanner,
 );
 
-// ── Contact ───────────────────────────────────────────────────────────────────
+export const bannerRoutes = banner;
 
-/** POST /content/contact — public */
-router.post(
-  '/contact',
+// ── Contact ──────────────────────────────────────────────────────────────────
+
+const contact = Router();
+
+/** POST /contact/submit — public */
+contact.post(
+  '/submit',
   optionalAuth,
   validate({ body: schema.submitContactSchema }),
   controller.submitContact,
 );
 
-/** GET /content/contact/getAll — staff */
-router.get(
-  '/contact/getAll',
+/** GET /contact/getAll — admin */
+contact.get(
+  '/getAll',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listContactsSchema }),
   controller.listContacts,
 );
 
-/** PATCH /content/contact/:id/markRead — staff */
-router.patch(
-  '/contact/:id/markRead',
+/** PATCH /contact/:id/markRead — admin */
+contact.patch(
+  '/:id/markRead',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema, body: schema.markContactReadSchema }),
   controller.markContactRead,
 );
 
-// ── Newsletter ────────────────────────────────────────────────────────────────
+export const contactRoutes = contact;
 
-/** POST /content/newsletter/subscribe — public */
-router.post(
-  '/newsletter/subscribe',
-  validate({ body: schema.subscribeSchema }),
-  controller.subscribe,
-);
+// ── Newsletter ───────────────────────────────────────────────────────────────
 
-/** POST /content/newsletter/unsubscribe — public, token based */
-router.post(
-  '/newsletter/unsubscribe',
+const newsletter = Router();
+
+/** POST /newsletter/subscribe — public */
+newsletter.post('/subscribe', validate({ body: schema.subscribeSchema }), controller.subscribe);
+
+/** POST /newsletter/unsubscribe — public, token based */
+newsletter.post(
+  '/unsubscribe',
   validate({ body: schema.unsubscribeSchema }),
   controller.unsubscribe,
 );
 
-/** GET /content/newsletter/getAll — staff */
-router.get(
-  '/newsletter/getAll',
+/** GET /newsletter/getAll — admin */
+newsletter.get(
+  '/getAll',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listSubscribersSchema }),
   controller.listSubscribers,
 );
 
-// ── Geo ───────────────────────────────────────────────────────────────────────
-
-/** GET /content/geo/countries */
-router.get(
-  '/geo/countries',
-  validate({ query: schema.listCountriesSchema }),
-  controller.listCountries,
+/** POST /newsletter/sendCampaign — admin */
+newsletter.post(
+  '/sendCampaign',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.sendCampaignSchema }),
+  controller.sendCampaign,
 );
 
-/** GET /content/geo/states */
-router.get('/geo/states', validate({ query: schema.listStatesSchema }), controller.listStates);
+export const newsletterRoutes = newsletter;
 
-/** GET /content/geo/cities */
-router.get('/geo/cities', validate({ query: schema.listCitiesSchema }), controller.listCities);
+// ── Countries / states / cities ──────────────────────────────────────────────
 
-/** GET /content/geo/checkPincode */
-router.get(
-  '/geo/checkPincode',
-  validate({ query: schema.checkPincodeSchema }),
+const country = Router();
+
+/** GET /countries/getAll */
+country.get('/getAll', validate({ query: schema.listCountriesSchema }), controller.listCountries);
+
+/** GET /countries/getStates/:countryCode */
+country.get(
+  '/getStates/:countryCode',
+  validate({ params: schema.countryCodeParamSchema, query: schema.listStatesSchema }),
+  controller.listStates,
+);
+
+/** GET /countries/getCities/:stateCode */
+country.get(
+  '/getCities/:stateCode',
+  validate({ params: schema.stateCodeParamSchema, query: schema.listCitiesSchema }),
+  controller.listCities,
+);
+
+/** POST /countries/checkPincode — public */
+country.post(
+  '/checkPincode',
+  validate({ body: schema.checkPincodeBodySchema }),
   controller.checkPincode,
 );
 
-/** POST /content/geo/seedCountries — staff */
-router.post('/geo/seedCountries', authenticate, ...controller.guards.admin, controller.seedCountries);
+/** POST /countries/seedCountries — admin, writes the geo reference tables */
+country.post('/seedCountries', authenticate, ...controller.guards.admin, controller.seedCountries);
 
-// ── Currency ──────────────────────────────────────────────────────────────────
+export const countryRoutes = country;
 
-/** GET /content/currencies */
-router.get('/currencies', controller.listCurrencies);
+// ── Currencies ───────────────────────────────────────────────────────────────
 
-/** GET /content/currencies/convert — declared before /:id so it is not shadowed */
-router.get('/currencies/convert', controller.convertCurrency);
+const currency = Router();
 
-/** POST /content/currencies/create — staff */
-router.post(
-  '/currencies/create',
+/** GET /currencies/getAll */
+currency.get('/getAll', controller.listCurrencies);
+
+/** GET /currencies/convert — declared before any /:id route so it is not shadowed */
+currency.get('/convert', controller.convertCurrency);
+
+/** POST /currencies/create — admin */
+currency.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.currencySchema }),
   controller.createCurrency,
 );
 
-/** PATCH /content/currencies/:id/update — staff */
-router.patch(
-  '/currencies/:id/update',
+/** PATCH /currencies/update/:id — admin */
+currency.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema, body: schema.currencyUpdateSchema }),
   controller.updateCurrency,
 );
 
-/** DELETE /content/currencies/:id/delete — staff */
-router.delete(
-  '/currencies/:id/delete',
+/** DELETE /currencies/delete/:id — admin */
+currency.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteCurrency,
 );
 
-// ── Tax ───────────────────────────────────────────────────────────────────────
+export const currencyRoutes = currency;
 
-/** GET /content/taxConfigs */
-router.get('/taxConfigs', controller.listTaxConfigs);
+// ── Tax ──────────────────────────────────────────────────────────────────────
 
-/** POST /content/taxConfigs/create — staff */
-router.post(
-  '/taxConfigs/create',
+const tax = Router();
+
+/** GET /tax/getConfigs */
+tax.get('/getConfigs', controller.listTaxConfigs);
+
+/** POST /tax/create — admin */
+tax.post(
+  '/create',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.taxConfigSchema }),
   controller.createTaxConfig,
 );
 
-/** PATCH /content/taxConfigs/:id/update — staff */
-router.patch(
-  '/taxConfigs/:id/update',
+/** PATCH /tax/update/:id — admin */
+tax.patch(
+  '/update/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema, body: schema.taxConfigUpdateSchema }),
   controller.updateTaxConfig,
 );
 
-/** DELETE /content/taxConfigs/:id/delete — staff */
-router.delete(
-  '/taxConfigs/:id/delete',
+/** DELETE /tax/delete/:id — admin */
+tax.delete(
+  '/delete/:id',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteTaxConfig,
 );
 
-// ── Translations ──────────────────────────────────────────────────────────────
+export const taxRoutes = tax;
 
-/** GET /content/translations */
-router.get(
-  '/translations',
-  validate({ query: schema.translationQuerySchema }),
-  controller.listTranslations,
+// ── Translations (i18n) ──────────────────────────────────────────────────────
+
+const i18n = Router();
+
+/** GET /i18n/getLocales */
+i18n.get('/getLocales', controller.listLocales);
+
+/** GET /i18n/getTranslations/:locale */
+i18n.get(
+  '/getTranslations/:locale',
+  validate({ params: schema.localeParamSchema }),
+  controller.getTranslations,
 );
 
-/** POST /content/translations/upsert — staff */
-router.post(
-  '/translations/upsert',
+/** POST /i18n/bulkUpsert — admin */
+i18n.post(
+  '/bulkUpsert',
   authenticate,
   ...controller.guards.admin,
-  validate({ body: schema.translationSchema }),
-  controller.upsertTranslations,
+  validate({ body: schema.bulkUpsertTranslationsSchema }),
+  controller.bulkUpsertTranslations,
 );
 
-// ── Dropdowns ─────────────────────────────────────────────────────────────────
+/** POST /i18n/create — admin */
+i18n.post(
+  '/create',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.createTranslationSchema }),
+  controller.createTranslation,
+);
+
+/** PATCH /i18n/update/:id — admin */
+i18n.patch(
+  '/update/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema, body: schema.updateTranslationSchema }),
+  controller.updateTranslation,
+);
+
+/** DELETE /i18n/delete/:id — admin */
+i18n.delete(
+  '/delete/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.deleteTranslation,
+);
+
+export const i18nRoutes = i18n;
+
+// ── Dropdowns (dynamic reference data) ───────────────────────────────────────
+
+const content = Router();
 
 /** GET /content/dropdowns */
-router.get(
+content.get(
   '/dropdowns',
   validate({ query: schema.dropdownQuerySchema }),
   controller.listDropdowns,
 );
 
-/** POST /content/dropdowns/create — staff */
-router.post(
+/** POST /content/dropdowns/create — admin */
+content.post(
   '/dropdowns/create',
   authenticate,
   ...controller.guards.admin,
@@ -341,8 +421,8 @@ router.post(
   controller.createDropdown,
 );
 
-/** PATCH /content/dropdowns/:id/update — staff */
-router.patch(
+/** PATCH /content/dropdowns/:id/update — admin */
+content.patch(
   '/dropdowns/:id/update',
   authenticate,
   ...controller.guards.admin,
@@ -350,8 +430,8 @@ router.patch(
   controller.updateDropdown,
 );
 
-/** DELETE /content/dropdowns/:id/delete — staff */
-router.delete(
+/** DELETE /content/dropdowns/:id/delete — admin */
+content.delete(
   '/dropdowns/:id/delete',
   authenticate,
   ...controller.guards.admin,
@@ -359,137 +439,251 @@ router.delete(
   controller.deleteDropdown,
 );
 
-// ── Webhooks ──────────────────────────────────────────────────────────────────
+export const contentRoutes = content;
 
-/** GET /content/webhooks — staff */
-router.get(
-  '/webhooks',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ query: schema.listWebhooksSchema }),
-  controller.listWebhooks,
-);
+// ── Webhooks ─────────────────────────────────────────────────────────────────
 
-/** POST /content/webhooks/receive — inbound, unauthenticated by design */
-router.post('/webhooks/receive', controller.receiveWebhook);
+const webhook = Router();
 
-/** POST /content/webhooks/register — staff */
-router.post(
-  '/webhooks/register',
+/** POST /webhooks/register — admin */
+webhook.post(
+  '/register',
   authenticate,
   ...controller.guards.admin,
   validate({ body: schema.createWebhookSchema }),
   controller.registerWebhook,
 );
 
-/** PATCH /content/webhooks/:id/update — staff */
-router.patch(
-  '/webhooks/:id/update',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.webhookIdParamSchema, body: schema.updateWebhookSchema }),
-  controller.updateWebhook,
+/** POST /webhooks/razorpay — signature verified, no auth */
+webhook.post('/razorpay', controller.receiveRazorpayWebhook);
+
+/** POST /webhooks/shipping — signature verified, no auth */
+webhook.post('/shipping', controller.receiveShippingWebhook);
+
+/** POST /webhooks/payment-gateway/:provider — signature verified, no auth */
+webhook.post(
+  '/payment-gateway/:provider',
+  validate({ params: schema.webhookProviderParamSchema }),
+  controller.receivePaymentGatewayWebhook,
 );
 
-/** POST /content/webhooks/:id/rotateSecret — staff */
-router.post(
-  '/webhooks/:id/rotateSecret',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.webhookIdParamSchema }),
-  controller.rotateSecret,
-);
-
-/** DELETE /content/webhooks/:id/delete — staff */
-router.delete(
-  '/webhooks/:id/delete',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.webhookIdParamSchema }),
-  controller.deleteWebhook,
-);
-
-/** GET /content/webhooks/logs — staff, declared after /:id routes */
-router.get(
-  '/webhooks/logs',
+/** GET /webhooks/getLogs — admin, declared after the receiver routes */
+webhook.get(
+  '/getLogs',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.webhookLogSchema }),
   controller.listWebhookLogs,
 );
 
-// ── Bulk jobs ─────────────────────────────────────────────────────────────────
+/** GET /webhooks/getAll — admin */
+webhook.get(
+  '/getAll',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.listWebhooksSchema }),
+  controller.listWebhooks,
+);
 
-/** POST /content/bulk/importProducts — vendors and staff */
-router.post(
-  '/bulk/importProducts',
+/** PATCH /webhooks/:id/update — admin */
+webhook.patch(
+  '/:id/update',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.webhookIdParamSchema, body: schema.updateWebhookSchema }),
+  controller.updateWebhook,
+);
+
+/** POST /webhooks/:id/rotateSecret — admin */
+webhook.post(
+  '/:id/rotateSecret',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.webhookIdParamSchema }),
+  controller.rotateSecret,
+);
+
+/** DELETE /webhooks/delete/:id — admin */
+webhook.delete(
+  '/delete/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.webhookIdParamSchema }),
+  controller.deleteWebhook,
+);
+
+export const webhookRoutes = webhook;
+
+// ── Bulk jobs ────────────────────────────────────────────────────────────────
+
+const bulk = Router();
+
+/** POST /bulk/importProducts — vendors and staff */
+bulk.post(
+  '/importProducts',
   authenticate,
   validate({ body: schema.bulkProductsSchema }),
   controller.importProducts,
 );
 
-/** GET /content/bulk/getAll — vendors see their own jobs */
-router.get(
-  '/bulk/getAll',
+/** POST /bulk/importOrders — admin */
+bulk.post(
+  '/importOrders',
   authenticate,
-  validate({ query: schema.listJobsSchema }),
-  controller.listBulkJobs,
+  ...controller.guards.admin,
+  validate({ body: schema.bulkRowsSchema }),
+  controller.importOrders,
 );
 
-/** GET /content/bulk/:jobId/status */
-router.get(
-  '/bulk/:jobId/status',
+/** POST /bulk/importUsers — admin */
+bulk.post(
+  '/importUsers',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.bulkRowsSchema }),
+  controller.importUsers,
+);
+
+/** GET /bulk/getJobStatus/:jobId */
+bulk.get(
+  '/getJobStatus/:jobId',
   authenticate,
   validate({ params: schema.jobIdParamSchema }),
   controller.getBulkJobStatus,
 );
 
-// ── Reports ───────────────────────────────────────────────────────────────────
+/** GET /bulk/getJobHistory */
+bulk.get(
+  '/getJobHistory',
+  authenticate,
+  validate({ query: schema.listJobsSchema }),
+  controller.listBulkJobs,
+);
 
-/** GET /content/reports/schedules — staff */
-router.get(
-  '/reports/schedules',
+export const bulkRoutes = bulk;
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+
+const report = Router();
+
+/**
+ * Each report gets its own route so a dashboard can link straight to one.
+ * The handler is bound to the report type here rather than repeating nine near-identical
+ * controller functions.
+ */
+const reportHandler = (type: string) =>
+  asyncHandler(async (req, res, next) => {
+    req.params = { ...req.params, type };
+    return controller.runReport(req, res, next);
+  });
+
+const reportRoute = (type: string) => [
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.reportSchema }),
+  reportHandler(type),
+];
+
+report.get('/sales', ...reportRoute('SALES'));
+report.get('/orders', ...reportRoute('ORDERS'));
+report.get('/products', ...reportRoute('PRODUCTS'));
+report.get('/customers', ...reportRoute('CUSTOMERS'));
+report.get('/vendors', ...reportRoute('VENDORS'));
+report.get('/payouts', ...reportRoute('PAYOUTS'));
+report.get('/tax', ...reportRoute('TAX'));
+report.get('/inventory', ...reportRoute('INVENTORY'));
+report.get('/returns', ...reportRoute('RETURNS'));
+
+/** GET /reports/export/:type — admin */
+report.get(
+  '/export/:type',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ query: schema.reportSchema }),
+  controller.exportReport,
+);
+
+/** POST /reports/schedule — admin */
+report.post(
+  '/schedule',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ body: schema.createScheduleSchema }),
+  controller.scheduleReport,
+);
+
+/** GET /reports/getSchedules — admin */
+report.get(
+  '/getSchedules',
   authenticate,
   ...controller.guards.admin,
   validate({ query: schema.listSchedulesSchema }),
   controller.listSchedules,
 );
 
-/** POST /content/reports/schedules/create — staff */
-router.post(
-  '/reports/schedules/create',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ body: schema.createScheduleSchema }),
-  controller.createSchedule,
-);
-
-/** PATCH /content/reports/schedules/:id/update — staff */
-router.patch(
-  '/reports/schedules/:id/update',
+/** PATCH /reports/schedule/:id/update — admin */
+report.patch(
+  '/schedule/:id/update',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.scheduleIdParamSchema, body: schema.createScheduleSchema.partial() }),
   controller.updateSchedule,
 );
 
-/** DELETE /content/reports/schedules/:id/delete — staff */
-router.delete(
-  '/reports/schedules/:id/delete',
+/** DELETE /reports/schedule/:id/delete — admin */
+report.delete(
+  '/schedule/:id/delete',
   authenticate,
   ...controller.guards.admin,
   validate({ params: schema.scheduleIdParamSchema }),
   controller.deleteSchedule,
 );
 
-/** GET /content/reports/:type — staff */
-router.get(
-  '/reports/:type',
+export const reportRoutes = report;
+
+// ── API keys ─────────────────────────────────────────────────────────────────
+
+const apiKey = Router();
+
+/** GET /apiKeys/getAll — admin */
+apiKey.get('/getAll', authenticate, ...controller.guards.admin, controller.listApiKeys);
+
+/** POST /apiKeys/create — admin */
+apiKey.post(
+  '/create',
   authenticate,
-  ...controller.guards.admin,
-  validate({ query: schema.reportSchema }),
-  controller.runReport,
+  ...controller.guards.superAdmin,
+  validate({ body: schema.createApiKeySchema }),
+  controller.createApiKey,
 );
 
-export const contentRoutes = router;
-export default router;
+/** PATCH /apiKeys/revoke/:id — admin */
+apiKey.patch(
+  '/revoke/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.apiKeyIdParamSchema }),
+  controller.revokeApiKey,
+);
+
+/** DELETE /apiKeys/delete/:id — admin */
+apiKey.delete(
+  '/delete/:id',
+  authenticate,
+  ...controller.guards.superAdmin,
+  validate({ params: schema.apiKeyIdParamSchema }),
+  controller.deleteApiKey,
+);
+
+/** GET /apiKeys/getUsage/:id — admin */
+apiKey.get(
+  '/getUsage/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.apiKeyIdParamSchema }),
+  controller.getApiKeyUsage,
+);
+
+export const apiKeyRoutes = apiKey;
+
+export default contentRoutes;

@@ -1,139 +1,128 @@
 import { Router } from 'express';
-import { validate } from '../../middlewares/validate.middleware';
+import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requireRole } from '../../middlewares/auth.middleware';
+import { ROLES } from '../../constants/roles';
 import * as controller from './cart.controller';
 import * as schema from './cart.schema';
 
-const router = Router();
+const customerOnly = requireRole(ROLES.CUSTOMER);
 
-// ─── Cart ─────────────────────────────────────────────────────────────────────
+// ── Cart ─────────────────────────────────────────────────────────────────────
+
+const cart = Router();
 
 /** GET /cart/getCart */
-router.get(
-  '/getCart',
-  authenticate,
-  async (req, res, next) => controller.getCart(req, res, next),
-);
-
-/** GET /cart/items */
-router.get(
-  '/items',
-  authenticate,
-  async (req, res, next) => controller.listItems(req, res, next),
-);
+cart.get('/getCart', authenticate, customerOnly, controller.getCart);
 
 /** POST /cart/addItem */
-router.post(
+cart.post(
   '/addItem',
   authenticate,
+  customerOnly,
   validate({ body: schema.addItemSchema }),
-  async (req, res, next) => controller.addItem(req, res, next),
+  controller.addItem,
 );
 
 /** PATCH /cart/updateItem */
-router.patch(
+cart.patch(
   '/updateItem',
   authenticate,
+  customerOnly,
   validate({ body: schema.updateItemSchema }),
-  async (req, res, next) => controller.updateItem(req, res, next),
+  controller.updateItem,
 );
 
-/** POST /cart/removeItem — body id or productId */
-router.post(
-  '/removeItem',
+/** DELETE /cart/removeItem/:cartItemId */
+cart.delete(
+  '/removeItem/:cartItemId',
   authenticate,
-  validate({ body: schema.removeItemSchema }),
-  async (req, res, next) => controller.removeItem(req, res, next),
+  customerOnly,
+  validate({ params: idParamSchema }),
+  controller.removeItem,
 );
 
-/** POST /cart/clear */
-router.post(
-  '/clear',
-  authenticate,
-  validate({ body: schema.clearCartSchema }),
-  async (req, res, next) => controller.clearCart(req, res, next),
-);
+/** DELETE /cart/clearCart */
+cart.delete('/clearCart', authenticate, customerOnly, controller.clearCart);
 
 /** POST /cart/applyCoupon */
-router.post(
+cart.post(
   '/applyCoupon',
   authenticate,
+  customerOnly,
   validate({ body: schema.applyCouponSchema }),
-  async (req, res, next) => controller.applyCoupon(req, res, next),
+  controller.applyCoupon,
 );
 
-/** POST /cart/removeCoupon */
-router.post(
-  '/removeCoupon',
-  authenticate,
-  validate({ body: schema.removeCouponSchema }),
-  async (req, res, next) => controller.removeCoupon(req, res, next),
-);
+/** DELETE /cart/removeCoupon */
+cart.delete('/removeCoupon', authenticate, customerOnly, controller.removeCoupon);
 
 /** POST /cart/estimate */
-router.post(
+cart.post(
   '/estimate',
   authenticate,
+  customerOnly,
   validate({ body: schema.estimateSchema }),
-  async (req, res, next) => controller.estimate(req, res, next),
+  controller.estimate,
 );
 
 /** POST /cart/mergeGuestCart */
-router.post(
+cart.post(
   '/mergeGuestCart',
   authenticate,
+  customerOnly,
   validate({ body: schema.mergeGuestCartSchema }),
-  async (req, res, next) => controller.mergeGuestCart(req, res, next),
+  controller.mergeGuestCart,
 );
 
-export const cartRoutes = router;
+export const cartRoutes = cart;
 
-// ─── Wishlist ─────────────────────────────────────────────────────────────────
+// ── Wishlist ─────────────────────────────────────────────────────────────────
 
 const wishlist = Router();
 
 /** GET /wishlist/getAll */
-wishlist.get(
-  '/getAll',
-  authenticate,
-  async (req, res, next) => controller.getWishlist(req, res, next),
-);
+wishlist.get('/getAll', authenticate, customerOnly, controller.getWishlist);
 
 /** GET /wishlist/checkProduct/:productId */
 wishlist.get(
   '/checkProduct/:productId',
   authenticate,
-  async (req, res, next) => controller.checkProduct(req, res, next),
+  customerOnly,
+  validate({ params: schema.productIdParamSchema }),
+  controller.checkProduct,
 );
 
 /** POST /wishlist/addItem */
 wishlist.post(
   '/addItem',
   authenticate,
+  customerOnly,
   validate({ body: schema.addWishlistItemSchema }),
-  async (req, res, next) => controller.addWishlistItem(req, res, next),
-);
-
-/** POST /wishlist/moveToCart/:id */
-wishlist.post(
-  '/moveToCart/:id',
-  authenticate,
-  validate({ body: schema.moveToCartSchema }),
-  async (req, res, next) => controller.moveToCart(req, res, next),
+  controller.addWishlistItem,
 );
 
 /** DELETE /wishlist/removeItem/:id */
 wishlist.delete(
   '/removeItem/:id',
   authenticate,
-  async (req, res, next) => controller.removeWishlistItem(req, res, next),
+  customerOnly,
+  validate({ params: idParamSchema }),
+  controller.removeWishlistItem,
 );
 
-/** POST /wishlist/clear */
+/** DELETE /wishlist/clear */
+wishlist.delete('/clear', authenticate, customerOnly, controller.clearWishlist);
+
+/** POST /wishlist/moveToCart/:id */
 wishlist.post(
-  '/clear',
+  '/moveToCart/:id',
   authenticate,
-  async (req, res, next) => controller.clearWishlist(req, res, next),
+  customerOnly,
+  validate({ params: idParamSchema, body: schema.moveToCartSchema }),
+  controller.moveToCart,
 );
 
 export const wishlistRoutes = wishlist;
+
+export default cartRoutes;

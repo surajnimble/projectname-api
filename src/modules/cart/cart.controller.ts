@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -6,7 +6,6 @@ import { D } from '../../utils/defaults';
 import * as service from './cart.service';
 import {
   serializeCartDetail,
-  serializeCartLine,
   serializeAddItemResult,
   serializeEstimate,
   serializeWishlist,
@@ -27,7 +26,10 @@ const couponExtras = (totals: any): Record<string, any> => ({
 
 /** Per-vendor subtotals, mirroring how the order will be split at checkout. */
 const vendorGroups = (totals: any): any[] => {
-  const grouped = new Map<string, { vendorId: string; shopName: string; itemCount: number; subtotal: number }>();
+  const grouped = new Map<
+    string,
+    { vendorId: string; shopName: string; itemCount: number; subtotal: number }
+  >();
 
   for (const line of D.arr(totals?.lines) as any[]) {
     const vendorId = D.str(line?.item?.product?.vendorId);
@@ -90,11 +92,7 @@ export const getCart = asyncHandler(async (req, res) => {
  */
 export const addItem = asyncHandler(async (req, res) => {
   const { item, totals } = await service.addItem(userId(req), req.body, req);
-  return ApiResponse.created(
-    res,
-    SUCCESS.CART.ITEM_ADDED,
-    serializeAddItemResult(item, totals),
-  );
+  return ApiResponse.created(res, SUCCESS.CART.ITEM_ADDED, serializeAddItemResult(item, totals));
 });
 
 /**
@@ -125,7 +123,11 @@ export const updateItem = asyncHandler(async (req, res) => {
  *       404: { description: Line not in cart }
  */
 export const removeItem = asyncHandler(async (req, res) => {
-  const { totals } = await service.removeItem(userId(req), req.body, req);
+  const { totals } = await service.removeItem(
+    userId(req),
+    { id: D.str(req.params.cartItemId) },
+    req,
+  );
   return ApiResponse.success(res, {
     message: SUCCESS.CART.ITEM_REMOVED,
     result: serializeCartDetail(await service.getCart(userId(req)), totals, couponExtras(totals)),
@@ -134,8 +136,8 @@ export const removeItem = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
- * /cart/clear:
- *   post:
+ * /cart/clearCart:
+ *   delete:
  *     tags: [Cart]
  *     summary: Empty the cart (also drops any applied coupon)
  *     responses:
@@ -253,7 +255,11 @@ export const estimate = asyncHandler(async (req, res) => {
  *       200: { description: Merge summary with recalculated cart }
  */
 export const mergeGuestCart = asyncHandler(async (req, res) => {
-  const { mergedCount, skippedCount, totals } = await service.mergeGuestCart(userId(req), req.body, req);
+  const { mergedCount, skippedCount, totals } = await service.mergeGuestCart(
+    userId(req),
+    req.body,
+    req,
+  );
 
   return ApiResponse.success(res, {
     message: SUCCESS.CART.MERGED,
@@ -264,20 +270,6 @@ export const mergeGuestCart = asyncHandler(async (req, res) => {
     },
   });
 });
-
-/** GET /cart/items — raw line view, handy for debugging pricing. */
-export const listItems = asyncHandler(async (req, res) => {
-  const cart = await service.getCart(userId(req));
-  return ApiResponse.success(res, {
-    message: SUCCESS.CART.FETCHED,
-    result: {
-      itemCount: D.arr(cart.items).length,
-      itemList: D.arr(cart.items).map(serializeCartLine),
-    },
-  });
-});
-
-// ─── Wishlist ─────────────────────────────────────────────────────────────────
 
 /**
  * @openapi

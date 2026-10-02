@@ -12,6 +12,12 @@ import { createApp } from '../src/app';
 
 const app = createApp();
 
+/**
+ * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
+ * code predictable so a suite can run offline with no mail provider configured.
+ */
+const OTP = process.env.OTP_STATIC_CODE || '111111';
+
 interface Check {
   name: string;
   passed: boolean;
@@ -39,11 +45,16 @@ const register = async (
   type: 'CUSTOMER' | 'VENDOR',
   shopName?: string,
 ): Promise<{ token: string; userId: string; vendorId: string; status: number }> => {
+  await request(app)
+    .post('/api/v1/auth/sendOtp')
+    .send({ type: 'REGISTER', channel: 'EMAIL', identifier: email(tag) });
+
   const res = await request(app)
     .post('/api/v1/auth/register')
     .send({
       type,
       name: `PR ${tag}`,
+      otp: OTP,
       email: email(tag),
       phone: phoneFor(tag),
       password: 'Secret@123',
@@ -75,7 +86,7 @@ const main = async (): Promise<void> => {
     .post('/api/v1/auth/login')
     .send({
       email: process.env.SUPER_ADMIN_EMAIL ?? 'superadmin@projectname.com',
-      password: process.env.SUPER_ADMIN_PASSWORD ?? 'SuperSecret@123',
+      password: process.env.SUPER_ADMIN_PASSWORD || 'SuperSecret@123',
     })
     .then((r) => r.body?.result?.accessToken ?? '');
 
@@ -89,8 +100,7 @@ const main = async (): Promise<void> => {
 
   record(
     'createProduct while PENDING -> 403 VENDOR_NOT_APPROVED',
-    earlyCreate.status === 403 &&
-      String(earlyCreate.body?.message).includes('VENDOR_NOT_APPROVED'),
+    earlyCreate.status === 403 && String(earlyCreate.body?.message).includes('VENDOR_NOT_APPROVED'),
     `status=${earlyCreate.status} msg=${earlyCreate.body?.message}`,
   );
 
@@ -117,17 +127,28 @@ const main = async (): Promise<void> => {
       taxPercent: 18,
     });
 
-  record('POST /products/createProduct -> 201', created.status === 201, `status=${created.status} msg=${created.body?.message}`);
+  record(
+    'POST /products/createProduct -> 201',
+    created.status === 201,
+    `status=${created.status} msg=${created.body?.message}`,
+  );
 
   const productId = created.body?.result?.productId ?? '';
   const productSlug = created.body?.result?.slug ?? '';
-  record('create returns productId + slug', Boolean(productId && productSlug), `${productId} / ${productSlug}`);
+  record(
+    'create returns productId + slug',
+    Boolean(productId && productSlug),
+    `${productId} / ${productSlug}`,
+  );
   record(
     'status defaults to ACTIVE when stock > 0',
     created.body?.result?.status === 'ACTIVE',
     created.body?.result?.status,
   );
-  record('create envelope is strict', JSON.stringify(Object.keys(created.body ?? {})) === '["status","message","result"]');
+  record(
+    'create envelope is strict',
+    JSON.stringify(Object.keys(created.body ?? {})) === '["status","message","result"]',
+  );
 
   // Out-of-stock product must land as DRAFT, not ACTIVE.
   const draft = await request(app)
@@ -141,9 +162,11 @@ const main = async (): Promise<void> => {
   );
   const draftId = draft.body?.result?.productId ?? '';
 
-  // Second vendor, same shop name -> slug auto-suffix.
-  // Asserted loosely: the suffix number depends on how many earlier test runs
-  // already used this base, and `uniqueSlug` correctly keeps incrementing.
+  /**
+   * Second vendor, same shop name -> slug auto-suffix. Asserted loosely: the suffix number
+   * depends on how many earlier test runs already used this base, and `uniqueSlug` correctly
+   * keeps incrementing.
+   */
   const dup = await request(app)
     .post('/api/v1/products/createProduct')
     .set('Authorization', `Bearer ${vendorB.token}`)
@@ -151,11 +174,16 @@ const main = async (): Promise<void> => {
 
   const dupSlug = dup.body?.result?.slug ?? '';
   const baseSlug = productSlug.replace(/-\d+$/, '');
-  const suffix = dupSlug.startsWith(`${baseSlug}-`) ? Number(dupSlug.slice(baseSlug.length + 1)) : 0;
+  const suffix = dupSlug.startsWith(`${baseSlug}-`)
+    ? Number(dupSlug.slice(baseSlug.length + 1))
+    : 0;
 
   record(
     'duplicate product name -> slug auto-suffixed',
-    dup.status === 201 && dupSlug !== productSlug && dupSlug.startsWith(`${baseSlug}-`) && suffix >= 2,
+    dup.status === 201 &&
+      dupSlug !== productSlug &&
+      dupSlug.startsWith(`${baseSlug}-`) &&
+      suffix >= 2,
     `first=${productSlug} second=${dupSlug}`,
   );
   const dupId = dup.body?.result?.productId ?? '';
@@ -183,7 +211,11 @@ const main = async (): Promise<void> => {
     .post('/api/v1/products/createProduct')
     .set('Authorization', `Bearer ${customer.token}`)
     .send({ name: 'Nope', price: 100 });
-  record('customer cannot create products -> 403', customerCreate.status === 403, `status=${customerCreate.status}`);
+  record(
+    'customer cannot create products -> 403',
+    customerCreate.status === 403,
+    `status=${customerCreate.status}`,
+  );
 
   const anonCreate = await request(app)
     .post('/api/v1/products/createProduct')
@@ -195,8 +227,7 @@ const main = async (): Promise<void> => {
   record('GET /products/getById/:id -> 200', byId.status === 200, `status=${byId.status}`);
   record(
     'getById returns nested vendorData + imageList',
-    Boolean(byId.body?.result?.vendorData?.shopName) &&
-      Array.isArray(byId.body?.result?.imageList),
+    Boolean(byId.body?.result?.vendorData?.shopName) && Array.isArray(byId.body?.result?.imageList),
     Object.keys(byId.body?.result ?? {}).join(','),
   );
 
@@ -217,7 +248,9 @@ const main = async (): Promise<void> => {
   record(
     'pagination fields come first',
     Object.keys(publicList.body?.result ?? {})[0] === 'totalRecord',
-    Object.keys(publicList.body?.result ?? {}).slice(0, 3).join(','),
+    Object.keys(publicList.body?.result ?? {})
+      .slice(0, 3)
+      .join(','),
   );
   record(
     'draft product hidden from anonymous list',
@@ -247,7 +280,9 @@ const main = async (): Promise<void> => {
   );
 
   // Filters
-  const searchList = await request(app).get(`/api/v1/products/getAll?search=Cotton%20Shirt&limit=20`);
+  const searchList = await request(app).get(
+    `/api/v1/products/getAll?search=Cotton%20Shirt&limit=20`,
+  );
   record(
     'search filter matches on name',
     (searchList.body?.result?.productList ?? []).some((p: any) => p.productId === productId),
@@ -261,7 +296,9 @@ const main = async (): Promise<void> => {
     `found=${(priceFilter.body?.result?.productList ?? []).length}`,
   );
 
-  const vendorFilter = await request(app).get(`/api/v1/products/getAll?vendorId=${vendorA.vendorId}&limit=20`);
+  const vendorFilter = await request(app).get(
+    `/api/v1/products/getAll?vendorId=${vendorA.vendorId}&limit=20`,
+  );
   record(
     'vendorId filter narrows correctly',
     (vendorFilter.body?.result?.productList ?? []).every(
@@ -294,7 +331,11 @@ const main = async (): Promise<void> => {
     .send({ name: 'Updated Shirt Name', price: 899 });
 
   record('PATCH updateProduct -> 200', updated.status === 200, `status=${updated.status}`);
-  record('update applies new price', updated.body?.result?.price === 899, String(updated.body?.result?.price));
+  record(
+    'update applies new price',
+    updated.body?.result?.price === 899,
+    String(updated.body?.result?.price),
+  );
 
   const emptyUpdate = await request(app)
     .patch(`/api/v1/products/updateProduct/${productId}`)
@@ -332,13 +373,21 @@ const main = async (): Promise<void> => {
     stock.body?.result?.previousStock === 25 && stock.body?.result?.stock === 7,
     `${stock.body?.result?.previousStock} -> ${stock.body?.result?.stock}`,
   );
-  record('low-stock flag computed', stock.body?.result?.isLowStock === true, String(stock.body?.result?.isLowStock));
+  record(
+    'low-stock flag computed',
+    stock.body?.result?.isLowStock === true,
+    String(stock.body?.result?.isLowStock),
+  );
 
   const badStockUpdate = await request(app)
     .patch(`/api/v1/products/updateStock/${productId}`)
     .set('Authorization', `Bearer ${vendorA.token}`)
     .send({ stock: -1 });
-  record('negative stock update -> 400', badStockUpdate.status === 400, `status=${badStockUpdate.status}`);
+  record(
+    'negative stock update -> 400',
+    badStockUpdate.status === 400,
+    `status=${badStockUpdate.status}`,
+  );
 
   // ══ Status toggle ═════════════════════════════════════════════════════════
   const toggled = await request(app)
@@ -401,7 +450,11 @@ const main = async (): Promise<void> => {
   );
 
   const trackMissing = await request(app).post('/api/v1/products/trackView/does-not-exist');
-  record('trackView unknown product -> 404', trackMissing.status === 404, `status=${trackMissing.status}`);
+  record(
+    'trackView unknown product -> 404',
+    trackMissing.status === 404,
+    `status=${trackMissing.status}`,
+  );
 
   // ══ Bulk operations ══════════════════════════════════════════════════════
   const bulkCreated = await request(app)
@@ -416,11 +469,14 @@ const main = async (): Promise<void> => {
       continueOnError: true,
     });
 
-  record('POST /products/bulkCreate -> 201', bulkCreated.status === 201, `status=${bulkCreated.status}`);
+  record(
+    'POST /products/bulkCreate -> 201',
+    bulkCreated.status === 201,
+    `status=${bulkCreated.status}`,
+  );
   record(
     'partial success reported with successCount + failCount',
-    bulkCreated.body?.result?.successCount === 2 &&
-      bulkCreated.body?.result?.failCount === 1,
+    bulkCreated.body?.result?.successCount === 2 && bulkCreated.body?.result?.failCount === 1,
     `ok=${bulkCreated.body?.result?.successCount} fail=${bulkCreated.body?.result?.failCount}`,
   );
   record(
@@ -459,13 +515,19 @@ const main = async (): Promise<void> => {
     .set('Authorization', `Bearer ${vendorA.token}`)
     .send({ productIds: bulkIds, type: 'PERCENT_DOWN', value: 10 });
 
-  record('POST /products/bulkPriceUpdate -> 200', bulkPrice.status === 200, `status=${bulkPrice.status}`);
+  record(
+    'POST /products/bulkPriceUpdate -> 200',
+    bulkPrice.status === 200,
+    `status=${bulkPrice.status}`,
+  );
   record(
     'price update reports previous and new price',
     (bulkPrice.body?.result?.productList ?? []).every(
       (p: any) => p.price > 0 && p.previousPrice > 0,
     ),
-    JSON.stringify((bulkPrice.body?.result?.productList ?? []).map((p: any) => `${p.previousPrice}->${p.price}`)),
+    JSON.stringify(
+      (bulkPrice.body?.result?.productList ?? []).map((p: any) => `${p.previousPrice}->${p.price}`),
+    ),
   );
 
   const bulkPriceFloor = await request(app)
@@ -491,18 +553,30 @@ const main = async (): Promise<void> => {
 
   // ══ Soft delete ═══════════════════════════════════════════════════════════
   const deleted = await request(app)
-    .delete(`/api/v1/products/deleteProduct/${dupId}`)
+    .del(`/api/v1/products/deleteProduct/${dupId}`)
     .set('Authorization', `Bearer ${vendorB.token}`);
-  record('DELETE /products/deleteProduct/:id -> 200', deleted.status === 200, `status=${deleted.status}`);
+  record(
+    'DELETE /products/deleteProduct/:id -> 200',
+    deleted.status === 200,
+    `status=${deleted.status}`,
+  );
   record('delete reports soft delete', deleted.body?.result?.isSoftDelete === true);
 
   const afterDelete = await request(app).get(`/api/v1/products/getById/${dupId}`);
-  record('soft-deleted product -> 404 on read', afterDelete.status === 404, `status=${afterDelete.status}`);
+  record(
+    'soft-deleted product -> 404 on read',
+    afterDelete.status === 404,
+    `status=${afterDelete.status}`,
+  );
 
   const deleteForeign = await request(app)
-    .delete(`/api/v1/products/deleteProduct/${productId}`)
+    .del(`/api/v1/products/deleteProduct/${productId}`)
     .set('Authorization', `Bearer ${vendorB.token}`);
-  record("cannot delete another vendor's product -> 403", deleteForeign.status === 403, `status=${deleteForeign.status}`);
+  record(
+    "cannot delete another vendor's product -> 403",
+    deleteForeign.status === 403,
+    `status=${deleteForeign.status}`,
+  );
 
   // ══ Summary ═══════════════════════════════════════════════════════════════
   const failedChecks = checks.filter((c) => !c.passed);

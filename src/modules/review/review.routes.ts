@@ -1,138 +1,140 @@
 import { Router } from 'express';
-import { z } from 'zod';
-import { validate, common } from '../../middlewares/validate.middleware';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { validate, idParamSchema } from '../../middlewares/validate.middleware';
+import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
 import * as controller from './review.controller';
 import * as schema from './review.schema';
+import * as cartSchema from '../cart/cart.schema';
 
-const router = Router();
+// ── Reviews ──────────────────────────────────────────────────────────────────
 
-// ── Reviews ───────────────────────────────────────────────────────────────────
+const review = Router();
 
 /** GET /reviews/getAll */
-router.get(
+review.get(
   '/getAll',
-  authenticate,
+  optionalAuth,
   validate({ query: schema.listReviewsSchema }),
   controller.getAll,
 );
 
 /** GET /reviews/getSummary/:productId */
-router.get(
+review.get(
   '/getSummary/:productId',
-  authenticate,
+  optionalAuth,
   validate({ params: schema.reviewSummaryParamSchema }),
   controller.getSummary,
 );
 
-/** GET /reviews/getDistribution/:productId */
-router.get(
-  '/getDistribution/:productId',
-  authenticate,
-  validate({ params: schema.reviewDistributionParamSchema }),
-  controller.getDistribution,
-);
-
 /** POST /reviews/addReview */
-router.post(
+review.post(
   '/addReview',
   authenticate,
   validate({ body: schema.addReviewSchema }),
   controller.addReview,
 );
 
-/** PATCH /reviews/moderate/:id — admin */
-router.patch(
-  '/moderate/:id',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.questionIdParamSchema, body: schema.moderateReviewSchema }),
-  controller.moderate,
-);
-
-/** POST /reviews/reply/:id — the selling shop */
-router.post(
-  '/reply/:id',
-  authenticate,
-  ...controller.guards.vendor,
-  validate({ params: schema.questionIdParamSchema, body: schema.replyReviewSchema }),
-  controller.reply,
-);
-
-/** POST /reviews/markHelpful/:id */
-router.post(
-  '/markHelpful/:id',
-  authenticate,
-  validate({ params: schema.questionIdParamSchema }),
-  controller.markHelpful,
-);
-
 /** PATCH /reviews/updateReview/:id */
-router.patch(
+review.patch(
   '/updateReview/:id',
   authenticate,
-  validate({ params: schema.questionIdParamSchema, body: schema.updateReviewSchema }),
+  validate({ params: idParamSchema, body: schema.updateReviewSchema }),
   controller.updateReview,
 );
 
 /** DELETE /reviews/deleteReview/:id */
-router.delete(
+review.delete(
   '/deleteReview/:id',
   authenticate,
-  validate({ params: schema.questionIdParamSchema }),
+  validate({ params: idParamSchema }),
   controller.deleteReview,
 );
 
-// ── Questions ─────────────────────────────────────────────────────────────────
-
-/** GET /reviews/questions/getAll */
-router.get(
-  '/questions/getAll',
+/** PATCH /reviews/approve/:id — admin */
+review.patch(
+  '/approve/:id',
   authenticate,
-  validate({ query: schema.listQuestionsSchema }),
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.approveReview,
+);
+
+/** PATCH /reviews/reject/:id — admin */
+review.patch(
+  '/reject/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.rejectReview,
+);
+
+/** POST /reviews/voteHelpful/:id */
+review.post(
+  '/voteHelpful/:id',
+  authenticate,
+  validate({ params: idParamSchema }),
+  controller.markHelpful,
+);
+
+/** POST /reviews/reply/:id — the selling shop */
+review.post(
+  '/reply/:id',
+  authenticate,
+  ...controller.guards.vendor,
+  validate({ params: idParamSchema, body: schema.replyReviewSchema }),
+  controller.reply,
+);
+
+export const reviewRoutes = review;
+
+// ── Questions ────────────────────────────────────────────────────────────────
+
+const question = Router();
+
+/** GET /questions/getAll/:productId */
+question.get(
+  '/getAll/:productId',
+  optionalAuth,
+  validate({ params: schema.questionProductParamSchema, query: schema.listQuestionsSchema }),
   controller.listQuestions,
 );
 
-/** POST /reviews/questions/ask */
-router.post(
-  '/questions/ask',
-  authenticate,
-  validate({ body: schema.askQuestionSchema }),
-  controller.ask,
-);
+/** POST /questions/ask */
+question.post('/ask', authenticate, validate({ body: schema.askQuestionSchema }), controller.ask);
 
-/** POST /reviews/questions/:id/answer */
-router.post(
-  '/questions/:id/answer',
+/** POST /questions/answer/:id — the selling shop */
+question.post(
+  '/answer/:id',
   authenticate,
-  validate({ params: schema.questionIdParamSchema, body: schema.answerQuestionSchema }),
+  ...controller.guards.vendor,
+  validate({ params: idParamSchema, body: schema.answerQuestionSchema }),
   controller.answer,
 );
 
-/** PATCH /reviews/questions/:id/moderate */
-router.patch(
-  '/questions/:id/moderate',
+/** PATCH /questions/approve/:id — admin */
+question.patch(
+  '/approve/:id',
   authenticate,
-  validate({ params: schema.questionIdParamSchema, body: schema.moderateQuestionSchema }),
-  controller.moderateQuestion,
+  ...controller.guards.admin,
+  validate({ params: idParamSchema }),
+  controller.approveQuestion,
 );
 
-/** DELETE /reviews/questions/:id/delete */
-router.delete(
-  '/questions/:id/delete',
+/** DELETE /questions/delete/:id — own question, or any as admin */
+question.delete(
+  '/delete/:id',
   authenticate,
-  validate({ params: schema.questionIdParamSchema }),
+  validate({ params: idParamSchema }),
   controller.deleteQuestion,
 );
 
-export const reviewRoutes = router;
+export const questionRoutes = question;
 
-// ── Coupons (admin) ───────────────────────────────────────────────────────────
+// ── Coupons ──────────────────────────────────────────────────────────────────
 
-const coupons = Router();
+const coupon = Router();
 
-/** GET /coupons/getAll */
-coupons.get(
+/** GET /coupons/getAll — admin */
+coupon.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
@@ -140,26 +142,27 @@ coupons.get(
   controller.couponList,
 );
 
-/** POST /coupons/validate — dry run, admin */
-coupons.post(
-  '/validate',
+/** POST /coupons/createCoupon — admin */
+/** GET /coupons/getById/:id - admin */
+coupon.get(
+  '/getById/:id',
   authenticate,
   ...controller.guards.admin,
-  validate({ body: schema.validateCouponSchema }),
-  controller.couponValidate,
+  validate({ params: schema.couponIdParamSchema }),
+  controller.couponDetail,
 );
 
-/** GET /coupons/getUsages */
-coupons.get(
-  '/getUsages',
+/** POST /coupons/applyCoupon - customer, applies to the caller's cart */
+coupon.post(
+  '/applyCoupon',
   authenticate,
-  ...controller.guards.admin,
-  validate({ query: schema.listCouponsSchema }),
-  controller.couponUsages,
+  ...controller.guards.customer,
+  validate({ body: cartSchema.applyCouponSchema }),
+  controller.couponApply,
 );
 
-/** POST /coupons/createCoupon */
-coupons.post(
+/** POST /coupons/createCoupon - admin */
+coupon.post(
   '/createCoupon',
   authenticate,
   ...controller.guards.admin,
@@ -167,8 +170,8 @@ coupons.post(
   controller.couponCreate,
 );
 
-/** PATCH /coupons/updateCoupon/:id */
-coupons.patch(
+/** PATCH /coupons/updateCoupon/:id — admin */
+coupon.patch(
   '/updateCoupon/:id',
   authenticate,
   ...controller.guards.admin,
@@ -176,17 +179,8 @@ coupons.patch(
   controller.couponUpdate,
 );
 
-/** PATCH /coupons/toggleStatus/:id */
-coupons.patch(
-  '/toggleStatus/:id',
-  authenticate,
-  ...controller.guards.admin,
-  validate({ params: schema.couponIdParamSchema, body: schema.toggleCouponSchema }),
-  controller.couponToggle,
-);
-
-/** DELETE /coupons/deleteCoupon/:id */
-coupons.delete(
+/** DELETE /coupons/deleteCoupon/:id — admin */
+coupon.delete(
   '/deleteCoupon/:id',
   authenticate,
   ...controller.guards.admin,
@@ -194,32 +188,64 @@ coupons.delete(
   controller.couponDelete,
 );
 
-export const couponRoutes = coupons;
+/** POST /coupons/validateCoupon */
+coupon.post(
+  '/validateCoupon',
+  authenticate,
+  validate({ body: schema.validateCouponSchema }),
+  controller.couponValidate,
+);
 
-// ── Flash sales ───────────────────────────────────────────────────────────────
+/** GET /coupons/getUsages/:id — admin */
+coupon.get(
+  '/getUsages/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.couponIdParamSchema, query: schema.listCouponsSchema }),
+  controller.couponUsages,
+);
+
+/** PATCH /coupons/toggleStatus/:id — admin */
+coupon.patch(
+  '/toggleStatus/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.couponIdParamSchema, body: schema.toggleCouponSchema }),
+  controller.couponToggle,
+);
+
+export const couponRoutes = coupon;
+
+// ── Flash sales ──────────────────────────────────────────────────────────────
 
 const flash = Router();
 
-/** GET /flash-sales/getAll */
+/** GET /flashSales/getActive */
+flash.get(
+  '/getActive',
+  optionalAuth,
+  validate({ query: schema.listFlashSalesSchema }),
+  controller.flashLive,
+);
+
+/** GET /flashSales/getAll — admin */
 flash.get(
   '/getAll',
   authenticate,
+  ...controller.guards.admin,
   validate({ query: schema.listFlashSalesSchema }),
   controller.flashList,
 );
 
-/** GET /flash-sales/getLive */
-flash.get('/getLive', authenticate, controller.flashLive);
-
-/** GET /flash-sales/getBySlug/:slug */
+/** GET /flashSales/getBySlug/:slug */
 flash.get(
   '/getBySlug/:slug',
-  authenticate,
-  validate({ params: z.object({ slug: common.cuidOrSlug }) }),
+  optionalAuth,
+  validate({ params: schema.flashSlugParamSchema }),
   controller.flashBySlug,
 );
 
-/** POST /flash-sales/create — admin */
+/** POST /flashSales/create — admin */
 flash.post(
   '/create',
   authenticate,
@@ -228,7 +254,7 @@ flash.post(
   controller.flashCreate,
 );
 
-/** PATCH /flash-sales/update/:id — admin */
+/** PATCH /flashSales/update/:id — admin */
 flash.patch(
   '/update/:id',
   authenticate,
@@ -237,7 +263,7 @@ flash.patch(
   controller.flashUpdate,
 );
 
-/** DELETE /flash-sales/delete/:id — admin */
+/** DELETE /flashSales/delete/:id — admin */
 flash.delete(
   '/delete/:id',
   authenticate,
@@ -247,3 +273,5 @@ flash.delete(
 );
 
 export const flashSaleRoutes = flash;
+
+export default reviewRoutes;
