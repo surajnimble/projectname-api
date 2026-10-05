@@ -142,6 +142,31 @@ let derived = false;
 
 const toBraces = (p: string): string => p.replace(/:([A-Za-z_]\w*)/g, '{$1}');
 
+const FLOW_PATHS = [
+  '/auth/register/sendOtp',
+  '/auth/register/verifyOtp',
+  '/auth/register',
+  '/auth/sendOtp',
+  '/auth/login/verifyOtp',
+  '/auth/login',
+  '/auth/refreshToken',
+  '/auth/logout',
+];
+
+const FLOW_RANK = new Map(FLOW_PATHS.map((p, i) => [p, i]));
+
+const orderPaths = (paths: Record<string, any>): Record<string, any> => {
+  const keys = Object.keys(paths);
+  const leading = keys
+    .filter((p) => FLOW_RANK.has(p))
+    .sort((a, b) => FLOW_RANK.get(a)! - FLOW_RANK.get(b)!);
+  const trailing = keys.filter((p) => !FLOW_RANK.has(p));
+
+  const out: Record<string, any> = {};
+  for (const key of [...leading, ...trailing]) out[key] = paths[key];
+  return out;
+};
+
 const ensureDerived = (app: any): void => {
   if (derived) return;
   derived = true;
@@ -205,7 +230,7 @@ const ensureDerived = (app: any): void => {
     }
   }
 
-  documented.paths = documentedPaths;
+  documented.paths = orderPaths(documentedPaths);
   spec = documented as swaggerJsdoc.OAS3Definition;
 };
 

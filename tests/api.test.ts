@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createApp } from '../src/app';
+import { getSpec } from '../src/docs/swagger.routes';
 
 describe('public API surface', () => {
   let app: express.Application;
@@ -87,5 +88,25 @@ describe('public API surface', () => {
     expect(res.headers['x-powered-by']).toBeUndefined();
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-frame-options']).toBeDefined();
+  });
+
+  it('leads the OpenAPI spec with the register and login flow, in call order', async () => {
+    const spec = getSpec(app) as any;
+    const paths = Object.keys(spec.paths ?? {});
+
+    expect(paths.slice(0, 6)).toEqual([
+      '/auth/register/sendOtp',
+      '/auth/register/verifyOtp',
+      '/auth/register',
+      '/auth/sendOtp',
+      '/auth/login/verifyOtp',
+      '/auth/login',
+    ]);
+  });
+
+  it('puts the Auth tag first so the flow heads the Swagger page', () => {
+    const spec = getSpec(app) as any;
+
+    expect(spec.tags?.[0]?.name).toBe('Auth');
   });
 });

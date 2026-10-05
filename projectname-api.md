@@ -1327,10 +1327,11 @@ export const errorHandler = (
 
 | Method | Endpoint | Auth | Role | Purpose |
 | --- | --- | --- | --- | --- |
-| POST | `/api/v1/auth/register` | ❌ | Public | Register — `type: CUSTOMER` or `type: VENDOR` |
-| POST | `/api/v1/auth/login` | ❌ | Public | Login (any role) |
-| POST | `/api/v1/auth/loginWithOtp` | ❌ | Public | OTP-based login |
-| POST | `/api/v1/auth/refreshToken` | Cookie | Any | Refresh access token |
+| POST | `/api/v1/auth/register/sendOtp` | ❌ | Public | Registration step 1 — request a code |
+| POST | `/api/v1/auth/register/verifyOtp` | ❌ | Public | Registration step 2 — code → `verificationToken` |
+| POST | `/api/v1/auth/register` | ❌ | Public | Registration step 3 — spend the token (`type: CUSTOMER` or `type: VENDOR`) |
+| POST | `/api/v1/auth/login` | ❌ | Public | Password login (any role) |
+| POST | `/api/v1/auth/login/verifyOtp` | ❌ | Public | OTP login step 2 — verify the code and sign in || POST | `/api/v1/auth/refreshToken` | Cookie | Any | Refresh access token |
 | POST | `/api/v1/auth/logout` | ✅ | Any | Logout + revoke refresh |
 | POST | `/api/v1/auth/logoutAllDevices` | ✅ | Any | Revoke all sessions |
 | GET | `/api/v1/auth/getMe` | ✅ | Any | Current user |
@@ -1819,18 +1820,63 @@ export const errorHandler = (
 
 ## 6.1a Register — Customer
 
+Teen step. Pehle contact prove karo, phir us proof ke against account banao.
+
+**Step 1 — code bhejo**
+
 ```
-POST /api/v1/auth/sendOtp
+POST /api/v1/auth/register/sendOtp
 Content-Type: application/json
 
 {
-  "type": "REGISTER",
-  "channel": "EMAIL",
   "identifier": "ravi@example.com"
 }
 ```
 
-`otp` ki value se hi register karo:
+`200 OK`
+
+```json
+{
+  "status": true,
+  "message": "OTP sent successfully.",
+  "result": {
+    "identifier": "ravi@example.com",
+    "channel": "EMAIL",
+    "expiresIn": 600,
+    "otpLength": 6,
+    "isNewUser": true
+  }
+}
+```
+
+**Step 2 — code verify karo**
+
+```
+POST /api/v1/auth/register/verifyOtp
+Content-Type: application/json
+
+{
+  "identifier": "ravi@example.com",
+  "otp": "123456"
+}
+```
+
+`200 OK`
+
+```json
+{
+  "status": true,
+  "message": "OTP verified successfully.",
+  "result": {
+    "verificationToken": "9f2a41c7...",
+    "expiresIn": 900,
+    "identifier": "ravi@example.com",
+    "otpLength": 6
+  }
+}
+```
+
+**Step 3 — details bhejo aur account banao**
 
 ```
 POST /api/v1/auth/register
@@ -1842,7 +1888,7 @@ Content-Type: application/json
   "email": "ravi@example.com",
   "phone": "+919876543210",
   "password": "Secret@123",
-  "otp": "123456"
+  "verificationToken": "9f2a41c7..."
 }
 ```
 
@@ -1869,13 +1915,35 @@ Content-Type: application/json
 }
 ```
 
-**Note:** User row tabhi banta hai jab `otp` verify ho jaaye — pehle koi partial
-account create nahi hota. Sirf wahi contact `isVerified` mark hota hai jiska code
-aaya tha: email se register kiya to `isPhoneVerified` false rahega. `otp`
-`OTP_REQUIRED=false` pe optional hai — tab account turant ban jaata hai,
-`isVerified` flags false.
+**Note:** Step 2 sirf code check karta hai — koi account nahi banta, koi session nahi
+milti. `verificationToken` hi step 3 ka permission hai, aur wo do cheezein apne
+saath bind karta hai: **kaunsa contact** prove hua (step 3 me jo `email` ya `phone`
+bheja jaye usi se match hona chahiye, warna `400`
+`VERIFICATION_IDENTIFIER_MISMATCH`) aur **kis purpose** ke liye tha (register ka
+token login nahi kar sakta). Token ek hi baar chalta hai — dobara bhejne pe `401`
+`VERIFICATION_INVALID`, chahe pehli baar kuch bhi hua ho.
+
+Sirf wahi contact `isVerified` mark hota hai jiska code aaya tha: email se register
+kiya to `isPhoneVerified` false rahega. Doosre contact ko baad me
+`POST /auth/verifyPhone` se verify karna padta hai.
+
+Register ka row tabhi banta hai jab token valid ho. `OTP_REQUIRED=false` pe token
+ki zaroorat nahi, tab account turant ban jaata hai aur `isVerified` flags false
+rehte hain.
 
 ## 6.1b Register — Vendor
+
+Vendor ke liye bhi wahi teen step, bas step 3 me `shopName` add hota hai.
+
+```
+POST /api/v1/auth/register/sendOtp
+{ "identifier": "ravi@example.com" }
+```
+
+```
+POST /api/v1/auth/register/verifyOtp
+{ "identifier": "ravi@example.com", "otp": "123456" }
+```
 
 ```
 POST /api/v1/auth/register
@@ -1887,7 +1955,7 @@ Content-Type: application/json
   "email": "ravi@example.com",
   "phone": "+919876543210",
   "password": "Secret@123",
-  "otp": "123456",
+  "verificationToken": "9f2a41c7...",
   "shopName": "Ravi Store",
   "slug": "ravi-store"
 }
@@ -1923,6 +1991,121 @@ Content-Type: application/json
 Refresh token → HttpOnly cookie (`Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Strict; Max-Age=604800`)
 
 **Note:** Agar `vendor.autoApprove = true` ho, `vendorData.status = "APPROVED"` aa jayega. Warna vendor product create nahi kar sakta (403 `VENDOR_NOT_APPROVED`).
+
+## 6.1c Login — Password
+
+Ek call. User email/phone + password bhejta hai, server seedha session de deta hai.
+
+```
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "ravi@example.com",
+  "password": "Secret@123"
+}
+```
+
+`200 OK`
+
+```json
+{
+  "status": true,
+  "message": "Logged in successfully.",
+  "result": {
+    "accessToken": "eyJhbGc...",
+    "expiresIn": 900,
+    "twoFactorRequired": false,
+    "userData": {
+      "userId": "usr_1",
+      "name": "Ravi Kumar",
+      "email": "ravi@example.com",
+      "rolesList": ["CUSTOMER"]
+    }
+  }
+}
+```
+
+Refresh token → HttpOnly cookie, same register jaisa.
+
+**Note:** Ye endpoint sirf password leta hai. `otp` ya `type` field isme nahi
+hote — OTP login ke liye 6.1d use karo. `twoFactorRequired: true` aaye to
+response me tokens empty honge aur `twoFactorToken` milega, jise
+`POST /auth/verify2FA` par bhejna hoga.
+
+## 6.1d Login — OTP
+
+Do step. Pehle contact prove karo, usi call me login ho jaata hai.
+
+**Step 1 — code bhejo**
+
+```
+POST /api/v1/auth/sendOtp
+Content-Type: application/json
+
+{
+  "type": "LOGIN",
+  "channel": "EMAIL",
+  "identifier": "ravi@example.com"
+}
+```
+
+`200 OK`
+
+```json
+{
+  "status": true,
+  "result": {
+    "identifier": "ravi@example.com",
+    "channel": "EMAIL",
+    "expiresIn": 600,
+    "otpLength": 6,
+    "isNewUser": false
+  }
+}
+```
+
+**Step 2 — code verify karo aur login ho jao**
+
+```
+POST /api/v1/auth/login/verifyOtp
+Content-Type: application/json
+
+{
+  "identifier": "ravi@example.com",
+  "otp": "123456"
+}
+```
+
+`200 OK`
+
+```json
+{
+  "status": true,
+  "message": "Logged in successfully.",
+  "result": {
+    "accessToken": "eyJhbGc...",
+    "expiresIn": 900,
+    "twoFactorRequired": false,
+    "userData": {
+      "userId": "usr_1",
+      "name": "Ravi Kumar",
+      "email": "ravi@example.com",
+      "rolesList": ["CUSTOMER"]
+    }
+  }
+}
+```
+
+Refresh token → HttpOnly cookie.
+
+**Note:** Ye do step me hota hai, teen me nahi. Code aur session ek hi request me
+aate hain, isliye beech me identifier badalne ka koi mauka hi nahi hota — session
+hamesha usi contact ke liye banti hai jiska code verify hua. Isiliye yahan
+`verificationToken` ki zaroorat nahi; wo sirf register me chahiye, kyunki wahan
+details ek alag request me aati hain.
+
+Code single-use hai — wahi code dobara bhejne pe `401 OTP_INVALID` milega.
 
 ## 6.2 List Categories (Simple Paginated)
 
@@ -2287,10 +2470,47 @@ export const OTP = {
 
 - `POST /auth/sendOtp` → `{ type, channel, identifier }`
 - `POST /auth/verifyOtp` → `{ type, identifier, otp }`
+- `POST /auth/register/sendOtp` → `{ identifier }`
+- `POST /auth/register/verifyOtp` → `{ identifier, otp }` → `verificationToken`
+- `POST /auth/login/verifyOtp` → `{ identifier, otp }` → session
 
 Record channel se keyed hota hai jo identifier se match karta hai (email pe
 `EMAIL`, phone pe `SMS`), client ke requested channel pe nahi — isse SMS code ko
 email code ki tarah redeem nahi kar sakte.
+
+### Code ke baad — `verificationToken`
+
+Sirf `REGISTER` me code ke baad ek **single-use `verificationToken`** chahiye.
+Wo tab zaroori hai jab code verify hone aur asli kaam hone ke beech ek aur
+request aa jaaye — jaise registration me, jahan details step 3 me aati hain.
+
+Login me ye gap nahi hai: code aur session ek hi request me aate hain
+(`POST /auth/login/verifyOtp`), isliye wahan token ki zaroorat nahi.
+
+Ye token `AuthVerification` table me rehta hai aur teen cheezein apne saath
+pakadta hai:
+
+| Field | Kyun zaroori |
+| --- | --- |
+| `purpose` | kis kaam ka token hai — ek kaam ka doosre me nahi chalega |
+| `identifier` | wo exact email/phone jiska code aaya tha — step 3 me koi aur contact nahi bhej sakte |
+| `usedAt` | ek hi baar chalta hai; dobara bhejne pe `401` `VERIFICATION_INVALID` |
+
+Token plain text me store nahi hota, sirf uska SHA-256. `expiresAt` 15 minute.
+Spend hote waqt row ek conditional `UPDATE` se mark hoti hai
+(`usedAt: null` + `expiresAt` future + matching purpose), isliye do saath me aaye
+hue do requests me se sirf ek hi jeet sakta hai.
+
+Identifier mismatch pehle check hota hai, token spend hone se pehle — isliye galat
+identifier bhejne se asli token barbaad nahi hota.
+
+Ye `src/config/verification.config.ts` se configure hota hai (`TTL_MIN`,
+`TOKEN_BYTES`).
+
+**Throttling DB me hai.** Resend cooldown (60s) aur daily cap (10) `Otp` row ke
+`lastSentAt`, `sendDay`, `sendCount` columns pe gina jate hain, Redis pe nahi —
+warna Redis down hone par limit gayab ho jaati thi. Redis sirf cross-instance
+accelerator hai; uska unavailable hona code bhejne ko rok nahi leta.
 
 ### Master switch — `OTP_REQUIRED`
 
@@ -2300,7 +2520,7 @@ isliye ise off karne pe koi ek code path bhi code demand karte nahi reh jaata.
 
 | Value | Register | Login | Change password |
 | --- | --- | --- | --- |
-| `true` (default) | `otp` zaroori, row sirf verify hone ke baad | verified contact nahi hai to 403 `ACCOUNT_UNVERIFIED` | account ke apne contact pe code bhi chahiye |
+| `true` (default) | `verificationToken` zaroori, row sirf token spend hone ke baad | verified contact nahi hai to 403 `ACCOUNT_UNVERIFIED` | account ke apne contact pe code bhi chahiye |
 | `false` | account turant, unverified | verification check skip | sirf current password |
 
 `true` default hai kyunki wahi secure choice hai. Jab koi bhi channel code
@@ -3444,8 +3664,9 @@ aur `outDir: ./dist` set karta hai, isliye entry `dist/server.js` banta hai aur
                  delete/:id, getUsage/:id
 /auditLogs       getAll, getById/:id, getByActor/:userId
                  export, purge
-/auth            register, login, loginWithOtp
-                 refreshToken, logout, logoutAllDevices
+/auth            register, register/sendOtp, register/verifyOtp,
+                  login, login/verifyOtp
+                  refreshToken, logout, logoutAllDevices
                  getMe, sendOtp, verifyOtp
                  forgotPassword, resetPassword, changePassword
                  verifyEmail, verifyPhone, enable2FA
