@@ -4,7 +4,12 @@ export { PAGINATION, EXPORT_PAGINATION, CURSOR_PAGE_SIZE } from './pagination.co
 export { JWT, ACCESS_TOKEN_TTL_SEC, REFRESH_TOKEN_TTL_SEC, TWO_FA, API_KEY } from './jwt.config';
 export { PASSWORD, NAME, SLUG, PHONE } from './password.config';
 export { OTP, OTP_LENGTH_RANGE } from './otp.config';
-export { RATE_LIMIT, RATE_LIMIT_MESSAGE, REDIS_RATE_LIMIT_PREFIX, LOGIN_ATTEMPT } from './rateLimit.config';
+export {
+  RATE_LIMIT,
+  RATE_LIMIT_MESSAGE,
+  REDIS_RATE_LIMIT_PREFIX,
+  LOGIN_ATTEMPT,
+} from './rateLimit.config';
 export type { RateLimitPreset } from './rateLimit.config';
 export { UPLOAD, UPLOAD_KIND, getUploadLimits } from './upload.config';
 export type { UploadKind } from './upload.config';

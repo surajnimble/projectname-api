@@ -60,11 +60,7 @@ export {
   EMAIL_TEMPLATE_KEY,
 } from './tracking';
 
-export {
-  HTTP_STATUS,
-  HTTP_STATUS_MESSAGE,
-  ERROR_CODE,
-} from './http';
+export { HTTP_STATUS, HTTP_STATUS_MESSAGE, ERROR_CODE } from './http';
 export type { HttpStatus, ErrorCode } from './http';
 
 export {

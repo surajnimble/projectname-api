@@ -1,22 +1,8 @@
-/**
- * Live HTTP tests for shipping, delivery boys, settings, admin and API keys.
- *
- * Covers: zone CRUD, method CRUD with day-range rules, partners, pincode
- * serviceability with zone fallbacks, rate quoting with weight and free
- * shipping, rider management with the active-delivery guard, settings upsert
- * and bulk update, admin dashboard, audit logs, and API key secret hygiene.
- *
- * Usage: npx tsx scripts/e2e-shipping.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -40,6 +26,8 @@ const phoneFor = (tag: string): string => {
   for (let i = 0; i < tag.length; i += 1) hash = (hash * 31 + tag.charCodeAt(i)) % 100;
   return `+7${run}${String(hash).padStart(2, '0')}`;
 };
+
+const PIN = String(700000 + (Number(run) % 90000));
 
 const findNull = (value: any, depth = 0): string | null => {
   if (depth > 9) return null;
@@ -124,7 +112,6 @@ const main = async (): Promise<void> => {
   const cu = api(customer.token);
   const admin = api(adminToken);
 
-  // ══ Guards ═════════════════════════════════════════════════════════════════
   const anon = await request(app).get('/api/v1/shipping/getZones');
   record(
     'GET /shipping/zones/getAll without token -> 401',
@@ -139,7 +126,6 @@ const main = async (): Promise<void> => {
     `status=${asCustomer.status}`,
   );
 
-  // ══ Zones ══════════════════════════════════════════════════════════════════
   const badZone = await admin.post('/api/v1/shipping/createZone', { name: 'X' });
   record('a one-character zone name -> 400', badZone.status === 400, `status=${badZone.status}`);
 
@@ -153,7 +139,7 @@ const main = async (): Promise<void> => {
     name: `SH Metro ${run}`,
     countries: ['IN'],
     states: ['Maharashtra'],
-    pincodes: ['400050'],
+    pincodes: [PIN],
     isActive: true,
   });
   record(
@@ -164,7 +150,7 @@ const main = async (): Promise<void> => {
   const zoneId = zone.body?.result?.zoneId ?? '';
   record(
     'the zone stores its pincodes',
-    D_arr(zone.body?.result?.pincodes).includes('400050'),
+    D_arr(zone.body?.result?.pincodes).includes(PIN),
     JSON.stringify(zone.body?.result?.pincodes),
   );
   record(
@@ -182,7 +168,7 @@ const main = async (): Promise<void> => {
   );
 
   const zoneUpdated = await admin.patch(`/api/v1/shipping/updateZone/${zoneId}`, {
-    pincodes: ['400050', '400051'],
+    pincodes: [PIN, (Number(PIN) + 1).toString()],
   });
   record(
     'PATCH /shipping/zones/updateZone -> 200',
@@ -204,7 +190,6 @@ const main = async (): Promise<void> => {
     `status=${zoneMissing.status}`,
   );
 
-  // ══ Methods ════════════════════════════════════════════════════════════════
   const badDays = await admin.post('/api/v1/shipping/createMethod', {
     name: 'Bad window',
     code: `BAD${run}`,
@@ -296,7 +281,6 @@ const main = async (): Promise<void> => {
     `status=${badUpdate.status}`,
   );
 
-  // ══ Partners ═══════════════════════════════════════════════════════════════
   const partner = await admin.post('/api/v1/shipping/createPartner', {
     name: `SH Courier ${run}`,
     code: `CR${run}`,
@@ -336,9 +320,8 @@ const main = async (): Promise<void> => {
     D_str(storedKey?.apiKey),
   );
 
-  // ══ Serviceability ═════════════════════════════════════════════════════════
   const inZone = await cu.post('/api/v1/shipping/checkServiceability', {
-    pincode: '400050',
+    pincode: PIN,
     state: 'Maharashtra',
     country: 'India',
   });
@@ -421,10 +404,8 @@ const main = async (): Promise<void> => {
   const badPin = await cu.post('/api/v1/shipping/checkServiceability', { pincode: 'abc' });
   record('a malformed pincode -> 400', badPin.status === 400, `status=${badPin.status}`);
 
-  // ══ Rate quoting ════════════════════════════════════════════════════════════
-  // Cheapest method in the zone is SLW at 30; EXPLICIT uses EXP at 60.
   const autoRate = await cu.post('/api/v1/shipping/calculateRate', {
-    pincode: '400050',
+    pincode: PIN,
     weightKg: 2,
     orderValue: 500,
   });
@@ -460,7 +441,7 @@ const main = async (): Promise<void> => {
   );
 
   const namedRate = await cu.post('/api/v1/shipping/calculateRate', {
-    pincode: '400050',
+    pincode: PIN,
     weightKg: 2,
     orderValue: 500,
     methodId,
@@ -477,7 +458,7 @@ const main = async (): Promise<void> => {
   );
 
   const freeRate = await cu.post('/api/v1/shipping/calculateRate', {
-    pincode: '400050',
+    pincode: PIN,
     weightKg: 2,
     orderValue: 5000,
     methodId,
@@ -489,7 +470,7 @@ const main = async (): Promise<void> => {
   );
 
   const badMethodRate = await cu.post('/api/v1/shipping/calculateRate', {
-    pincode: '400050',
+    pincode: PIN,
     methodId: 'nope123',
   });
   record(
@@ -498,7 +479,6 @@ const main = async (): Promise<void> => {
     `status=${badMethodRate.status}`,
   );
 
-  // ══ Delivery boys ══════════════════════════════════════════════════════════
   const badBoyUser = await admin.post('/api/v1/deliveryBoys/create', {
     userId: 'nope123',
     name: 'Ghost',
@@ -572,7 +552,6 @@ const main = async (): Promise<void> => {
   );
   await admin.patch(`/api/v1/deliveryBoys/toggleStatus/${boyId}`, { isActive: true });
 
-  // An active delivery blocks deactivation.
   await prisma.shipment
     .create({
       data: { subOrderId: 'guard-sub', orderId: 'guard-order', status: 'IN_TRANSIT' },
@@ -599,7 +578,6 @@ const main = async (): Promise<void> => {
     'verified',
   );
 
-  // ══ Settings ═══════════════════════════════════════════════════════════════
   const settingsAsCustomer = await cu.patch('/api/v1/settings/updateSetting', {
     key: 'x.y',
     value: 1,
@@ -671,7 +649,6 @@ const main = async (): Promise<void> => {
     `total=${listSettings.body?.result?.totalRecord}`,
   );
 
-  // A non-public setting must not surface on the public endpoint.
   await admin.patch('/api/v1/settings/updateSetting', {
     key: `__sh_public_${run}`,
     value: true,
@@ -691,7 +668,6 @@ const main = async (): Promise<void> => {
     'absent',
   );
 
-  // ══ Admin ══════════════════════════════════════════════════════════════════
   const dash = await admin.get('/api/v1/admin/getDashboardStats');
   record('GET /admin/dashboard -> 200', dash.status === 200, `status=${dash.status}`);
   record(
@@ -738,7 +714,6 @@ const main = async (): Promise<void> => {
   const activity = await admin.get('/api/v1/admin/getActivityLogs');
   record('GET /admin/activity-logs -> 200', activity.status === 200, `status=${activity.status}`);
 
-  // ── Sub-admin ──────────────────────────────────────────────────────────────
   const badSub = await admin.post('/api/v1/admin/createSubAdmin', {
     name: 'X',
     email: 'not-an-email',
@@ -783,49 +758,88 @@ const main = async (): Promise<void> => {
 
   const perms = await admin.get('/api/v1/admin/getPermissions');
   record('GET /admin/getPermissions -> 200', perms.status === 200, `status=${perms.status}`);
+
+  const matrixRoles = Object.keys(perms.body?.result?.roleList ?? {});
   record(
-    'creating a sub-admin with permissions replaces the role set, it does not extend it',
-    D_arr(perms.body?.result?.permissionList).length === 2,
-    JSON.stringify(D_arr(perms.body?.result?.permissionList)),
+    'the matrix covers every seeded role',
+    ['SUPER_ADMIN', 'SUB_ADMIN', 'VENDOR'].every((r) => matrixRoles.includes(r)),
+    JSON.stringify(matrixRoles),
+  );
+  record(
+    'a role with no rows is absent rather than empty',
+    !matrixRoles.includes('CUSTOMER'),
+    JSON.stringify(matrixRoles),
   );
 
-  const permsSet = await admin.patch(
-    `/api/v1/admin/updatePermissions/${sub.body?.result?.userId}`,
-    {
-      permissions: ['order:list', 'order:view', 'vendor:approve'],
-    },
-  );
+  const seededSubPerms = D_arr(perms.body?.result?.roleList?.SUB_ADMIN);
   record(
-    'PATCH /admin/updatePermissions/:id -> 200',
+    'the seed gives SUB_ADMIN a permission set',
+    seededSubPerms.length > 0,
+    `count=${seededSubPerms.length}`,
+  );
+
+  const permsSet = await admin.patch(`/api/v1/admin/updatePermissions/SUB_ADMIN`, {
+    permissions: ['order:list', 'order:view', 'vendor:approve'],
+  });
+  record(
+    'PATCH /admin/updatePermissions/:role -> 200',
     permsSet.status === 200,
-    `status=${permsSet.status}`,
+    `status=${permsSet.status} msg=${permsSet.body?.message}`,
   );
   record(
     'the permission count is reported',
     D_num(permsSet.body?.result?.permissionCount) === 3,
     String(D_num(permsSet.body?.result?.permissionCount)),
   );
+  record(
+    'the role is echoed back',
+    permsSet.body?.result?.role === 'SUB_ADMIN',
+    permsSet.body?.result?.role,
+  );
 
   const permsAfter = await admin.get('/api/v1/admin/getPermissions');
   record(
-    'the replacement set is what comes back',
-    D_arr(permsAfter.body?.result?.permissionList).length === 3 &&
-      D_arr(permsAfter.body?.result?.permissionList).includes('vendor:approve'),
-    JSON.stringify(D_arr(permsAfter.body?.result?.permissionList)),
+    'the set is replaced wholesale, not merged',
+    D_arr(permsAfter.body?.result?.roleList?.SUB_ADMIN).length === 3 &&
+      D_arr(permsAfter.body?.result?.roleList?.SUB_ADMIN).includes('vendor:approve') &&
+      !D_arr(permsAfter.body?.result?.roleList?.SUB_ADMIN).includes('order:cancel'),
+    JSON.stringify(permsAfter.body?.result?.roleList?.SUB_ADMIN),
+  );
+  record(
+    'another role is untouched',
+    D_arr(permsAfter.body?.result?.roleList?.VENDOR).length ===
+      D_arr(perms.body?.result?.roleList?.VENDOR).length,
+    `vendor=${D_arr(permsAfter.body?.result?.roleList?.VENDOR).length}`,
   );
 
-  const permsCleared = await admin.patch(
-    `/api/v1/admin/updatePermissions/${sub.body?.result?.userId}`,
-    { permissions: [] },
-  );
+  const permsCleared = await admin.patch(`/api/v1/admin/updatePermissions/SUB_ADMIN`, {
+    permissions: [],
+  });
   record(
     'clearing permissions is allowed',
     permsCleared.status === 200 && D_num(permsCleared.body?.result?.permissionCount) === 0,
     `count=${permsCleared.body?.result?.permissionCount}`,
   );
 
-  const badRole = await admin.get('/api/v1/admin/getPermissions/nope123');
-  record('an unknown role -> 400', badRole.status === 400, `status=${badRole.status}`);
+  const clearedMatrix = await admin.get('/api/v1/admin/getPermissions');
+  record(
+    'a cleared role comes back as an empty list',
+    D_arr(clearedMatrix.body?.result?.roleList?.SUB_ADMIN).length === 0,
+    JSON.stringify(clearedMatrix.body?.result?.roleList?.SUB_ADMIN),
+  );
+
+  await admin.patch(`/api/v1/admin/updatePermissions/SUB_ADMIN`, {
+    permissions: seededSubPerms,
+  });
+
+  const badRole = await admin.patch('/api/v1/admin/updatePermissions/NOT_A_ROLE', {
+    permissions: ['order:list'],
+  });
+  record(
+    'an unknown role -> 400, not a 500 from the database',
+    badRole.status === 400,
+    `status=${badRole.status} msg=${badRole.body?.message}`,
+  );
 
   const subCreatingSub = await api(subToken).post('/api/v1/admin/createSubAdmin', {
     name: 'Nope',
@@ -839,7 +853,6 @@ const main = async (): Promise<void> => {
     `status=${subCreatingSub.status}`,
   );
 
-  // ══ API keys ══════════════════════════════════════════════════════════════
   const keyAsCustomer = await cu.get('/api/v1/apiKeys/getAll');
   record(
     'a customer cannot list API keys -> 403',
@@ -916,7 +929,6 @@ const main = async (): Promise<void> => {
     `status=${revokeMissing.status}`,
   );
 
-  // ══ Cleanup ═══════════════════════════════════════════════════════════════
   await prisma.apiKey.deleteMany({ where: { name: { contains: run } } });
   await prisma.systemSetting.deleteMany({ where: { key: { contains: `__sh_` } } });
   await prisma.rolePermission.deleteMany({ where: { role: 'SUB_ADMIN' } });
@@ -925,7 +937,8 @@ const main = async (): Promise<void> => {
   await prisma.shippingPartner.deleteMany({ where: { id: partnerId } });
   await prisma.deliveryBoy.deleteMany({ where: { id: boyId } });
   await prisma.shipment.deleteMany({ where: { orderId: 'guard-order' } });
-  await prisma.user.deleteMany({ where: { email: { contains: `sh_` } } });
+
+  await prisma.user.deleteMany({ where: { email: { contains: run } } });
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

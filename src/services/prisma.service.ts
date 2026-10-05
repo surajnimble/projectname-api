@@ -1,18 +1,8 @@
-/**
- * Loads .env before Prisma reads DATABASE_URL. `dotenv/config` is idempotent, so this is safe
- * even when env.config has already loaded it — and it guarantees DATABASE_URL exists for any
- * entry point that imports this file directly (scripts, workers, cron), not just through the
- * app's import chain.
- */
 import 'dotenv/config';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { logger } from './logger.service';
+import { OPS } from '../config/app.config';
 
-/**
- * Prisma reads DATABASE_URL from the environment itself. We deliberately do not
- * pass `datasources` here: doing so would evaluate `process.env.DATABASE_URL`
- * at import time, before dotenv has run in some entry points (scripts, workers).
- */
 export const prisma = new PrismaClient({
   log:
     process.env.NODE_ENV === 'development'
@@ -27,17 +17,6 @@ prisma.$on('error' as any, (err: any) => {
   logger.error({ err: err?.message }, '[prisma] error');
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Single-connection serialisation (local PGlite only)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The PGlite TCP bridge serves exactly one connection, so two overlapping
- * queries fail with "Can't reach database server". In that mode only, every model
- * query is funnelled through a promise chain.
- *
- * Production PostgreSQL is unaffected: this is a no-op unless PGLITE_MODE=true.
- */
 const SERIALISE = process.env.PGLITE_MODE === 'true';
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -46,7 +25,7 @@ const enqueue = <T>(run: () => Promise<T>): Promise<T> => {
   if (!SERIALISE) return run();
 
   const result = queue.then(run, run);
-  // Keep the chain alive even when a query rejects.
+
   queue = result.then(
     () => undefined,
     () => undefined,
@@ -54,7 +33,6 @@ const enqueue = <T>(run: () => Promise<T>): Promise<T> => {
   return result;
 };
 
-/** Model delegate methods that must be serialised. */
 const QUERY_METHOD =
   /^(find|create|update|delete|upsert|aggregate|count|groupBy|executeRaw|queryRaw)/;
 
@@ -86,7 +64,6 @@ if (SERIALISE) {
   logger.info('[prisma] PGlite serialise mode enabled');
 }
 
-/** Runs work through the serialise queue (a direct call outside PGlite mode). */
 export const serialise = <T>(run: () => Promise<T>): Promise<T> => enqueue(run);
 
 export type Tx = Prisma.TransactionClient;
@@ -94,7 +71,6 @@ export type TxClient = Prisma.TransactionClient | typeof prisma;
 
 export const prismaTypes = Prisma;
 
-/** Disconnects cleanly on SIGTERM. */
 export const disconnectPrisma = async (): Promise<void> => {
   await prisma.$disconnect();
 };
@@ -118,10 +94,6 @@ export const databaseLatencyMs = async (): Promise<number> => {
   }
 };
 
-/**
- * Prisma error codes mapped to HTTP semantics.
- * P2002 -> 409 duplicate, P2025 -> 404 not found, P2034 -> 409 transaction conflict.
- */
 export const PRISMA_ERROR_MAP: Record<string, { status: number; code: string }> = {
   P2000: { status: 400, code: 'VALIDATION_ERROR' },
   P2001: { status: 404, code: 'NOT_FOUND' },
@@ -138,6 +110,8 @@ export const mapPrismaError = (err: unknown): { status: number; code: string } |
   return null;
 };
 
-/** Wraps a unit of work in a transaction with bounded wait/timeout. */
 export const withTransaction = async <T>(fn: (tx: Tx) => Promise<T>): Promise<T> =>
-  prisma.$transaction(async (tx) => fn(tx), { maxWait: 5000, timeout: 15000 });
+  prisma.$transaction(async (tx) => fn(tx), {
+    maxWait: OPS.TX_MAX_WAIT_MS,
+    timeout: OPS.TX_TIMEOUT_MS,
+  });

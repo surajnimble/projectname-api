@@ -14,10 +14,6 @@ import {
 } from '../../utils/slug';
 import { writeAuditLog } from '../../services/audit.service';
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Brand
-// ═══════════════════════════════════════════════════════════════════════════
-
 export const listBrands = async (query: any): Promise<{ rows: any[]; total: number }> => {
   const { limit, skip } = getPagination(query);
   const withCounts = query?.withCounts !== false;
@@ -132,7 +128,7 @@ export const createBrand = async (input: any, req?: any): Promise<any> => {
   return brand;
 };
 
-export const updateBrand = async (id: string, input: any, req?: any): Promise<any> => {
+export const updateBrand = async (id: string, input: any): Promise<any> => {
   await getBrandById(id);
 
   const data: Prisma.BrandUpdateInput = {};
@@ -174,7 +170,6 @@ export const updateBrand = async (id: string, input: any, req?: any): Promise<an
 export const deleteBrand = async (id: string, req?: any): Promise<any> => {
   const brand = await getBrandById(id);
 
-  // Refused while products still reference it.
   if (brand._count.products > 0) {
     throw new AppError(ERROR.BRAND.IN_USE, 409, ERROR_CODE.BRAND_IN_USE);
   }
@@ -195,10 +190,6 @@ export const deleteBrand = async (id: string, req?: any): Promise<any> => {
 
   return { id, name: brand.name };
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Tag
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const listTags = async (query: any): Promise<{ rows: any[]; total: number }> => {
   const { limit, skip } = getPagination(query);
@@ -237,19 +228,31 @@ export const listTags = async (query: any): Promise<{ rows: any[]; total: number
   return { rows, total };
 };
 
-export const createTag = async (input: any, req?: any): Promise<any> =>
+export const createTag = async (input: any): Promise<any> =>
   prisma.tag.create({
     data: {
       name: D.str(input.name),
       slug: await uniqueTagSlug(D.str(input.slug) || D.str(input.name)),
       isActive: true,
     },
-    select: { id: true, name: true, slug: true, isActive: true, createdAt: true, _count: { select: { products: true } } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      isActive: true,
+      createdAt: true,
+      _count: { select: { products: true } },
+    },
   });
 
-export const bulkCreateTags = async (
-  input: { tags: any[]; continueOnError: boolean },
-): Promise<{ successCount: number; failCount: number; errors: { row: number; message: string }[] }> => {
+export const bulkCreateTags = async (input: {
+  tags: any[];
+  continueOnError: boolean;
+}): Promise<{
+  successCount: number;
+  failCount: number;
+  errors: { row: number; message: string }[];
+}> => {
   const errors: { row: number; message: string }[] = [];
   const created: any[] = [];
 
@@ -259,7 +262,10 @@ export const bulkCreateTags = async (
       created.push(tag);
     } catch (err) {
       if (!input.continueOnError) throw err;
-      errors.push({ row: index + 1, message: (err as AppError)?.message ?? 'Failed to create tag.' });
+      errors.push({
+        row: index + 1,
+        message: (err as AppError)?.message ?? 'Failed to create tag.',
+      });
     }
   }
 
@@ -290,10 +296,6 @@ export const deleteTag = async (id: string, req?: any): Promise<any> => {
 
   return { id, name: tag.name };
 };
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Attribute
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const listAttributes = async (query: any): Promise<{ rows: any[]; total: number }> => {
   const { limit, skip } = getPagination(query);
@@ -407,7 +409,7 @@ export const createAttribute = async (input: any, req?: any): Promise<any> => {
   return attribute;
 };
 
-export const updateAttribute = async (id: string, input: any, req?: any): Promise<any> => {
+export const updateAttribute = async (id: string, input: any): Promise<any> => {
   await getAttributeById(id);
 
   const data: Prisma.AttributeUpdateInput = {};
@@ -475,10 +477,6 @@ export const deleteAttribute = async (id: string, req?: any): Promise<any> => {
   return { id, name: attribute.name };
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Collection
-// ═══════════════════════════════════════════════════════════════════════════
-
 const COLLECTION_SELECT = {
   id: true,
   name: true,
@@ -543,20 +541,19 @@ export const listCollections = async (query: any): Promise<{ rows: any[]; total:
     prisma.collection.count({ where }),
   ]);
 
-  // `products` here is the join table, so flatten it for the serializer.
   return {
     rows: rows.map((row: any) => ({
       ...row,
-      products: row.products?.map((entry: any) => ({ ...entry.product, sortOrder: entry.sortOrder })),
+      products: row.products?.map((entry: any) => ({
+        ...entry.product,
+        sortOrder: entry.sortOrder,
+      })),
     })),
     total,
   };
 };
 
-export const getCollectionById = async (
-  id: string,
-  withProducts = false,
-): Promise<any> => {
+export const getCollectionById = async (id: string, withProducts = false): Promise<any> => {
   const collection = await prisma.collection.findFirst({
     where: { id, deletedAt: null },
     select: {
@@ -590,7 +587,10 @@ export const getCollectionById = async (
 
   return {
     ...collection,
-    products: (collection as any).products?.map((e: any) => ({ ...e.product, sortOrder: e.sortOrder })),
+    products: (collection as any).products?.map((e: any) => ({
+      ...e.product,
+      sortOrder: e.sortOrder,
+    })),
   };
 };
 
@@ -664,7 +664,7 @@ export const createCollection = async (input: any, req?: any): Promise<any> => {
   return collection;
 };
 
-export const updateCollection = async (id: string, input: any, req?: any): Promise<any> => {
+export const updateCollection = async (id: string, input: any): Promise<any> => {
   await getCollectionById(id, false);
 
   const data: Prisma.CollectionUpdateInput = {};
@@ -695,7 +695,6 @@ export const updateCollection = async (id: string, input: any, req?: any): Promi
 export const deleteCollection = async (id: string, req?: any): Promise<any> => {
   const collection = await getCollectionById(id, false);
 
-  // Soft delete: the product membership rows are removed so listings stay clean.
   await prisma.$transaction([
     prisma.collectionProduct.deleteMany({ where: { collectionId: id } }),
     prisma.collection.update({
@@ -715,7 +714,6 @@ export const deleteCollection = async (id: string, req?: any): Promise<any> => {
   return { id, name: collection.name };
 };
 
-/** Replaces or appends the membership of a manual collection. */
 export const setCollectionProducts = async (
   id: string,
   productIds: string[],
@@ -731,7 +729,6 @@ export const setCollectionProducts = async (
     );
   }
 
-  // Reject ids that are not live products rather than silently dropping them.
   const valid = await prisma.product.findMany({
     where: { id: { in: productIds }, deletedAt: null },
     select: { id: true },
@@ -741,10 +738,7 @@ export const setCollectionProducts = async (
   const unknown = productIds.filter((pid) => !validIds.includes(pid));
 
   if (unknown.length) {
-    throw AppError.notFound(
-      `Product not found: ${unknown.join(', ')}`,
-      ERROR_CODE.NOT_FOUND,
-    );
+    throw AppError.notFound(`Product not found: ${unknown.join(', ')}`, ERROR_CODE.NOT_FOUND);
   }
 
   await prisma.$transaction(async (tx) => {
@@ -779,10 +773,6 @@ export const setCollectionProducts = async (
   return { collectionId: id, productCount: validIds.length };
 };
 
-/**
- * Resolves the products in a collection.
- * MANUAL uses the explicit membership table; DYNAMIC evaluates `rules`.
- */
 export const getCollectionProducts = async (
   id: string,
   query: any,
@@ -800,7 +790,9 @@ export const getCollectionProducts = async (
     ...(isDynamic
       ? {
           ...(D.arr(rules.vendorIds).length ? { vendorId: { in: D.arr(rules.vendorIds) } } : {}),
-          ...(D.arr(rules.categoryIds).length ? { categoryId: { in: D.arr(rules.categoryIds) } } : {}),
+          ...(D.arr(rules.categoryIds).length
+            ? { categoryId: { in: D.arr(rules.categoryIds) } }
+            : {}),
           ...(D.arr(rules.brandIds).length ? { brandId: { in: D.arr(rules.brandIds) } } : {}),
           ...(D.arr(rules.tagIds).length
             ? { tags: { some: { tagId: { in: D.arr(rules.tagIds) } } } }

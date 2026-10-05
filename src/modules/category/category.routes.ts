@@ -32,11 +32,10 @@ router.get('/getAll', validate({ query: schema.listCategoriesSchema }), controll
  */
 router.get('/getById/:id', validate({ params: schema.categoryIdParamSchema }), controller.getById);
 
-/** GET /categories/getBySlug/:slug */
 router.get(
   '/getBySlug/:slug',
   validate({ params: schema.categorySlugParamSchema }),
-  controller.getById,
+  controller.getBySlug,
 );
 
 /**
@@ -58,7 +57,6 @@ router.post(
   controller.createCategory,
 );
 
-/** PATCH /categories/updateCategory/:id — refuses a parent that would create a cycle. */
 router.patch(
   '/updateCategory/:id',
   authenticate,
@@ -105,7 +103,6 @@ router.post(
   controller.reorder,
 );
 
-/** POST /categories/bulkCreate — per-row errors are reported, not thrown. */
 router.post(
   '/bulkCreate',
   authenticate,

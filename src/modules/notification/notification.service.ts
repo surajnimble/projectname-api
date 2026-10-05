@@ -9,17 +9,9 @@ import type { NotificationChannel, Platform, TicketPriority } from '@prisma/clie
 import { notifyUsers, notifyUser } from '../../services/notification.service';
 import { emitToConversation, emitToUser } from '../../services/socket.service';
 import { SOCKET } from '../../config/socket.config';
+import { OPS } from '../../config/app.config';
 import { writeActivityLog } from '../../services/audit.service';
 import { generateTicketNumber, uniqueTicketCategorySlug } from '../../utils/slug';
-
-/**
- * Notifications, chat and support tickets.
- *
- * Blocking is enforced at the conversation level rather than per message, so a
- * blocked pair cannot restart a thread and route around the block.
- */
-
-// ═══ Notification ═════════════════════════════════════════════════════════════
 
 export const listNotifications = async (
   userId: string,
@@ -98,16 +90,11 @@ export const deleteNotification = async (userId: string, id: string): Promise<vo
     select: { id: true },
   });
 
-  if (!existing) throw AppError.notFound('Notification not found.');
+  if (!existing) throw AppError.notFound(ERROR.NOTIFICATION.NOT_FOUND);
 
   await prisma.notification.delete({ where: { id: existing.id } });
 };
 
-/**
- * Per-user channel preferences.
- * A user with no stored preference for an event receives it, so opting in is
- * never required for the default experience.
- */
 export const getPreferences = async (userId: string): Promise<any[]> =>
   prisma.notificationPreference.findMany({
     where: { userId },
@@ -138,7 +125,6 @@ export const setPreferences = async (
   return preferences.length;
 };
 
-/** Admin fan-out. Bounded so a broadcast cannot exhaust the connection pool. */
 export const broadcast = async (input: {
   userIds?: string[];
   toAll?: boolean;
@@ -154,7 +140,7 @@ export const broadcast = async (input: {
     const users = await prisma.user.findMany({
       where: { isActive: true },
       select: { id: true },
-      take: 5000,
+      take: OPS.JOB_BATCH_SIZE,
     });
     return notifyUsers(
       users.map((u) => u.id),
@@ -177,8 +163,6 @@ export const broadcast = async (input: {
   });
 };
 
-// ═══ Chat ═════════════════════════════════════════════════════════════════════
-
 const CONVERSATION_INCLUDE = {
   participants: {
     include: {
@@ -195,7 +179,6 @@ const CONVERSATION_INCLUDE = {
 
 type ConversationRow = Prisma.ConversationGetPayload<{ include: typeof CONVERSATION_INCLUDE }>;
 
-/** A conversation is only visible to the people in it. */
 const loadConversation = async (
   conversationId: string,
   userId: string,
@@ -216,7 +199,6 @@ const loadConversation = async (
   return conversation as ConversationRow;
 };
 
-/** Both directions of the block, so neither party can message the other. */
 const assertNotBlocked = async (senderId: string, receiverId: string): Promise<void> => {
   const blocked = await prisma.userBlock.findFirst({
     where: {
@@ -235,10 +217,6 @@ const assertNotBlocked = async (senderId: string, receiverId: string): Promise<v
   }
 };
 
-/**
- * Opens (or reuses) the thread between a customer and a shop.
- * One conversation per pair, so the shop has a single place to answer.
- */
 export const startConversation = async (
   userId: string,
   input: { vendorId: string; message: string },
@@ -301,7 +279,6 @@ export const startConversation = async (
       data: { lastMessageAt: new Date() },
     });
 
-    // The opener has already read their own message.
     await tx.conversationParticipant.updateMany({
       where: { conversationId: id, userId },
       data: { lastReadAt: new Date() },
@@ -360,7 +337,6 @@ export const listConversations = async (
     prisma.conversationParticipant.count({ where }),
   ]);
 
-  // A conversation is unread when a message arrived after the caller's last read.
   const unreadTotal = await prisma.conversationParticipant
     .aggregate({
       where: { userId, isArchived: false },
@@ -442,7 +418,7 @@ export const sendMessage = async (
   const conversation = await loadConversation(conversationId, userId);
 
   if (!conversation.isActive) {
-    throw AppError.unprocessable('This conversation is closed.');
+    throw AppError.unprocessable(ERROR.CHAT.CLOSED);
   }
 
   const others = D.arr(conversation.participants).filter((p: any) => D.str(p.userId) !== userId);
@@ -498,10 +474,6 @@ export const markConversationRead = async (
 
   const at = lastReadAt ? new Date(D.str(lastReadAt)) : new Date();
 
-  /**
-   * Only messages that actually exist are marked, so the cursor cannot be pushed past the tail
-   * and hide a message that has not arrived yet.
-   */
   const { count } = await prisma.message.updateMany({
     where: {
       conversationId,
@@ -548,7 +520,7 @@ export const blockUser = async (
   req?: any,
 ): Promise<void> => {
   if (userId === targetId) {
-    throw AppError.unprocessable('You cannot block yourself.');
+    throw AppError.unprocessable(ERROR.CHAT.SELF_BLOCK);
   }
 
   const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
@@ -581,7 +553,6 @@ export const listBlockedUsers = async (userId: string): Promise<any[]> =>
     orderBy: { createdAt: 'desc' },
   });
 
-/** Conversation-wide unread badge for the caller. */
 export const getChatUnreadCount = async (userId: string): Promise<Record<string, number>> => {
   const parts = await prisma.conversationParticipant.findMany({
     where: { userId, isArchived: false },
@@ -598,8 +569,6 @@ export const getChatUnreadCount = async (userId: string): Promise<Record<string,
 
   return { total };
 };
-
-// ═══ Ticket ══════════════════════════════════════════════════════════════════
 
 const TICKET_INCLUDE = {
   user: { select: { id: true, name: true, email: true, phone: true } },
@@ -641,7 +610,6 @@ export const listTickets = async (
 ): Promise<{ rows: TicketRow[]; total: number }> => {
   const where: Prisma.TicketWhereInput = {};
 
-  // A customer only ever sees their own tickets.
   if (userId) where.userId = userId;
   if (D.str(query.status)) where.status = query.status as any;
   if (D.str(query.priority)) where.priority = query.priority as TicketPriority;
@@ -667,10 +635,6 @@ export const listTickets = async (
     prisma.ticket.count({ where }),
   ]);
 
-  /**
-   * Internal notes never leave the staff side, so the list projection omits them entirely rather
-   * than filtering after the fact.
-   */
   const safe = rows.map((t: any) => ({ ...t, messages: [] }));
 
   return { rows: (userId ? safe : rows) as TicketRow[], total };
@@ -693,7 +657,7 @@ export const createTicket = async (
       select: { id: true },
     });
 
-    if (!category) throw AppError.notFound('Ticket category not found.');
+    if (!category) throw AppError.notFound(ERROR.TICKET.CATEGORY_NOT_FOUND);
   }
 
   const row = await prisma.ticket.create({
@@ -706,7 +670,7 @@ export const createTicket = async (
       priority: (D.str(input.priority) || 'MEDIUM') as TicketPriority,
       attachments: D.arr(input.attachments).map(String),
       status: 'OPEN',
-      // The opening post is the first message, so the thread starts populated.
+
       messages: {
         create: {
           userId,
@@ -753,7 +717,6 @@ export const getTicketById = async (
     throw AppError.notFound(ERROR.TICKET.NOT_FOUND);
   }
 
-  // A customer must never see an internal staff note.
   if (!isStaff) {
     return {
       ...ticket,
@@ -782,7 +745,6 @@ export const replyTicket = async (
     throw AppError.unprocessable(ERROR.TICKET.CLOSED, ERROR_CODE.TICKET_CLOSED);
   }
 
-  // Only the opener or staff may reply; an internal note is staff-only.
   const isOwner = ticket.userId === userId;
 
   if (!isOwner && !isStaff) {
@@ -792,7 +754,7 @@ export const replyTicket = async (
   const isInternal = D.bool(input.isInternal);
 
   if (isInternal && !isStaff) {
-    throw AppError.forbidden('Internal notes are staff only.');
+    throw AppError.forbidden(ERROR.TICKET.INTERNAL_NOTES_FORBIDDEN);
   }
 
   const message = await prisma.ticketMessage.create({
@@ -805,7 +767,6 @@ export const replyTicket = async (
     include: { user: { select: { id: true, name: true, email: true } } },
   });
 
-  // A staff reply to an open ticket moves it into progress.
   if (isStaff && !isInternal && ticket.status === 'OPEN') {
     await prisma.ticket.update({ where: { id: ticket.id }, data: { status: 'IN_PROGRESS' } });
   }
@@ -815,7 +776,7 @@ export const replyTicket = async (
       userId: ticket.userId,
       type: 'TICKET',
       title: `New reply on ${ticket.ticketNumber}`,
-      body: D.str(input.message).slice(0, 160),
+      body: D.str(input.message).slice(0, OPS.NOTIFICATION_BODY_MAX_CHARS),
       data: { ticketId: ticket.id },
     });
   }
@@ -846,14 +807,13 @@ export const updateTicketStatus = async (
 
   if (!ticket) throw AppError.notFound(ERROR.TICKET.NOT_FOUND);
 
-  // A customer may close their own ticket but cannot reopen or resolve it.
   if (!isStaff) {
     if (ticket.userId === undefined) {
       throw AppError.forbidden(ERROR.PERMISSION.NOT_GRANTED);
     }
 
     if (status !== 'CLOSED') {
-      throw AppError.forbidden('Only staff can change a ticket to that status.');
+      throw AppError.forbidden(ERROR.TICKET.STATUS_ROLE_FORBIDDEN);
     }
   }
 
@@ -919,7 +879,7 @@ export const assignTicket = async (
       select: { id: true },
     });
 
-    if (!agent) throw AppError.notFound('Assignee must be an active admin.');
+    if (!agent) throw AppError.notFound(ERROR.TICKET.INVALID_ASSIGNEE);
   }
 
   const row = await prisma.ticket.update({
@@ -956,12 +916,6 @@ export const getTicketStats = async (): Promise<Record<string, number>> => {
   return out;
 };
 
-// ═══ Device tokens ═════════════════════════════════════════════════
-
-/**
- * Push tokens live on the Device row rather than a separate table, because a token is only
- * ever reachable through the device that owns it.
- */
 export const registerDeviceToken = async (
   userId: string,
   input: { deviceId: string; fcmToken: string; platform?: string },
@@ -972,7 +926,7 @@ export const registerDeviceToken = async (
   });
 
   if (existing && existing.userId && existing.userId !== userId) {
-    throw AppError.forbidden('This device is registered to another account.');
+    throw AppError.forbidden(ERROR.DEVICE.DIFFERENT_ACCOUNT);
   }
 
   return prisma.device.upsert({
@@ -1006,8 +960,6 @@ export const unregisterDeviceToken = async (
 
   return { deviceId: D.str(deviceId), isRemoved: true };
 };
-
-// ═══ Notification templates ══════════════════════════════════════════════
 
 export const listNotificationTemplates = async (): Promise<any[]> =>
   prisma.notificationTemplate.findMany({ orderBy: [{ channel: 'asc' }, { key: 'asc' }] });
@@ -1104,8 +1056,6 @@ export const deleteNotificationTemplate = async (id: string, req?: any): Promise
     entityId: id,
   });
 };
-
-// ═══ Ticket removal ═══════════════════════════════════════════
 
 export const deleteTicket = async (ticketId: string, req?: any): Promise<void> => {
   const existing = await prisma.ticket.findUnique({

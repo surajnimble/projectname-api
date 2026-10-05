@@ -4,7 +4,15 @@ export const PAGINATION = {
   MAX_LIMIT: 100,
   MIN_LIMIT: 1,
   SORT_DEFAULT: '-createdAt',
-  ALLOWED_SORTS: ['createdAt', 'updatedAt', 'price', 'name', 'rating', 'soldCount', 'createdAt_asc'] as const,
+  ALLOWED_SORTS: [
+    'createdAt',
+    'updatedAt',
+    'price',
+    'name',
+    'rating',
+    'soldCount',
+    'createdAt_asc',
+  ] as const,
 };
 
 export const EXPORT_PAGINATION = {

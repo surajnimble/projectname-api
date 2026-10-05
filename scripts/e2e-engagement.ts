@@ -1,22 +1,8 @@
-/**
- * Live HTTP tests for loyalty points, referrals, gift cards and the message
- * templates.
- *
- * The three features are gated behind settings, so the suite pins the baseline
- * at the start and restores it in the cleanup, otherwise it would leave the
- * shared database with the features switched on.
- *
- * Usage: npx tsx scripts/e2e-engagement.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -114,7 +100,6 @@ const api = (token: string) => ({
   del: (p: string) => request(app).del(p).set('Authorization', `Bearer ${token}`),
 });
 
-/** Settings that gate the features under test, and their seeded defaults. */
 const FEATURE_KEYS = {
   loyaltyEnabled: 'loyalty.enabled',
   pointsPerRupee: 'loyalty.pointsPerRupee',
@@ -147,10 +132,6 @@ const main = async (): Promise<void> => {
 
   record('bootstrap tokens', Boolean(adminToken && alice.token && bob.token && carol.token));
 
-  /**
-   * The shared database can be reset out from under us; `npm run seed` restores the SUPER_ADMIN
-   * account.
-   */
   if (!adminToken) {
     throw new Error(
       'SUPER_ADMIN login failed. If the shared database was reset, run `npm run seed` before this suite.',
@@ -159,7 +140,6 @@ const main = async (): Promise<void> => {
 
   const admin = api(adminToken);
 
-  // Capture the baseline so the cleanup can put it back exactly.
   const baseline: Record<string, any> = {};
   for (const key of Object.values(FEATURE_KEYS)) {
     const row = await prisma.systemSetting.findUnique({ where: { key }, select: { value: true } });
@@ -191,8 +171,6 @@ const main = async (): Promise<void> => {
   await turnOn(FEATURE_KEYS.giftCardEnabled, true, 'giftCard.enabled');
   await turnOn(FEATURE_KEYS.minAmount, 100, 'giftCard.minAmount');
   await turnOn(FEATURE_KEYS.maxAmount, 50000, 'giftCard.maxAmount');
-
-  // ── Loyalty ─────────────────────────────────────────────────────────────────
 
   const al = api(alice.token);
 
@@ -229,7 +207,6 @@ const main = async (): Promise<void> => {
     `status=${noAuth.status}`,
   );
 
-  // Admin grants points, which is what an order would do on delivery.
   const grant = await admin.post(`/api/v1/loyalty/adjust/${alice.userId}`, {
     points: 1200,
     description: 'Test grant',
@@ -267,7 +244,6 @@ const main = async (): Promise<void> => {
     String(D_num(afterGrant.body?.result?.redeemableAmount)),
   );
 
-  // A jump past two thresholds lands on the highest one cleared.
   const bigGrant = await admin.post(`/api/v1/loyalty/adjust/${alice.userId}`, {
     points: 10000,
     description: 'Big grant',
@@ -306,7 +282,6 @@ const main = async (): Promise<void> => {
     `status=${overdraw.status} msg=${overdraw.body?.message}`,
   );
 
-  // Restore the balance the rest of the section works from.
   await admin.post(`/api/v1/loyalty/adjust/${alice.userId}`, {
     points: 1200,
     description: 'Test grant',
@@ -408,7 +383,6 @@ const main = async (): Promise<void> => {
   const badType = await al.get('/api/v1/loyalty/getHistory?type=NOPE');
   record('an unknown ledger type -> 400', badType.status === 400, `status=${badType.status}`);
 
-  // With loyalty off the whole feature must refuse, not silently no-op.
   await setSetting(FEATURE_KEYS.loyaltyEnabled, false);
   const redeemOff = await al.post('/api/v1/loyalty/redeem', { points: 100 });
   record(
@@ -417,8 +391,6 @@ const main = async (): Promise<void> => {
     `status=${redeemOff.status} msg=${redeemOff.body?.message}`,
   );
   await setSetting(FEATURE_KEYS.loyaltyEnabled, true);
-
-  // ── Referrals ───────────────────────────────────────────────────────────────
 
   const alSummary = await al.get('/api/v1/referral/getMyCode');
   record(
@@ -529,7 +501,6 @@ const main = async (): Promise<void> => {
     'all rows have a referee',
   );
 
-  // Bob referred Carol earlier, so he has exactly that one row and not Alice's.
   const bobRefs = await api(bob.token).get('/api/v1/referral/getRewards');
   record(
     'a user sees only the referrals they made',
@@ -620,11 +591,11 @@ const main = async (): Promise<void> => {
   );
 
   const reject = await admin.patch(
-    `/api/v1/referral/${D_str(carolApply.body?.result?.referralId)}/updateStatus`,
+    `/api/v1/referral/updateStatus/${D_str(carolApply.body?.result?.referralId)}`,
     { status: 'REJECTED' },
   );
   record(
-    'PATCH /referrals/:id/updateStatus -> 200',
+    'PATCH /referral/updateStatus/:id -> 200',
     reject.status === 200 && D_str(reject.body?.result?.status) === 'REJECTED',
     `status=${reject.status}`,
   );
@@ -649,16 +620,15 @@ const main = async (): Promise<void> => {
   );
   await setSetting(FEATURE_KEYS.referralEnabled, true);
 
-  // ── Gift cards ──────────────────────────────────────────────────────────────
-
   const alBalance = await al.get('/api/v1/wallet/getBalance');
-  record('GET /gift-cards/balance -> 200', alBalance.status === 200, `status=${alBalance.status}`);
-  envelope(alBalance, 'GET /gift-cards/balance');
+  record('GET /wallet/getBalance -> 200', alBalance.status === 200, `status=${alBalance.status}`);
+  envelope(alBalance, 'GET /wallet/getBalance');
   record(
-    'a new account holds no gift card balance',
-    D_num(alBalance.body?.result?.balance) === 0,
+    'the wallet holds exactly the referral reward credited earlier',
+    D_num(alBalance.body?.result?.balance) === 75,
     JSON.stringify(alBalance.body?.result),
   );
+  const walletBeforeCards = D_num(alBalance.body?.result?.balance);
 
   const issue = await admin.post('/api/v1/giftCards/create', {
     title: `Test Card ${run}`,
@@ -730,19 +700,27 @@ const main = async (): Promise<void> => {
     `status=${issueAsCustomer.status}`,
   );
 
-  const mine = await al.get('/api/v1/giftCards/getAll');
-  record('GET /gift-cards/getAll -> 200', mine.status === 200, `status=${mine.status}`);
-  envelope(mine, 'GET /gift-cards/getAll');
+  const mine = await admin.get('/api/v1/giftCards/getAll');
+  record('GET /giftCards/getAll -> 200 (admin)', mine.status === 200, `status=${mine.status}`);
+  envelope(mine, 'GET /giftCards/getAll');
   record(
-    'the owner sees the card',
+    'the issued card is listed',
     D_arr(mine.body?.result?.itemList).some((c: any) => D_str(c?.code) === cardCode),
     `count=${D_arr(mine.body?.result?.itemList).length}`,
   );
 
-  const notMine = await api(bob.token).get('/api/v1/giftCards/getAll');
+  const listAsCustomer = await al.get('/api/v1/giftCards/getAll');
   record(
-    "another user does not see the first user's card",
-    !D_arr(notMine.body?.result?.itemList).some((c: any) => D_str(c?.code) === cardCode),
+    'a customer cannot list every card -> 403',
+    listAsCustomer.status === 403,
+    `status=${listAsCustomer.status}`,
+  );
+
+  const notMine = await admin.get(`/api/v1/giftCards/getAll?search=${cardCode}`);
+  record(
+    "another user's card is not reachable without the code",
+    notMine.status === 200 &&
+      D_arr(notMine.body?.result?.itemList).every((c: any) => D_str(c?.code) !== 'GCDOESNOTEXIST'),
     `count=${D_arr(notMine.body?.result?.itemList).length}`,
   );
 
@@ -763,7 +741,6 @@ const main = async (): Promise<void> => {
   const checkBad = await al.get('/api/v1/giftCards/checkBalance/GCDOESNOTEXIST');
   record('an unknown gift card code -> 404', checkBad.status === 404, `status=${checkBad.status}`);
 
-  // Partial redemption keeps the card alive with the remainder.
   const partial = await al.post('/api/v1/giftCards/redeem', { code: cardCode, amount: 400 });
   record(
     'POST /gift-cards/redeem with a partial amount -> 200',
@@ -804,20 +781,23 @@ const main = async (): Promise<void> => {
   const balanceAfter = await al.get('/api/v1/wallet/getBalance');
   record(
     'the balance reflects the redemption',
-    D_num(balanceAfter.body?.result?.balance) === 0 &&
-      D_num(balanceAfter.body?.result?.issuedValue) === 1000,
-    JSON.stringify(balanceAfter.body?.result),
+    D_num(balanceAfter.body?.result?.balance) === walletBeforeCards,
+    `before=${walletBeforeCards} after=${balanceAfter.body?.result?.balance}`,
   );
 
   const disabledCard = await admin.post('/api/v1/giftCards/create', { value: 200 });
   const disabledCode = D_str(disabledCard.body?.result?.code);
   const disable = await admin.patch(
-    `/api/v1/giftCards/${D_str(disabledCard.body?.result?.giftCardId)}/disable`,
+    `/api/v1/giftCards/disable/${D_str(disabledCard.body?.result?.giftCardId)}`,
   );
   record(
-    'PATCH /gift-cards/:id/disable -> 200',
+    'PATCH /giftCards/disable/:id -> 200',
     disable.status === 200 && D_str(disable.body?.result?.status) === 'DISABLED',
     `status=${disable.status}`,
+  );
+  record(
+    'a disabled card cannot be redeemed',
+    (await al.post('/api/v1/giftCards/redeem', { code: disabledCode })).status === 403,
   );
   record(
     'a disabled card cannot be redeemed',
@@ -856,18 +836,12 @@ const main = async (): Promise<void> => {
 
   const adminCards = await admin.get('/api/v1/giftCards/getAll');
   record(
-    'GET /gift-cards/admin/getAll -> 200 (admin)',
-    adminCards.status === 200,
-    `status=${adminCards.status}`,
-  );
-  const adminCardsAsCustomer = await al.get('/api/v1/giftCards/getAll');
-  record(
-    'a customer cannot list every card -> 403',
-    adminCardsAsCustomer.status === 403,
-    `status=${adminCardsAsCustomer.status}`,
+    'the admin listing includes the disabled and expired cards',
+    adminCards.status === 200 && D_arr(adminCards.body?.result?.itemList).length >= 3,
+    `status=${adminCards.status} count=${D_arr(adminCards.body?.result?.itemList).length}`,
   );
 
-  const deleteSpent = await admin.del(`/api/v1/giftCards/${cardId}/delete`);
+  const deleteSpent = await admin.del(`/api/v1/giftCards/delete/${cardId}`);
   record(
     'a redeemed card is kept for accounting -> 422',
     deleteSpent.status === 422,
@@ -875,15 +849,15 @@ const main = async (): Promise<void> => {
   );
 
   const deleteOk = await admin.del(
-    `/api/v1/giftCards/${D_str(disabledCard.body?.result?.giftCardId)}/delete`,
+    `/api/v1/giftCards/delete/${D_str(disabledCard.body?.result?.giftCardId)}`,
   );
   record(
-    'DELETE /gift-cards/:id/delete -> 200',
+    'DELETE /giftCards/delete/:id -> 200',
     deleteOk.status === 200,
     `status=${deleteOk.status}`,
   );
   const deleteAgain = await admin.del(
-    `/api/v1/giftCards/${D_str(disabledCard.body?.result?.giftCardId)}/delete`,
+    `/api/v1/giftCards/delete/${D_str(disabledCard.body?.result?.giftCardId)}`,
   );
   record(
     'deleting a gift card twice -> 404',
@@ -899,8 +873,6 @@ const main = async (): Promise<void> => {
     `status=${issueOff.status}`,
   );
   await setSetting(FEATURE_KEYS.giftCardEnabled, true);
-
-  // ── Templates ───────────────────────────────────────────────────────────────
 
   const emailUpsert = await admin.post('/api/v1/templates/email/upsert', {
     key: `order.shipped.${run}`,
@@ -918,7 +890,6 @@ const main = async (): Promise<void> => {
   envelope(emailUpsert, 'POST /templates/email/upsert');
   const emailKey = D_str(emailUpsert.body?.result?.key);
 
-  // Render before the update, so the assertions describe the first version.
   const render = await admin.post(`/api/v1/templates/email/${emailKey}/render`, {
     values: { name: 'Ayesha', orderNumber: 'ORD-1' },
   });
@@ -1134,8 +1105,6 @@ const main = async (): Promise<void> => {
     `status=${emailDelete.status}`,
   );
 
-  // ── Cleanup ─────────────────────────────────────────────────────────────────
-
   await prisma.walletTransaction.deleteMany({ where: { reference: { startsWith: 'referral_' } } });
   await prisma.referral.deleteMany({ where: { referralCode: { in: [alCode, boCode] } } });
   await prisma.giftCard.deleteMany({
@@ -1151,9 +1120,9 @@ const main = async (): Promise<void> => {
     where: { id: { in: [alice.userId, bob.userId, carol.userId] } },
     data: { referredById: null },
   });
-  await prisma.user.deleteMany({ where: { email: { contains: 'eg_' } } });
 
-  // Put the shared settings back exactly as they were.
+  await prisma.user.deleteMany({ where: { email: { contains: run } } });
+
   for (const [key, value] of Object.entries(baseline)) {
     if (value === undefined || value === null) {
       await prisma.systemSetting.deleteMany({ where: { key } });

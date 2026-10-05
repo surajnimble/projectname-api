@@ -7,10 +7,6 @@ import { APP } from '../config/app.config';
 import { CURRENCY, DATE, TIMEZONE } from '../config/currency.config';
 import { D } from './defaults';
 
-/**
- * dayjs plugins are registered once at module load. Doing it lazily (inside a
- * helper) means any helper used before that call throws `utc is not a function`.
- */
 let configured = false;
 
 export const DAYJS_SETUP = (tz: string = TIMEZONE.DEFAULT): void => {
@@ -24,7 +20,6 @@ export const DAYJS_SETUP = (tz: string = TIMEZONE.DEFAULT): void => {
   dayjs.tz.setDefault(tz);
 };
 
-// Register eagerly so the helpers below are safe to use from any import order.
 DAYJS_SETUP();
 
 export const now = (): Date => new Date();
@@ -78,11 +73,13 @@ export const isPast = (value: Date | string): boolean => dayjs(value).isBefore(d
 
 export const isFuture = (value: Date | string): boolean => dayjs(value).isAfter(dayjs());
 
-/** Normalises a date-only string into a UTC-midnight Date for unique day indexes. */
 export const toDayKey = (value: Date | string = new Date()): Date =>
   dayjs(value).utc().startOf('day').toDate();
 
-export const formatMoney = (value: number | null | undefined, currencySymbol = CURRENCY.SYMBOL): string => {
+export const formatMoney = (
+  value: number | null | undefined,
+  currencySymbol = CURRENCY.SYMBOL,
+): string => {
   const amount = Number(value ?? 0);
   const decimals = CURRENCY.DECIMALS;
   const fixed = Math.abs(amount).toFixed(decimals);
@@ -95,11 +92,7 @@ export const formatMoney = (value: number | null | undefined, currencySymbol = C
     : `${sign}${body} ${currencySymbol}`;
 };
 
-/** `YYYY-MM-DD` range generator used by analytics endpoints. */
-export const dateRange = (
-  from: string | Date,
-  to: string | Date,
-): { from: Date; to: Date } => {
+export const dateRange = (from: string | Date, to: string | Date): { from: Date; to: Date } => {
   const start = dayjs(from).startOf('day').toDate();
   const end = dayjs(to).endOf('day').toDate();
   return { from: start, to: end };
@@ -109,7 +102,6 @@ export const daysAgo = (days: number): Date => subtractDays(days, startOfDay(new
 
 export const ageInDays = (value: Date | string): number => daysBetween(value, new Date());
 
-/** Formats a Date for the ISO-8601 response contract. */
 export const isoDate = (value: Date | string | null | undefined): string => D.date(value);
 
 export { APP, TIMEZONE };

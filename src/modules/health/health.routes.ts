@@ -11,6 +11,13 @@ import { getActiveWorkerCount } from '../../jobs/workers';
 import { QUEUE_ALL, QueueName } from '../../config/socket.config';
 import { getJobStatus } from '../../jobs/queues';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { z } from 'zod';
+import { validate } from '../../middlewares/validate.middleware';
+import { VALIDATION } from '../../messages/validation';
+
+const jobIdParamSchema = z
+  .object({ jobId: z.string().trim().min(4, VALIDATION.REQUIRED('jobId')).max(64) })
+  .strict();
 
 const router = Router();
 
@@ -21,10 +28,6 @@ const baseResult = () => ({
   uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
 });
 
-/**
- * GET /api/v1/health — Render uptime probe.
- * No auth, no DB, no Redis: always answers.
- */
 router.get('/', (_req, res) =>
   ApiResponse.success(res, {
     message: SUCCESS.SYSTEM.HEALTH_OK,
@@ -131,6 +134,7 @@ router.get(
 
 router.get(
   '/jobs/:jobId',
+  validate({ params: jobIdParamSchema }),
   asyncHandler(async (req, res) =>
     ApiResponse.success(res, {
       message: SUCCESS.BULK.STATUS_FETCHED,

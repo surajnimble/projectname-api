@@ -9,10 +9,6 @@ export interface AppErrorOptions {
   isOperational?: boolean;
 }
 
-/**
- * Operational error thrown from the service layer and rendered by `errorHandler`.
- * `code` is appended to the message by ApiResponse.error as `Error Code (CODE)`.
- */
 export class AppError extends Error {
   public readonly statusCode: number;
   public readonly code: string;
@@ -20,7 +16,12 @@ export class AppError extends Error {
   public readonly isOperational: boolean;
   public readonly cause?: unknown;
 
-  constructor(message: string, statusCode = 500, code: string = ERROR_CODE.INTERNAL_ERROR, errors: any[] = []) {
+  constructor(
+    message: string,
+    statusCode = 500,
+    code: string = ERROR_CODE.INTERNAL_ERROR,
+    errors: any[] = [],
+  ) {
     super(message);
     this.name = 'AppError';
     this.statusCode = statusCode;
@@ -31,7 +32,10 @@ export class AppError extends Error {
     if (Error.captureStackTrace) Error.captureStackTrace(this, this.constructor);
   }
 
-static badRequest(message: string = ERROR.COMMON.BAD_REQUEST, code: string = ERROR_CODE.VALIDATION_ERROR) {
+  static badRequest(
+    message: string = ERROR.COMMON.BAD_REQUEST,
+    code: string = ERROR_CODE.VALIDATION_ERROR,
+  ) {
     return new AppError(message, 400, code);
   }
 

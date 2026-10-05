@@ -1,11 +1,14 @@
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUiDist from 'swagger-ui-dist';
 import fs from 'fs';
 import path from 'path';
 import { APP } from '../config/app.config';
+import { ERROR } from '../messages/error';
 import { packageJson } from '../config/package.meta';
 import { SERVER_SCHEMA } from './schemas';
+import { buildFromRouter } from './swagger.generate';
 
 /**
  * Every module is documented with `@openapi` blocks, and different modules put
@@ -41,10 +44,12 @@ const docFiles = (): string[] => {
   return files;
 };
 
+const API_TITLE = 'Startup Marketplace API';
+
 export const swaggerSpec: swaggerJsdoc.OAS3Definition = {
   openapi: '3.0.3',
   info: {
-    title: `${packageJson.name} API`,
+    title: API_TITLE,
     version: packageJson.version,
     description: [
       'Multi-vendor marketplace API — Node + Express + TypeScript + Prisma + PostgreSQL + Redis.',
@@ -126,16 +131,491 @@ export const swaggerSpec: swaggerJsdoc.OAS3Definition = {
   },
 };
 
-const spec = swaggerJsdoc({
+const documented = swaggerJsdoc({
   swaggerDefinition: swaggerSpec as any,
   apis: docFiles(),
+}) as any;
+
+let spec: swaggerJsdoc.OAS3Definition = documented;
+
+let derived = false;
+
+const toBraces = (p: string): string => p.replace(/:([A-Za-z_]\w*)/g, '{$1}');
+
+const ensureDerived = (app: any): void => {
+  if (derived) return;
+  derived = true;
+
+  const generated = buildFromRouter(app, APP.API_PREFIX);
+
+  const real = new Set(Object.keys(generated));
+
+  /*
+   * Normalise the keys jsdoc produced before merging. Some `@openapi` comments were
+   * written with Express-style `:id` and some carry a prefix the route does not have
+   * (a `/content/pages/...` entry when the real mount is `/pages/...`). Left alone,
+   * every such endpoint showed up twice: once from the stale comment and once from
+   * the routing table.
+   */
+  const documentedPaths: any = {};
+  for (const [rawPath, methods] of Object.entries<any>(documented.paths ?? {})) {
+    const normalised = toBraces(rawPath);
+    const target = [...real].find((r) => r === normalised || r.endsWith(normalised));
+
+    if (!target) continue;
+
+    const mountedHere = generated[target];
+    if (!mountedHere) continue;
+
+    const kept: any = {};
+    for (const [method, operation] of Object.entries<any>(methods)) {
+      if (mountedHere[method]) kept[method] = operation;
+    }
+
+    if (Object.keys(kept).length) {
+      documentedPaths[target] = { ...(documentedPaths[target] ?? {}), ...kept };
+    }
+  }
+
+  for (const [path, methods] of Object.entries<any>(generated)) {
+    documentedPaths[path] = documentedPaths[path] ?? {};
+
+    for (const [method, operation] of Object.entries<any>(methods)) {
+      const existing = documentedPaths[path][method];
+
+      if (!existing) {
+        documentedPaths[path][method] = operation;
+        continue;
+      }
+
+      documentedPaths[path][method] = {
+        ...operation,
+        ...(existing.summary ? { summary: existing.summary } : {}),
+        ...(existing.tags ? { tags: existing.tags } : {}),
+        ...(existing.description
+          ? {
+              description: `${existing.description}${operation.description ? ` ${operation.description}` : ''}`,
+            }
+          : {}),
+        ...resolveRequestBody(operation.requestBody, existing.requestBody),
+        responses: resolveResponses(operation.responses, existing.responses),
+        ...(operation.parameters ? { parameters: operation.parameters } : {}),
+        ...(operation.security ? { security: operation.security } : {}),
+      };
+    }
+  }
+
+  documented.paths = documentedPaths;
+  spec = documented as swaggerJsdoc.OAS3Definition;
+};
+
+const isInformativeBody = (schema: any): boolean => {
+  if (!schema || typeof schema !== 'object') return false;
+  if (schema.$ref || schema.oneOf || schema.anyOf || schema.allOf) return true;
+
+  const keys = Object.keys(schema).filter((k) => k !== 'description');
+  if (!keys.length) return false;
+
+  if (schema.type === 'object') return Object.keys(schema.properties ?? {}).length > 0;
+
+  return true;
+};
+
+const resolveRequestBody = (derived?: any, written?: any): Record<string, any> => {
+  if (!written) return derived ? { requestBody: derived } : {};
+  if (!derived) return { requestBody: written };
+
+  const derivedContent = derived.content ?? {};
+  const writtenContent = written.content ?? {};
+
+  const informative = Object.values<any>(derivedContent).some((m) => isInformativeBody(m?.schema));
+  if (!informative) return { requestBody: written };
+
+  const content: any = { ...writtenContent };
+
+  for (const [media, derivedMedia] of Object.entries<any>(derivedContent)) {
+    content[media] = { ...(writtenContent[media] ?? {}), ...derivedMedia };
+  }
+
+  return {
+    requestBody: {
+      ...written,
+      ...derived,
+
+      content: Object.keys(content).length ? content : derivedContent,
+    },
+  };
+};
+
+const envelopeRef = (code: string): string =>
+  Number(code) >= 400 ? 'ErrorResponse' : 'SuccessResponse';
+
+const envelopeContent = (code: string): Record<string, any> => ({
+  content: {
+    'application/json': { schema: { $ref: `#/components/schemas/${envelopeRef(code)}` } },
+  },
 });
 
-/** Serves Swagger UI at /docs and the raw spec at /docs.json. */
+const resolveResponses = (derived?: any, written?: any): any => {
+  if (!derived && !written) return derived;
+  if (!written) return derived;
+  if (!derived) return written;
+
+  const out: any = { ...derived };
+
+  for (const [code, value] of Object.entries<any>(written)) {
+    if (!value?.content) {
+      out[code] = {
+        ...(derived[code] ?? {}),
+        ...value,
+        ...(derived[code]?.content ? {} : envelopeContent(code)),
+      };
+      continue;
+    }
+
+    out[code] = {
+      ...(derived[code] ?? {}),
+      ...value,
+
+      content: derived[code]?.content ?? value.content,
+    };
+  }
+
+  return out;
+};
+
+const SWAGGER_ASSET_DIR = swaggerUiDist.getAbsoluteFSPath();
+
+const swaggerAsset =
+  (file: string): RequestHandler =>
+  (_req, res) => {
+    const full = path.join(SWAGGER_ASSET_DIR, file);
+
+    if (!fs.existsSync(full)) {
+      res.status(404).json({ status: false, message: ERROR.COMMON.NOT_FOUND, result: {} });
+      return;
+    }
+
+    res
+      .type(file.endsWith('.css') ? 'text/css' : 'application/javascript')
+      .send(fs.readFileSync(full));
+  };
+
+const ASSET_BASE = `${APP.API_PREFIX}/docs`;
+
+const SWAGGER_UI_HTML = `<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${API_TITLE} — Swagger UI</title>
+    <link rel="stylesheet" href="${ASSET_BASE}/swagger-ui.css" />
+    <style>
+      /* ── Theme tokens ──────────────────────────────────────────────────────
+         Everything below reads these, so a palette change is a one-line edit. */
+      :root {
+        --bg: #ffffff;
+        --fg: #3b4151;
+        --muted: #6b7280;
+        --panel: #f7f8fa;
+        --border: #d9dde3;
+        --accent: #1b6ac9;
+      }
+      [data-theme='dark'] {
+        --bg: #0b1020;
+        --fg: #e6edf7;
+        --muted: #9aa7bd;
+        --panel: #131a2e;
+        --border: #2b3550;
+        --accent: #7cc4ff;
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .topbar {
+        display: none;
+      }
+
+      /* ── Theme toggle ──────────────────────────────────────────────────── */
+      #theme-toggle {
+        position: fixed;
+        top: 12px;
+        right: 14px;
+        z-index: 9999;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 13px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--fg);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #theme-toggle:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      /* ── Swagger surface, themed ─────────────────────────────────────────
+         swagger-ui.css hardcodes its palette, so each container is overridden. */
+      .swagger-ui,
+      .swagger-ui .info .title,
+      .swagger-ui .info p,
+      .swagger-ui .info li,
+      .swagger-ui .info a,
+      .swagger-ui .opblock-tag,
+      .swagger-ui .opblock .opblock-summary-path,
+      .swagger-ui .opblock .opblock-summary-description,
+      .swagger-ui .opblock .opblock-section-header,
+      .swagger-ui .parameter__name,
+      .swagger-ui .parameter__type,
+      .swagger-ui table thead tr td,
+      .swagger-ui table thead tr th,
+      .swagger-ui .response-col_status,
+      .swagger-ui .response-col_description,
+      .swagger-ui label,
+      .swagger-ui h1,
+      .swagger-ui h2,
+      .swagger-ui h3,
+      .swagger-ui h4,
+      .swagger-ui h5,
+      .swagger-ui p {
+        color: var(--fg);
+      }
+      .swagger-ui .info .base-url,
+      .swagger-ui .model-title,
+      .swagger-ui .prop-type {
+        color: var(--muted);
+      }
+      .swagger-ui .scheme-container,
+      .swagger-ui .opblock .opblock-section-header,
+      .swagger-ui .opblock.opblock-get,
+      .swagger-ui .opblock.opblock-post,
+      .swagger-ui .opblock.opblock-put,
+      .swagger-ui .opblock.opblock-patch,
+      .swagger-ui .opblock.opblock-delete,
+      .swagger-ui .opblock.opblock-head,
+      .swagger-ui .opblock.opblock-options {
+        background: var(--panel);
+        box-shadow: none;
+      }
+      /*
+       * Each HTTP method keeps swagger's own accent colour, on both the box border
+       * and the summary badge: GET blue, POST green, PUT orange, DELETE red,
+       * PATCH teal, HEAD purple, OPTIONS navy. Those colours are how a reader scans
+       * a long endpoint list without reading a single label.
+       *
+       * An earlier override painted every method badge with the page background and
+       * every box border with the neutral border colour, which erased the blue from
+       * every GET. Only the neutral surfaces are themed here now; accents are not.
+       */
+      .swagger-ui .opblock .opblock-summary-method {
+        color: #ffffff;
+      }
+      .swagger-ui .opblock.opblock-get {
+        border-color: #61affe;
+      }
+      .swagger-ui .opblock.opblock-get .opblock-summary-method {
+        background: #61affe;
+      }
+      .swagger-ui .opblock.opblock-post {
+        border-color: #49cc90;
+      }
+      .swagger-ui .opblock.opblock-post .opblock-summary-method {
+        background: #49cc90;
+      }
+      .swagger-ui .opblock.opblock-put {
+        border-color: #fca130;
+      }
+      .swagger-ui .opblock.opblock-put .opblock-summary-method {
+        background: #fca130;
+      }
+      .swagger-ui .opblock.opblock-delete {
+        border-color: #f93e3e;
+      }
+      .swagger-ui .opblock.opblock-delete .opblock-summary-method {
+        background: #f93e3e;
+      }
+      .swagger-ui .opblock.opblock-patch {
+        border-color: #50e3c2;
+      }
+      .swagger-ui .opblock.opblock-patch .opblock-summary-method {
+        background: #50e3c2;
+      }
+      .swagger-ui .opblock.opblock-head {
+        border-color: #9012fe;
+      }
+      .swagger-ui .opblock.opblock-head .opblock-summary-method {
+        background: #9012fe;
+      }
+      .swagger-ui .opblock.opblock-options {
+        border-color: #0d5aa7;
+      }
+      .swagger-ui .opblock.opblock-options .opblock-summary-method {
+        background: #0d5aa7;
+      }
+      .swagger-ui select,
+      .swagger-ui input[type='text'],
+      .swagger-ui input[type='password'],
+      .swagger-ui textarea {
+        background: var(--bg);
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .swagger-ui .btn {
+        background: var(--bg);
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .swagger-ui .btn.authorize {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      .swagger-ui table tbody tr td {
+        border-color: var(--border);
+      }
+      .swagger-ui .microlight,
+      .swagger-ui code,
+      .swagger-ui pre {
+        background: var(--panel) !important;
+        color: var(--fg) !important;
+      }
+
+      /* ── Failure panel ──────────────────────────────────────────────────────
+         Also themed, so it stays readable if Swagger ever fails to boot. */
+      #swagger-fallback {
+        max-width: 780px;
+        margin: 64px auto;
+        padding: 24px 28px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--panel);
+        color: var(--fg);
+        line-height: 1.7;
+      }
+      #swagger-fallback h1 {
+        margin: 0 0 12px;
+        font-size: 17px;
+        color: var(--accent);
+      }
+      #swagger-fallback code {
+        background: var(--bg);
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      #swagger-fallback ul {
+        margin: 10px 0 0;
+        padding-left: 20px;
+      }
+    </style>
+    <script>
+      // Applied before the bundles load so the page never flashes the wrong theme.
+      (function () {
+        try {
+          var saved = window.localStorage.getItem('swagger-theme');
+          if (saved === 'dark' || saved === 'light') {
+            document.documentElement.setAttribute('data-theme', saved);
+          }
+        } catch (e) {
+          /* private mode: fall back to the light default */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <button id="theme-toggle" type="button" aria-label="Toggle colour theme">
+      <span id="theme-toggle-icon">&#9789;</span>
+      <span id="theme-toggle-text">Dark</span>
+    </button>
+    <div id="swagger-fallback">
+      <h1>Swagger UI is loading...</h1>
+      <div>
+        If this message is still here, the swagger-ui JavaScript did not run. Open the
+        browser console (F12) and check for a blocked script or a JavaScript error,
+        then confirm these three URLs return <code>200</code>:
+        <ul>
+          <li><code>${ASSET_BASE}/swagger-ui-bundle.js</code></li>
+          <li><code>${ASSET_BASE}/swagger-ui-standalone-preset.js</code></li>
+          <li><code>${APP.API_PREFIX}/docs.json</code></li>
+        </ul>
+      </div>
+    </div>
+    <div id="swagger-ui"></div>
+    <script src="${ASSET_BASE}/swagger-ui-bundle.js"></script>
+    <script src="${ASSET_BASE}/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = function () {
+        var root = document.documentElement;
+        var button = document.getElementById('theme-toggle');
+        var icon = document.getElementById('theme-toggle-icon');
+        var text = document.getElementById('theme-toggle-text');
+
+        var paint = function () {
+          var dark = root.getAttribute('data-theme') === 'dark';
+          icon.innerHTML = dark ? '&#9788;' : '&#9789;';
+          text.innerHTML = dark ? 'Light' : 'Dark';
+        };
+
+        button.addEventListener('click', function () {
+          var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+          root.setAttribute('data-theme', next);
+          try {
+            window.localStorage.setItem('swagger-theme', next);
+          } catch (e) {
+            /* ignore: the theme just will not persist */
+          }
+          paint();
+        });
+
+        paint();
+
+        try {
+          window.ui = SwaggerUIBundle({
+            url: '${APP.API_PREFIX}/docs.json',
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            displayRequestDuration: true,
+            persistAuthorization: true,
+            tryItOutEnabled: true,
+            presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+            layout: 'BaseLayout',
+          });
+
+          // Only reached once Swagger has taken over #swagger-ui.
+          var fallback = document.getElementById('swagger-fallback');
+          if (fallback && fallback.parentNode) fallback.parentNode.removeChild(fallback);
+        } catch (err) {
+          var box = document.getElementById('swagger-fallback');
+          if (box) {
+            box.innerHTML =
+              '<h1>Swagger UI failed to start</h1><div>' +
+              String(err && err.message ? err.message : err) +
+              '</div>';
+          }
+          throw err;
+        }
+      };
+    </script>
+  </body>
+</html>`;
+
 export const docsRouter = Router();
 
-docsRouter.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'swagger-ui.html'));
+docsRouter.get('/swagger-ui.css', swaggerAsset('swagger-ui.css'));
+docsRouter.get('/swagger-ui-bundle.js', swaggerAsset('swagger-ui-bundle.js'));
+docsRouter.get('/swagger-ui-standalone-preset.js', swaggerAsset('swagger-ui-standalone-preset.js'));
+
+docsRouter.get('/', (req, res) => {
+  ensureDerived(req.app);
+  res.type('html').send(SWAGGER_UI_HTML);
 });
 
 docsRouter.use(
@@ -146,8 +626,12 @@ docsRouter.use(
   }),
 );
 
-docsRouter.get('/docs.json', (_req, res) => {
+docsRouter.get('/docs.json', (req, res) => {
+  ensureDerived(req.app);
   res.json(spec);
 });
 
-export const getSpec = () => spec;
+export const getSpec = (app?: any): swaggerJsdoc.OAS3Definition => {
+  if (app) ensureDerived(app);
+  return spec;
+};

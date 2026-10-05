@@ -1,20 +1,14 @@
 import { D } from '../../utils/defaults';
-import { serializeCartItem } from '../../utils/serialize';
+import { serializeCartItem, serializeWishlistItem } from '../../utils/serialize';
 
-/**
- * Cart / wishlist serializers.
- * Key order follows the house rule: singles -> objects -> arrays, `Data` suffix
- * on objects, `List` on arrays, and no `null` anywhere.
- */
+export { serializeWishlistItem };
 
-/** One cart line, with the fields a client needs to render the row. */
 export const serializeCartLine = (item: any): Record<string, any> => {
   const base: any = serializeCartItem(item);
   const qty = D.num(item?.qty);
   const product = item?.product;
   const variant = item?.variant;
 
-  // A variant's own price wins; the stored line price is the last resort.
   const unitPrice = variant?.price ?? product?.price ?? base.price;
   const stock = D.num(variant?.stock ?? product?.stock);
 
@@ -54,16 +48,14 @@ export const serializeCartLine = (item: any): Record<string, any> => {
   };
 };
 
-/**
- * Full cart payload.
- * `vendorGroupList` mirrors how the order will be split at checkout, so the
- * client can show per-shop totals before committing.
- */
 export const serializeCartDetail = (cart: any, totals: any, extras: Record<string, any> = {}) => {
   const items: any[] = D.arr(cart?.items);
   const lines: any[] = items.map(serializeCartLine);
 
-  const grouped = new Map<string, { vendorId: string; shopName: string; itemCount: number; subtotal: number }>();
+  const grouped = new Map<
+    string,
+    { vendorId: string; shopName: string; itemCount: number; subtotal: number }
+  >();
 
   for (const raw of items) {
     const vendorId = D.str(raw?.product?.vendorId);
@@ -77,7 +69,9 @@ export const serializeCartDetail = (cart: any, totals: any, extras: Record<strin
     }
     const bucket = grouped.get(vendorId)!;
     bucket.itemCount += D.num(raw?.qty);
-    bucket.subtotal = D.float(bucket.subtotal + D.float(raw?.qty) * D.float(raw?.variant?.price ?? raw?.product?.price));
+    bucket.subtotal = D.float(
+      bucket.subtotal + D.float(raw?.qty) * D.float(raw?.variant?.price ?? raw?.product?.price),
+    );
   }
 
   const code = D.str(extras.couponCode ?? cart?.couponCode);
@@ -132,7 +126,6 @@ export const serializeAddItemResult = (item: any, totals: any) => ({
   total: D.float(totals?.total),
 });
 
-/** Checkout preview — mirrors the totals the order will be created with. */
 export const serializeEstimate = (input: {
   itemCount: number;
   totalQty: number;
@@ -183,39 +176,6 @@ export const serializeEstimate = (input: {
     requestedQty: D.num(s?.requestedQty),
     availableStock: D.num(s?.availableStock),
   })),
-});
-
-export const serializeWishlistItem = (item: any) => ({
-  wishlistItemId: D.str(item?.id),
-  productId: D.str(item?.productId),
-  createdAt: D.date(item?.createdAt),
-
-  productData: item?.product
-    ? {
-        productId: D.str(item.product.id),
-        name: D.str(item.product.name),
-        slug: D.str(item.product.slug),
-        price: D.float(item.product.price),
-        mrpPrice: D.float(item.product.mrpPrice),
-        stock: D.num(item.product.stock),
-        isActive: D.str(item.product.status) === 'ACTIVE',
-        isAvailable: D.num(item.product.stock) > 0,
-        vendorId: D.str(item.product.vendorId),
-
-        vendorData: item.product.vendor
-          ? {
-              vendorId: D.str(item.product.vendor.id),
-              shopName: D.str(item.product.vendor.shopName),
-              slug: D.str(item.product.vendor.slug),
-            }
-          : {},
-
-        imageList: D.arr(item.product.images)
-          .slice()
-          .sort((a: any, b: any) => D.num(a?.sortOrder) - D.num(b?.sortOrder))
-          .map((i: any) => D.str(i?.url)),
-      }
-    : {},
 });
 
 export const serializeWishlist = (items: any[]) => ({

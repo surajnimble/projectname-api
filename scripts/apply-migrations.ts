@@ -1,12 +1,3 @@
-/**
- * Applies Prisma migrations against the local PGlite instance directly (no socket),
- * bypassing the single-connection limit of the TCP bridge.
- *
- * Mirrors `prisma migrate deploy` semantics: replay every migration folder that is
- * not yet recorded in the `_prisma_migrations` table, inside a transaction.
- *
- * Usage: npx tsx scripts/apply-migrations.ts
- */
 import fs from 'fs';
 import path from 'path';
 import { PGlite } from '@electric-sql/pglite';
@@ -80,11 +71,7 @@ const main = async (): Promise<void> => {
       await db.query(
         `INSERT INTO "_prisma_migrations" (id, checksum, finished_at, migration_name, applied_steps_count)
          VALUES ($1, $2, now(), $3, 1)`,
-        [
-          crypto.randomUUID(),
-          'manual',
-          migration.name,
-        ],
+        [crypto.randomUUID(), 'manual', migration.name],
       );
 
       // eslint-disable-next-line no-console

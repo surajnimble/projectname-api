@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { ERROR } from '../../messages/error';
 import { PAYMENT_METHOD } from '../../constants/roles';
 import { VALIDATION } from '../../messages/validation';
 import { COUPON_CODE_REGEX } from '../../constants/countries';
@@ -6,7 +8,6 @@ import { common } from '../../middlewares/validate.middleware';
 
 const id = common.cuid;
 
-/** POST /cart/addItem */
 export const addItemSchema = z
   .object({
     productId: id,
@@ -15,11 +16,6 @@ export const addItemSchema = z
   })
   .strict();
 
-/**
- * PATCH /cart/updateItem — identified by productId (plus variantId for a specific
- * variant row) rather than the internal cart-item id, so clients never have to
- * round-trip an id they were never shown. `qty: 0` removes the line.
- */
 export const updateItemSchema = z
   .object({
     productId: id,
@@ -30,7 +26,8 @@ export const updateItemSchema = z
 
 export const cartItemParamSchema = z.object({ id });
 
-/** POST /cart/removeItem — accept the item id or the product id. */
+export const cartItemIdParamSchema = z.object({ cartItemId: id });
+
 export const removeItemSchema = z
   .object({
     id: id.optional(),
@@ -39,10 +36,9 @@ export const removeItemSchema = z
   })
   .strict()
   .refine((v) => Boolean(v.id || v.productId), {
-    message: 'Provide id or productId.',
+    message: ERROR.CART.ITEM_IDENTIFIER_REQUIRED,
   });
 
-/** POST /cart/applyCoupon */
 export const applyCouponSchema = z
   .object({
     code: z
@@ -59,7 +55,6 @@ export const removeCouponSchema = z
   })
   .strict();
 
-/** POST /cart/estimate — checkout preview before the order is committed. */
 export const estimateSchema = z
   .object({
     addressId: id.optional(),
@@ -70,11 +65,6 @@ export const estimateSchema = z
   })
   .strict();
 
-/**
- * POST /cart/mergeGuestCart — folds an anonymous session cart into the user's
- * cart after login. `sessionKey` is the value the tracking middleware assigned
- * to the `x-session-id` header, so the client can pass what it kept locally.
- */
 export const mergeGuestCartSchema = z
   .object({
     sessionKey: z.string().trim().max(120).optional(),
@@ -94,14 +84,11 @@ export const mergeGuestCartSchema = z
   })
   .strict();
 
-/** POST /cart/clear */
 export const clearCartSchema = z
   .object({
     keepFavourites: z.boolean().optional().default(false),
   })
   .strict();
-
-// ─── Wishlist ────────────────────────────────────────────────────────────────
 
 export const addWishlistItemSchema = z
   .object({
@@ -110,7 +97,6 @@ export const addWishlistItemSchema = z
   })
   .strict();
 
-/** Path param accepts either the wishlist-item id or a product id. */
 export const wishlistItemParamSchema = z.object({ id });
 
 export const productIdParamSchema = z.object({ productId: z.string().trim().min(1).max(40) });

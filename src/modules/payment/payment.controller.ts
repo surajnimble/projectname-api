@@ -26,8 +26,6 @@ export const guards = {
   vendor: [requireRole('VENDOR')],
 };
 
-// ═══ Payments ════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /payments/getAll:
@@ -40,7 +38,7 @@ export const guards = {
 export const getAll = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listPayments(userId(req), {
+  const { rows, total } = await service.listPayments(null, {
     ...(req.query as any),
     skip,
     take,
@@ -91,7 +89,11 @@ export const getByOrder = asyncHandler(async (req, res) => {
  *       422: { description: No token pending, or already paid }
  */
 export const verifyTokenPayment = asyncHandler(async (req, res) => {
-  const payment = await service.verifyTokenPayment(userId(req), req.body, req);
+  const payment = await service.verifyTokenPayment(
+    userId(req),
+    { ...req.body, orderId: D.str(req.params.orderId) },
+    req,
+  );
   return ApiResponse.success(res, {
     message: SUCCESS.PAYMENT.TOKEN_PAID,
     result: serializePayment(payment),
@@ -109,7 +111,11 @@ export const verifyTokenPayment = asyncHandler(async (req, res) => {
  *       422: { description: Nothing outstanding }
  */
 export const payBalance = asyncHandler(async (req, res) => {
-  const payment = await service.payBalance(userId(req), req.body, req);
+  const payment = await service.payBalance(
+    userId(req),
+    { ...req.body, orderId: D.str(req.params.orderId) },
+    req,
+  );
   return ApiResponse.success(res, {
     message: SUCCESS.PAYMENT.BALANCE_PAID,
     result: serializePayment(payment),
@@ -126,7 +132,11 @@ export const payBalance = asyncHandler(async (req, res) => {
  *       200: { description: Cash recorded }
  */
 export const codCollect = asyncHandler(async (req, res) => {
-  const payment = await service.collectCod(req.body, req.auth!.userId, req);
+  const payment = await service.collectCod(
+    { ...req.body, orderId: D.str(req.params.orderId) },
+    req.auth!.userId,
+    req,
+  );
   return ApiResponse.success(res, {
     message: SUCCESS.PAYMENT.COD_COLLECTED,
     result: serializePayment(payment),
@@ -222,7 +232,6 @@ export const getMethods = asyncHandler(async (_req, res) => {
   });
 });
 
-/** POST /payments/verifyUpi/:orderId — the customer submits a UPI reference */
 export const verifyUpi = asyncHandler(async (req, res) => {
   const payment = await service.submitManualPayment(
     userId(req),
@@ -236,7 +245,6 @@ export const verifyUpi = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /payments/verifyBank/:orderId — the customer submits a bank transfer slip */
 export const verifyBank = asyncHandler(async (req, res) => {
   const payment = await service.submitManualPayment(
     userId(req),
@@ -250,7 +258,6 @@ export const verifyBank = asyncHandler(async (req, res) => {
   });
 });
 
-/** PATCH /payments/confirmPayment/:id — admin */
 export const confirmPayment = asyncHandler(async (req, res) => {
   const payment = await service.confirmPayment(D.str(req.params.id), req.auth!.userId, req);
   return ApiResponse.success(res, {
@@ -259,7 +266,6 @@ export const confirmPayment = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /payments/refund/:id — admin opens a refund against a payment */
 export const createRefund = asyncHandler(async (req, res) => {
   const refund = await service.initiateRefund(
     { ...req.body, paymentId: D.str(req.params.id) },
@@ -296,13 +302,11 @@ export const getRefundHistory = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /payments/razorpay/createOrder */
 export const createRazorpayOrder = asyncHandler(async (req, res) => {
   const result = await service.createGatewayOrder(userId(req), req.body, req);
   return ApiResponse.created(res, SUCCESS.PAYMENT.RAZORPAY_ORDER_CREATED, result);
 });
 
-/** POST /payments/razorpay/verify */
 export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   const payment = await service.verifyGatewayPayment(userId(req), req.body, req);
   return ApiResponse.success(res, {
@@ -311,13 +315,10 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /payments/stripe/createIntent */
 export const createStripeIntent = asyncHandler(async (req, res) => {
-  const result = await service.createStripeIntent(userId(req), req.body, req);
+  const result = await service.createStripeIntent(userId(req), req.body);
   return ApiResponse.created(res, SUCCESS.PAYMENT.STRIPE_INTENT_CREATED, result);
 });
-
-// ═══ Wallet ═══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -375,13 +376,11 @@ export const walletAdjust = asyncHandler(async (req, res) => {
   return ApiResponse.created(res, SUCCESS.WALLET.CREDITED, serializeWalletEntry(row));
 });
 
-/** POST /wallet/addMoney — the customer tops their own wallet up */
 export const addMoney = asyncHandler(async (req, res) => {
   const row = await service.addMoneyToWallet(userId(req), req.body, req);
   return ApiResponse.created(res, SUCCESS.WALLET.ADDED, serializeWalletEntry(row));
 });
 
-/** POST /wallet/useForOrder — redeem balance at checkout */
 export const useForOrder = asyncHandler(async (req, res) => {
   const row = await service.useWalletForOrder(userId(req), req.body, req);
   return ApiResponse.success(res, {
@@ -390,7 +389,6 @@ export const useForOrder = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /wallet/adminCredit — admin */
 export const adminCredit = asyncHandler(async (req, res) => {
   const row = await service.adjustWallet(
     D.str(req.body.userId),
@@ -401,7 +399,6 @@ export const adminCredit = asyncHandler(async (req, res) => {
   return ApiResponse.created(res, SUCCESS.WALLET.CREDITED, serializeWalletEntry(row));
 });
 
-/** POST /wallet/adminDebit — admin */
 export const adminDebit = asyncHandler(async (req, res) => {
   const row = await service.adjustWallet(
     D.str(req.body.userId),
@@ -411,8 +408,6 @@ export const adminDebit = asyncHandler(async (req, res) => {
   );
   return ApiResponse.created(res, SUCCESS.WALLET.DEBITED, serializeWalletEntry(row));
 });
-
-// ═══ Payout ═══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -512,9 +507,6 @@ export const updatePayoutStatus = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Payout transition shortcuts ══════════════════════════════════════════════
-
-/** Each of these pins the target status, so the route itself documents the intent. */
 const transitionPayout = (status: string, message: string) =>
   asyncHandler(async (req: Request, res: any) => {
     const payout = await service.updatePayoutStatus(
@@ -530,19 +522,16 @@ const transitionPayout = (status: string, message: string) =>
 export const approvePayout = transitionPayout('APPROVED', SUCCESS.PAYOUT.APPROVED);
 export const rejectPayout = transitionPayout('REJECTED', SUCCESS.PAYOUT.REJECTED);
 
-/** POST /payouts/generateCycles — admin batch run */
 export const generateCycles = asyncHandler(async (req, res) => {
   const result = await service.generatePayoutCycles(req);
   return ApiResponse.success(res, { message: SUCCESS.PAYOUT.GENERATED, result });
 });
 
-/** GET /payouts/getSummary — admin */
 export const getSummary = asyncHandler(async (req, res) => {
   const result = await service.getPayoutSummary(req.query as any);
   return ApiResponse.success(res, { message: SUCCESS.PAYOUT.SUMMARY_FETCHED, result });
 });
 
-/** GET /payouts/getStatement/:vendorId — admin */
 export const getStatement = asyncHandler(async (req, res) => {
   const vendorId = D.str(req.params.vendorId);
   const result = await service.getVendorStatement(vendorId, req.query as any);
@@ -578,19 +567,15 @@ export const getStatement = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { message: SUCCESS.PAYOUT.STATEMENT_GENERATED, result });
 });
 
-/** POST /payouts/bulkApprove — admin */
 export const bulkApprove = asyncHandler(async (req, res) => {
   const result = await service.bulkApprovePayouts(req.body, req.auth!.userId, req);
   return ApiResponse.success(res, { message: SUCCESS.PAYOUT.BULK_APPROVED, result });
 });
 
-/** GET /payouts/getPendingAmount/:vendorId */
 export const getPendingAmount = asyncHandler(async (req, res) => {
   const result = await service.getVendorPendingAmount(D.str(req.params.vendorId));
   return ApiResponse.success(res, { message: SUCCESS.PAYOUT.PENDING_FETCHED, result });
 });
-
-// ═══ Returns ══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -775,9 +760,6 @@ export const updateReturnReason = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Return transition shortcuts ══════════════════════════════════════════════
-
-/** Each of these pins the target status, so the route itself documents the intent. */
 const transitionReturn = (status: string, message: string) =>
   asyncHandler(async (req: Request, res: any) => {
     const isVendor = req.auth!.role === 'VENDOR';

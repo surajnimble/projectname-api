@@ -23,9 +23,6 @@ import {
 import { toSlug, generateOrderNumber } from '../src/utils/slug';
 import { isEmailLooking, normalisePhone } from '../src/utils/validate';
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  No-null defaults
-// ─────────────────────────────────────────────────────────────────────────────
 describe('D defaults (no-null contract)', () => {
   it('substitutes type-appropriate defaults for null and undefined', () => {
     expect(D.str(null)).toBe('');
@@ -69,9 +66,6 @@ describe('D defaults (no-null contract)', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Response envelope
-// ─────────────────────────────────────────────────────────────────────────────
 describe('ApiResponse envelope', () => {
   const capture = () => {
     let payload: any = null;
@@ -91,7 +85,10 @@ describe('ApiResponse envelope', () => {
 
   it('emits exactly three top-level keys in order for success', () => {
     const { res, get } = capture();
-    ApiResponse.success(res, { message: 'Product created successfully.', result: { productId: 'p1' } });
+    ApiResponse.success(res, {
+      message: 'Product created successfully.',
+      result: { productId: 'p1' },
+    });
 
     const body = get();
     expect(Object.keys(body)).toEqual(['status', 'message', 'result']);
@@ -175,16 +172,18 @@ describe('ApiResponse envelope', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Pagination helpers
-// ─────────────────────────────────────────────────────────────────────────────
 describe('getPagination', () => {
   it('defaults to page 1 / limit 20', () => {
     expect(getPagination({})).toEqual({ page: 1, limit: 20, skip: 0, take: 20 });
   });
 
   it('computes skip from page and limit', () => {
-    expect(getPagination({ page: '3', limit: '20' })).toEqual({ page: 3, limit: 20, skip: 40, take: 20 });
+    expect(getPagination({ page: '3', limit: '20' })).toEqual({
+      page: 3,
+      limit: 20,
+      skip: 40,
+      take: 20,
+    });
   });
 
   it('clamps limit to the configured maximum', () => {
@@ -192,7 +191,12 @@ describe('getPagination', () => {
   });
 
   it('rejects non-numeric and zero values by falling back to defaults', () => {
-    expect(getPagination({ page: 'abc', limit: '0' })).toEqual({ page: 1, limit: 20, skip: 0, take: 20 });
+    expect(getPagination({ page: 'abc', limit: '0' })).toEqual({
+      page: 1,
+      limit: 20,
+      skip: 0,
+      take: 20,
+    });
     expect(getPagination({ page: '-5' }).page).toBe(1);
   });
 });
@@ -209,13 +213,12 @@ describe('getSort', () => {
   });
 
   it('falls back to the default for fields outside the whitelist', () => {
-    expect(getSort({ sort: '-passwordHash' }, allowed, '-createdAt')).toEqual({ createdAt: 'desc' });
+    expect(getSort({ sort: '-passwordHash' }, allowed, '-createdAt')).toEqual({
+      createdAt: 'desc',
+    });
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Token amount (spec 7.14)
-// ─────────────────────────────────────────────────────────────────────────────
 describe('calcTokenAmount', () => {
   const percentConfig = {
     enabled: true,
@@ -248,8 +251,9 @@ describe('calcTokenAmount', () => {
   });
 
   it('never exceeds the order total', () => {
-    // minAmount 500 clamps above a 2000 order, but the token can never be > total.
-    expect(calcTokenAmount(2000, { ...percentConfig, minAmount: 5000, maxAmount: 9000 })).toBe(2000);
+    expect(calcTokenAmount(2000, { ...percentConfig, minAmount: 5000, maxAmount: 9000 })).toBe(
+      2000,
+    );
   });
 
   it('returns 0 when the feature is disabled', () => {
@@ -257,9 +261,6 @@ describe('calcTokenAmount', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Commission & totals
-// ─────────────────────────────────────────────────────────────────────────────
 describe('calcCommission', () => {
   it('splits earnings as subtotal minus commission minus platform fee', () => {
     const result = calcCommission({ subtotal: 799, commissionRate: 10, platformFee: 20 });
@@ -269,7 +270,12 @@ describe('calcCommission', () => {
   });
 
   it('extracts tax from the price when tax is inclusive', () => {
-    const result = calcCommission({ subtotal: 1180, commissionRate: 0, taxPercent: 18, taxInclusive: true });
+    const result = calcCommission({
+      subtotal: 1180,
+      commissionRate: 0,
+      taxPercent: 18,
+      taxInclusive: true,
+    });
     expect(result.taxAmount).toBe(180);
     expect(result.vendorEarning).toBe(1000);
   });
@@ -288,36 +294,72 @@ describe('calcCommission', () => {
 
 describe('calcCouponDiscount', () => {
   it('applies a flat discount', () => {
-    expect(calcCouponDiscount({ subtotal: 1000, type: 'FLAT', value: 100, maxDiscount: 0, globalMaxDiscount: 0 }).discount).toBe(100);
+    expect(
+      calcCouponDiscount({
+        subtotal: 1000,
+        type: 'FLAT',
+        value: 100,
+        maxDiscount: 0,
+        globalMaxDiscount: 0,
+      }).discount,
+    ).toBe(100);
   });
 
   it('applies a percent discount with a cap', () => {
-    const result = calcCouponDiscount({ subtotal: 1000, type: 'PERCENT', value: 20, maxDiscount: 150, globalMaxDiscount: 0 });
+    const result = calcCouponDiscount({
+      subtotal: 1000,
+      type: 'PERCENT',
+      value: 20,
+      maxDiscount: 150,
+      globalMaxDiscount: 0,
+    });
     expect(result.discount).toBe(150);
   });
 
   it('flags free shipping without discounting', () => {
-    const result = calcCouponDiscount({ subtotal: 1000, type: 'FREE_SHIPPING', value: 0, maxDiscount: 0, globalMaxDiscount: 0 });
+    const result = calcCouponDiscount({
+      subtotal: 1000,
+      type: 'FREE_SHIPPING',
+      value: 0,
+      maxDiscount: 0,
+      globalMaxDiscount: 0,
+    });
     expect(result.discount).toBe(0);
     expect(result.freeShipping).toBe(true);
   });
 
   it('never discounts more than the subtotal', () => {
-    const result = calcCouponDiscount({ subtotal: 100, type: 'FLAT', value: 500, maxDiscount: 0, globalMaxDiscount: 0 });
+    const result = calcCouponDiscount({
+      subtotal: 100,
+      type: 'FLAT',
+      value: 500,
+      maxDiscount: 0,
+      globalMaxDiscount: 0,
+    });
     expect(result.discount).toBe(100);
   });
 });
 
 describe('calcCartTotals', () => {
   it('computes tax, shipping and grand total', () => {
-    const result = calcCartTotals({ subtotal: 1000, taxPercent: 18, shippingCharge: 49, freeShippingAbove: 999 });
+    const result = calcCartTotals({
+      subtotal: 1000,
+      taxPercent: 18,
+      shippingCharge: 49,
+      freeShippingAbove: 999,
+    });
     expect(result.taxAmount).toBe(180);
-    expect(result.shippingAmount).toBe(0); // free above 999
+    expect(result.shippingAmount).toBe(0);
     expect(result.total).toBe(1180);
   });
 
   it('charges shipping below the free threshold', () => {
-    const result = calcCartTotals({ subtotal: 500, taxPercent: 0, shippingCharge: 49, freeShippingAbove: 999 });
+    const result = calcCartTotals({
+      subtotal: 500,
+      taxPercent: 0,
+      shippingCharge: 49,
+      freeShippingAbove: 999,
+    });
     expect(result.shippingAmount).toBe(49);
     expect(result.total).toBe(549);
   });
@@ -337,7 +379,12 @@ describe('calcCartTotals', () => {
 
 describe('calcShippingCharge', () => {
   it('adds a per-kg component when configured', () => {
-    const result = calcShippingCharge({ orderValue: 100, defaultCharge: 49, perKgCharge: 10, weightKg: 2.5 });
+    const result = calcShippingCharge({
+      orderValue: 100,
+      defaultCharge: 49,
+      perKgCharge: 10,
+      weightKg: 2.5,
+    });
     expect(result.charge).toBe(74);
   });
 
@@ -348,9 +395,6 @@ describe('calcShippingCharge', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  State machines
-// ─────────────────────────────────────────────────────────────────────────────
 describe('order state machine', () => {
   it('allows the documented forward transitions', () => {
     expect(canTransitionOrder(ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED)).toBe(true);
@@ -391,9 +435,6 @@ describe('return and ticket state machines', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Slugs & identifiers
-// ─────────────────────────────────────────────────────────────────────────────
 describe('slugs and identifiers', () => {
   it('slugifies names to URL-safe form', () => {
     expect(toSlug('Classic Cotton Shirt')).toBe('classic-cotton-shirt');
@@ -418,9 +459,6 @@ describe('slugs and identifiers', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Errors & validation messages
-// ─────────────────────────────────────────────────────────────────────────────
 describe('AppError', () => {
   it('carries status, code and defaults', () => {
     const err = AppError.notFound('Product not found.', 'NOT_FOUND');
@@ -451,16 +489,18 @@ describe('validation messages', () => {
 
   it('maps Zod issues to human messages', () => {
     const err = new ZodError([
-      { code: 'invalid_string', path: ['email'], message: 'Invalid email', validation: 'email' } as any,
+      {
+        code: 'invalid_string',
+        path: ['email'],
+        message: 'Invalid email',
+        validation: 'email',
+      } as any,
     ]);
     const mapped = err.errors.map(zodIssueToMessage);
     expect(mapped[0]).toBe('Please enter a valid email address.');
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Error handler integration
-// ─────────────────────────────────────────────────────────────────────────────
 describe('error handler integration', () => {
   it('renders a Zod failure as 400 VALIDATION_ERROR with an empty result', async () => {
     const { errorHandler } = await import('../src/middlewares/error.middleware');
@@ -482,7 +522,12 @@ describe('error handler integration', () => {
       },
     };
 
-    errorHandler(new ZodError(schema.safeParse({ email: 'nope' }).error?.errors ?? []), { id: 'r1' } as any, res, () => undefined);
+    errorHandler(
+      new ZodError(schema.safeParse({ email: 'nope' }).error?.errors ?? []),
+      { id: 'r1' } as any,
+      res,
+      () => undefined,
+    );
 
     expect(statusCode).toBe(400);
     expect(body.status).toBe(false);
@@ -552,7 +597,12 @@ describe('error handler integration', () => {
       },
     };
 
-    errorHandler(new Error('Prisma error at line 42: secret token abc'), { id: 'r1' } as any, res, () => undefined);
+    errorHandler(
+      new Error('Prisma error at line 42: secret token abc'),
+      { id: 'r1' } as any,
+      res,
+      () => undefined,
+    );
 
     expect(body.status).toBe(false);
     expect(body.message).toBe(`${ERROR.COMMON.SERVER_ERROR} Error Code (INTERNAL_ERROR)`);

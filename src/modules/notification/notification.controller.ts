@@ -22,10 +22,7 @@ export const guards = {
   superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
 };
 
-/** Staff are the only side that may see internal notes. */
-const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth!.role));
-
-// ═══ Notifications ═══════════════════════════════════════════════════════════
+const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth?.role));
 
 /**
  * @openapi
@@ -77,7 +74,7 @@ export const getUnreadCount = asyncHandler(async (req, res) => {
  *     responses:
  *       200: { description: How many were marked }
  */
-/** PATCH /notifications/markRead/:id — marks one notification */
+
 export const markNotificationRead = asyncHandler(async (req, res) => {
   const count = await service.markRead(userId(req), [D.str(req.params.id)], false);
 
@@ -87,7 +84,6 @@ export const markNotificationRead = asyncHandler(async (req, res) => {
   });
 });
 
-/** PATCH /notifications/markAllRead */
 export const markAllNotificationsRead = asyncHandler(async (req, res) => {
   const count = await service.markRead(userId(req), [], true);
 
@@ -156,8 +152,6 @@ export const setPreferences = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Chat ════════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /chat/getAll:
@@ -223,7 +217,7 @@ export const startConversation = asyncHandler(async (req, res) => {
 export const getMessages = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.getMessages(D.str(req.params.id), userId(req), {
+  const { rows, total } = await service.getMessages(D.str(req.params.conversationId), userId(req), {
     ...(req.query as any),
     skip,
     take,
@@ -231,7 +225,10 @@ export const getMessages = asyncHandler(async (req, res) => {
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.CHAT.MESSAGES_FETCHED,
-    result: { conversationId: D.str(req.params.id), itemList: rows.map(serializeMessage) },
+    result: {
+      conversationId: D.str(req.params.conversationId),
+      itemList: rows.map(serializeMessage),
+    },
     totalRecord: total,
     currentPage: page,
     limit,
@@ -249,7 +246,12 @@ export const getMessages = asyncHandler(async (req, res) => {
  *       403: { description: Blocked in either direction }
  */
 export const sendMessage = asyncHandler(async (req, res) => {
-  const message = await service.sendMessage(D.str(req.params.id), userId(req), req.body, req);
+  const message = await service.sendMessage(
+    D.str(req.body.conversationId),
+    userId(req),
+    req.body,
+    req,
+  );
   return ApiResponse.created(res, SUCCESS.CHAT.MESSAGE_SENT, serializeMessage(message));
 });
 
@@ -264,7 +266,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
  */
 export const markConversationRead = asyncHandler(async (req, res) => {
   const count = await service.markConversationRead(
-    D.str(req.params.id),
+    D.str(req.params.conversationId),
     userId(req),
     req.body.lastReadAt,
   );
@@ -307,7 +309,7 @@ export const chatUnread = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
- * /chat/block:
+ * /chat/blockUser/:userId:
  *   post:
  *     tags: [Chat]
  *     summary: Block a user
@@ -315,10 +317,11 @@ export const chatUnread = asyncHandler(async (req, res) => {
  *       200: { description: Blocked }
  */
 export const block = asyncHandler(async (req, res) => {
-  await service.blockUser(userId(req), D.str(req.body.userId), D.str(req.body.reason), req);
+  const targetId = D.str(req.params.userId);
+  await service.blockUser(userId(req), targetId, D.str(req.body.reason), req);
   return ApiResponse.success(res, {
     message: SUCCESS.CHAT.USER_BLOCKED,
-    result: { userId: D.str(req.body.userId), isBlocked: true },
+    result: { userId: targetId, isBlocked: true },
   });
 });
 
@@ -369,8 +372,6 @@ export const getBlocked = asyncHandler(async (req, res) => {
     },
   });
 });
-
-// ═══ Tickets ═════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -499,7 +500,6 @@ export const assign = asyncHandler(async (req, res) => {
   });
 });
 
-/** GET /tickets/getCategories */
 export const getCategories = asyncHandler(async (req, res) => {
   const rows = await service.listTicketCategories(!isStaff(req));
 
@@ -509,13 +509,11 @@ export const getCategories = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /tickets/categories — admin */
 export const createCategory = asyncHandler(async (req, res) => {
   const row = await service.createTicketCategory(req.body);
   return ApiResponse.created(res, SUCCESS.COMMON.CREATED, serializeTicketCategory(row));
 });
 
-/** GET /tickets/getStats — admin */
 export const getStats = asyncHandler(async (_req, res) => {
   const result = await service.getTicketStats();
   return ApiResponse.success(res, { message: SUCCESS.TICKET.FETCHED, result });
@@ -535,9 +533,6 @@ export const broadcast = asyncHandler(async (req, res) => {
   return ApiResponse.accepted(res, SUCCESS.NOTIFICATION.BULK_SENT, { sentCount: D.num(count) });
 });
 
-// ═══ Push device tokens ═══════════════════════════════════════════════════════
-
-/** POST /notifications/registerDevice */
 export const registerDevice = asyncHandler(async (req, res) => {
   const row = await service.registerDeviceToken(userId(req), req.body);
 
@@ -552,7 +547,6 @@ export const registerDevice = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /notifications/unregisterDevice */
 export const unregisterDevice = asyncHandler(async (req, res) => {
   const result = await service.unregisterDeviceToken(userId(req), D.str(req.body.deviceId));
   return ApiResponse.success(res, {
@@ -561,9 +555,6 @@ export const unregisterDevice = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Notification templates ═══════════════════════════════════════════════════
-
-/** GET /notifications/getTemplates — admin */
 export const getTemplates = asyncHandler(async (_req, res) => {
   const rows = await service.listNotificationTemplates();
 
@@ -586,7 +577,6 @@ export const getTemplates = asyncHandler(async (_req, res) => {
   });
 });
 
-/** POST /notifications/createTemplate — admin */
 export const createTemplate = asyncHandler(async (req, res) => {
   const row = await service.createNotificationTemplate(req.body, req);
   return ApiResponse.created(res, SUCCESS.NOTIFICATION.TEMPLATE_CREATED, {
@@ -596,7 +586,6 @@ export const createTemplate = asyncHandler(async (req, res) => {
   });
 });
 
-/** PATCH /notifications/updateTemplate/:id — admin */
 export const updateTemplate = asyncHandler(async (req, res) => {
   const row = await service.updateNotificationTemplate(D.str(req.params.id), req.body, req);
 
@@ -606,7 +595,6 @@ export const updateTemplate = asyncHandler(async (req, res) => {
   });
 });
 
-/** DELETE /notifications/deleteTemplate/:id — admin */
 export const deleteTemplate = asyncHandler(async (req, res) => {
   await service.deleteNotificationTemplate(D.str(req.params.id), req);
 
@@ -616,9 +604,6 @@ export const deleteTemplate = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Ticket shortcuts ════════════════════════════════════════════════════════
-
-/** PATCH /tickets/close/:id — either side may close a thread. */
 export const closeTicket = asyncHandler(async (req, res) => {
   const row = await service.updateTicketStatus(
     D.str(req.params.id),
@@ -634,7 +619,6 @@ export const closeTicket = asyncHandler(async (req, res) => {
   });
 });
 
-/** DELETE /tickets/delete/:id — admin */
 export const deleteTicket = asyncHandler(async (req, res) => {
   await service.deleteTicket(D.str(req.params.id), req);
 

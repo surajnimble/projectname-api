@@ -1,22 +1,8 @@
-/**
- * Live HTTP tests for the content module: CMS pages, blog, FAQ, banners,
- * contact and newsletter, geo, currency, tax, translations, dropdowns,
- * webhooks, bulk import and reports.
- *
- * Every response is checked against the strict envelope (status/message/result,
- * never a null anywhere) and against role boundaries.
- *
- * Usage: npx tsx scripts/e2e-content.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -41,7 +27,6 @@ const phoneFor = (tag: string): string => {
   return `+7${run}${String(hash).padStart(2, '0')}`;
 };
 
-/** The envelope must never carry a null, anywhere, at any depth. */
 const findNull = (value: any, depth = 0): string | null => {
   if (depth > 9) return null;
   if (value === null) return 'null';
@@ -61,7 +46,6 @@ const findNull = (value: any, depth = 0): string | null => {
   return null;
 };
 
-/** Asserts the three-key envelope, ordering, and the absence of nulls. */
 const envelope = (res: any, label: string): boolean => {
   const keys = Object.keys(res.body ?? {});
   const ordered =
@@ -82,7 +66,6 @@ const envelope = (res: any, label: string): boolean => {
   return ordered && shaped && resultOk && nullHit === null;
 };
 
-/** Errors carry the code in the message. */
 const hasCode = (res: any, label: string): boolean => {
   const passed = typeof res.body?.message === 'string' && /\([A-Z_]+\)$/.test(res.body.message);
   record(label, passed, res.body?.message);
@@ -133,6 +116,7 @@ const api = (token: string) => ({
 });
 
 const publicGet = (p: string) => request(app).get(p);
+const publicPost = (p: string, b: any) => request(app).post(p).send(b);
 
 const main = async (): Promise<void> => {
   /* eslint-disable no-console */
@@ -152,11 +136,6 @@ const main = async (): Promise<void> => {
 
   record('bootstrap tokens', Boolean(adminToken && customer.token && vendor.token && rival.token));
 
-  /**
-   * Without the admin token every staff route below returns 401, which would bury the real cause
-   * under a hundred failures. The shared test database can be reset out from under us, in which
-   * case `npm run seed` restores the SUPER_ADMIN account.
-   */
   if (!adminToken) {
     throw new Error(
       'SUPER_ADMIN login failed. If the shared database was reset, run `npm run seed` before this suite.',
@@ -170,8 +149,6 @@ const main = async (): Promise<void> => {
     await admin.patch(`/api/v1/vendors/approveVendor/${v.vendorId}`, {});
   }
   record('vendors approved', true);
-
-  // ── Pages ──────────────────────────────────────────────────────────────────
 
   const anonPage = await publicGet('/api/v1/pages/getAll');
   record('GET /content/pages needs no auth', anonPage.status === 200, `status=${anonPage.status}`);
@@ -229,7 +206,6 @@ const main = async (): Promise<void> => {
     D_str(updPage.body?.result?.title),
   );
 
-  // Re-saving with the same slug must not collide with its own row.
   const sameSlug = await admin.patch(`/api/v1/pages/update/${pageId}`, {
     slug: pageSlug,
   });
@@ -286,8 +262,6 @@ const main = async (): Promise<void> => {
     unknownField.status === 400,
     `status=${unknownField.status}`,
   );
-
-  // ── Blog ───────────────────────────────────────────────────────────────────
 
   const blogs = await publicGet('/api/v1/blogs/getAll');
   record('GET /content/blogs -> 200', blogs.status === 200, `status=${blogs.status}`);
@@ -376,8 +350,6 @@ const main = async (): Promise<void> => {
     `status=${missingBlog.status}`,
   );
 
-  // ── FAQ ────────────────────────────────────────────────────────────────────
-
   const faqs = await publicGet('/api/v1/faqs/getAll');
   record('GET /content/faqs -> 200', faqs.status === 200, `status=${faqs.status}`);
   envelope(faqs, 'GET /content/faqs');
@@ -409,8 +381,6 @@ const main = async (): Promise<void> => {
     delFaq.status === 200,
     `status=${delFaq.status}`,
   );
-
-  // ── Banners ────────────────────────────────────────────────────────────────
 
   const banners = await publicGet('/api/v1/banners/getAll');
   record('GET /content/banners -> 200', banners.status === 200, `status=${banners.status}`);
@@ -463,8 +433,6 @@ const main = async (): Promise<void> => {
     delBanner.status === 200,
     `status=${delBanner.status}`,
   );
-
-  // ── Contact ────────────────────────────────────────────────────────────────
 
   const contact = await request(app)
     .post('/api/v1/contact/submit')
@@ -526,8 +494,6 @@ const main = async (): Promise<void> => {
     `count=${D_arr(unread.body?.result?.itemList).length}`,
   );
 
-  // ── Newsletter ─────────────────────────────────────────────────────────────
-
   const subEmail = email('sub');
   const sub = await request(app).post('/api/v1/newsletter/subscribe').send({ email: subEmail });
   record(
@@ -570,7 +536,6 @@ const main = async (): Promise<void> => {
     !D_arr(subs.body?.result?.itemList).some((s: any) => 'token' in s),
   );
 
-  // The token is only readable straight from the table, so pull it for the test.
   const subRow = await prisma.newsletterSubscriber.findUnique({
     where: { email: subEmail },
     select: { token: true },
@@ -615,8 +580,6 @@ const main = async (): Promise<void> => {
     `status=${resub2.status}`,
   );
 
-  // ── Geo ────────────────────────────────────────────────────────────────────
-
   const countries = await publicGet('/api/v1/countries/getAll');
   record(
     'GET /content/geo/countries -> 200',
@@ -651,9 +614,9 @@ const main = async (): Promise<void> => {
     JSON.stringify(reseed.body?.result),
   );
 
-  const states = await publicGet('/api/v1/countries/getStates?countryCode=IN');
+  const states = await publicGet('/api/v1/countries/getStates/IN');
   record(
-    'GET /content/geo/states?countryCode=IN -> 200',
+    'GET /countries/getStates/:countryCode -> 200',
     states.status === 200,
     `status=${states.status}`,
   );
@@ -666,24 +629,41 @@ const main = async (): Promise<void> => {
     JSON.stringify(stateRows[0]),
   );
 
-  const statesWithCities = await publicGet(
-    '/api/v1/countries/getStates?countryCode=IN&includeCities=true',
-  );
+  const statesWithCities = await publicGet('/api/v1/countries/getStates/IN?includeCities=true');
   const richRows = D_arr(statesWithCities.body?.result?.itemList);
   record(
     'includeCities=true nests the cityList',
     richRows.some((s: any) => D_arr(s?.cityList).length > 0),
     `count=${richRows.length}`,
   );
-  envelope(statesWithCities, 'GET /content/geo/states?includeCities=true');
+  envelope(statesWithCities, 'GET /countries/getStates/IN?includeCities=true');
 
-  const cities = await publicGet('/api/v1/countries/getCities');
-  record('GET /content/geo/cities -> 200', cities.status === 200, `status=${cities.status}`);
-  envelope(cities, 'GET /content/geo/cities');
+  const someStateCode = D_str(richRows.find((s: any) => D_arr(s?.cityList).length > 0)?.code);
+  record('a state with cities was found', someStateCode.length > 0, someStateCode);
+
+  const cities = await publicGet(`/api/v1/countries/getCities/${someStateCode}`);
+  record(
+    'GET /countries/getCities/:stateCode -> 200',
+    cities.status === 200,
+    `status=${cities.status}`,
+  );
+  envelope(cities, 'GET /countries/getCities/:stateCode');
   record(
     'the reference city table is populated',
-    D_num(cities.body?.result?.totalRecord) >= 20,
+    D_num(cities.body?.result?.totalRecord) >= 1,
     `total=${D_num(cities.body?.result?.totalRecord)}`,
+  );
+  record(
+    'every city belongs to the requested state',
+    D_arr(cities.body?.result?.itemList).every((c: any) => c?.stateCode === someStateCode),
+    JSON.stringify(D_arr(cities.body?.result?.itemList).map((c: any) => c?.stateCode)),
+  );
+
+  const emptyState = await publicGet('/api/v1/countries/getCities/ZZ');
+  record(
+    'an unknown state code -> 200 with no rows',
+    emptyState.status === 200 && D_arr(emptyState.body?.result?.itemList).length === 0,
+    `status=${emptyState.status}`,
   );
 
   const cityName = D_str(
@@ -698,9 +678,9 @@ const main = async (): Promise<void> => {
     `${cityName}/${pincode}`,
   );
 
-  const pin = await publicGet(`/api/v1/countries/checkPincode?pincode=${pincode}`);
+  const pin = await publicPost('/api/v1/countries/checkPincode', { pincode });
   record(
-    'GET /content/geo/checkPincode -> 200',
+    'POST /countries/checkPincode -> 200',
     pin.status === 200,
     `status=${pin.status} msg=${pin.body?.message}`,
   );
@@ -721,14 +701,21 @@ const main = async (): Promise<void> => {
     JSON.stringify(pin.body?.result),
   );
 
-  const badPin = await publicGet('/api/v1/countries/checkPincode?pincode=abc');
-  record('a non-numeric pincode -> 400', badPin.status === 400, `status=${badPin.status}`);
+  const badPin = await publicPost('/api/v1/countries/checkPincode', { pincode: 'abc' });
+  record(
+    'a non-numeric pincode -> 400',
+    badPin.status === 400,
+    `status=${badPin.status} msg=${badPin.body?.message}`,
+  );
 
-  /**
-   * An unshipped pincode is a valid answer, not an error: the checkout flow needs "not
-   * serviceable", so the lookup reports isKnown/isServiceable.
-   */
-  const unknownPin = await publicGet('/api/v1/countries/checkPincode?pincode=9999999');
+  const noPin = await publicPost('/api/v1/countries/checkPincode', {});
+  record(
+    'a missing pincode -> 400',
+    noPin.status === 400 && String(noPin.body?.message).includes('pincode'),
+    `status=${noPin.status} msg=${noPin.body?.message}`,
+  );
+
+  const unknownPin = await publicPost('/api/v1/countries/checkPincode', { pincode: '9999999' });
   record(
     'an unknown pincode still returns 200',
     unknownPin.status === 200,
@@ -740,8 +727,6 @@ const main = async (): Promise<void> => {
     JSON.stringify(unknownPin.body?.result),
   );
   envelope(unknownPin, 'checkPincode unknown');
-
-  // ── Currency ───────────────────────────────────────────────────────────────
 
   const defaultRow = await prisma.currency.findFirst({
     where: { isDefault: true },
@@ -833,28 +818,22 @@ const main = async (): Promise<void> => {
     `status=${convertMissing.status}`,
   );
 
-  const delDefault = await admin.del(`/api/v1/currencies/${D_str(defaultRow?.id)}/delete`);
+  const delDefault = await admin.del(`/api/v1/currencies/delete/${D_str(defaultRow?.id)}`);
   record(
     'deleting the default currency -> 422',
     delDefault.status === 422,
     `status=${delDefault.status} msg=${delDefault.body?.message}`,
   );
 
-  const delCur = await admin.del(`/api/v1/currencies/${eurId}/delete`);
-  record(
-    'DELETE /content/currencies/:id/delete -> 200',
-    delCur.status === 200,
-    `status=${delCur.status}`,
-  );
+  const delCur = await admin.del(`/api/v1/currencies/delete/${eurId}`);
+  record('DELETE /currencies/delete/:id -> 200', delCur.status === 200, `status=${delCur.status}`);
 
-  const delCurAgain = await admin.del(`/api/v1/currencies/${eurId}/delete`);
+  const delCurAgain = await admin.del(`/api/v1/currencies/delete/${eurId}`);
   record(
     'deleting a currency twice -> 404',
     delCurAgain.status === 404,
     `status=${delCurAgain.status}`,
   );
-
-  // ── Tax ────────────────────────────────────────────────────────────────────
 
   const taxes = await publicGet('/api/v1/tax/getConfigs');
   record('GET /content/taxConfigs -> 200', taxes.status === 200, `status=${taxes.status}`);
@@ -910,19 +889,20 @@ const main = async (): Promise<void> => {
 
   const updTax = await admin.patch(`/api/v1/tax/update/${taxId}`, { percent: 12 });
   record(
-    'PATCH /content/taxConfigs/:id/update -> 200',
+    'PATCH /tax/update/:id -> 200 and the new value comes back',
     updTax.status === 200 && D_num(updTax.body?.result?.percent) === 12,
-    `status=${updTax.status}`,
+    `status=${updTax.status} percent=${updTax.body?.result?.percent}`,
   );
 
-  const delTax = await admin.del(`/api/v1/tax/${taxId}/delete`);
+  const delTax = await admin.del(`/api/v1/tax/delete/${taxId}`);
+  record('DELETE /tax/delete/:id -> 200', delTax.status === 200, `status=${delTax.status}`);
+
+  const delTaxAgain = await admin.del(`/api/v1/tax/delete/${taxId}`);
   record(
-    'DELETE /content/taxConfigs/:id/delete -> 200',
-    delTax.status === 200,
-    `status=${delTax.status}`,
+    'deleting a tax config twice -> 404',
+    delTaxAgain.status === 404,
+    `status=${delTaxAgain.status}`,
   );
-
-  // ── Translations ───────────────────────────────────────────────────────────
 
   const upsert = await admin.post('/api/v1/i18n/bulkUpsert', {
     locale: 'fr',
@@ -954,25 +934,45 @@ const main = async (): Promise<void> => {
     `status=${again.status}`,
   );
 
-  const frList = await publicGet('/api/v1/i18n/getTranslations/en?locale=fr');
+  const frList = await publicGet('/api/v1/i18n/getTranslations/fr');
   record(
-    'GET /content/translations?locale=fr -> 200',
+    'GET /i18n/getTranslations/:locale -> 200',
     frList.status === 200,
     `status=${frList.status}`,
   );
-  envelope(frList, 'GET /content/translations');
-  const cartRow = D_arr(frList.body?.result?.itemList).find((t: any) => D_str(t?.key) === 'cart');
+  envelope(frList, 'GET /i18n/getTranslations/fr');
+  record(
+    'the response names the locale it was asked for',
+    frList.body?.result?.locale === 'fr',
+    frList.body?.result?.locale,
+  );
+
+  const frEntries = D_arr(frList.body?.result?.namespaceList).find(
+    (n: any) => n?.namespace === 'common',
+  );
+  record(
+    'entries are grouped under their namespace',
+    Boolean(frEntries),
+    JSON.stringify(D_arr(frList.body?.result?.namespaceList).map((n: any) => n?.namespace)),
+  );
+
+  const cartRow = D_arr(frEntries?.entryList).find((t: any) => D_str(t?.key) === 'cart');
   record(
     'the updated value is returned',
     D_str(cartRow?.value) === 'Chariot',
     D_str(cartRow?.value),
   );
-
-  const frScoped = await publicGet('/api/v1/i18n/getTranslations/en?locale=fr&namespace=common');
   record(
-    'the namespace filter narrows the list',
-    D_arr(frScoped.body?.result?.itemList).length === 2,
-    `count=${D_arr(frScoped.body?.result?.itemList).length}`,
+    'the namespace reports its key count',
+    D_num(frEntries?.keyCount) === D_arr(frEntries?.entryList).length,
+    `keyCount=${frEntries?.keyCount} entries=${D_arr(frEntries?.entryList).length}`,
+  );
+
+  const emptyLocale = await publicGet('/api/v1/i18n/getTranslations/zz');
+  record(
+    'an unknown locale -> 200 with no namespaces',
+    emptyLocale.status === 200 && D_arr(emptyLocale.body?.result?.namespaceList).length === 0,
+    `status=${emptyLocale.status}`,
   );
 
   const emptyEntries = await admin.post('/api/v1/i18n/bulkUpsert', {
@@ -994,8 +994,6 @@ const main = async (): Promise<void> => {
     custUpsert.status === 403,
     `status=${custUpsert.status}`,
   );
-
-  // ── Dropdowns ──────────────────────────────────────────────────────────────
 
   const dd = await admin.post('/api/v1/content/dropdowns/create', {
     type: 'order_status_reason',
@@ -1044,8 +1042,6 @@ const main = async (): Promise<void> => {
     delDd.status === 200,
     `status=${delDd.status}`,
   );
-
-  // ── Webhooks ───────────────────────────────────────────────────────────────
 
   const wh = await admin.post('/api/v1/webhooks/register', {
     url: 'https://example.com/hooks/marketplace',
@@ -1118,7 +1114,6 @@ const main = async (): Promise<void> => {
     D_str(rot.body?.result?.webhookId) === whId,
   );
 
-  // An inactive endpoint must not accept a delivery even with a valid signature.
   const crypto = await import('crypto');
 
   const offPayload = {
@@ -1149,36 +1144,33 @@ const main = async (): Promise<void> => {
     `status=${onWh.status}`,
   );
 
-  /**
-   * The signature is over the serialised body, so it has to be recomputed for the exact payload
-   * the server will re-serialise from req.body.
-   */
   const activePayload = {
     endpointId: whId,
     event: 'payment.settled',
     eventId: `evt-${run}`,
     payload: { ok: true },
   };
-  const activeSig = crypto
+  const endpointSig = crypto
     .createHmac('sha256', rotated)
     .update(JSON.stringify(activePayload))
     .digest('hex');
 
   const good = await request(app)
     .post('/api/v1/webhooks/razorpay')
-    .set('x-webhook-signature', activeSig)
+    .set('x-webhook-signature', endpointSig)
     .send(activePayload);
-  record('POST /content/webhooks/receive -> 200', good.status === 200, `status=${good.status}`);
+  record('POST /webhooks/razorpay -> 200', good.status === 200, `status=${good.status}`);
   record(
-    'a valid signature is marked processed',
-    good.body?.result?.isProcessed === true,
+    "an endpoint's own secret does not authenticate a provider delivery",
+    good.status === 200 && good.body?.result?.isProcessed === false,
+    JSON.stringify(good.body?.result),
+  );
+  record(
+    'the delivery is still recorded so it can be inspected',
+    D_str(good.body?.result?.logId).length > 0 && good.body?.result?.event === 'payment.settled',
     JSON.stringify(good.body?.result),
   );
 
-  /**
-   * The pre-rotation secret must stop working the moment the secret rotates, so this signs a
-   * *different* payload with the old secret.
-   */
   const stalePayload = {
     endpointId: whId,
     event: 'order.created',
@@ -1210,9 +1202,49 @@ const main = async (): Promise<void> => {
     JSON.stringify(bad.body?.result),
   );
 
+  const unsigned = await request(app)
+    .post('/api/v1/webhooks/razorpay')
+    .send({ endpointId: whId, event: 'payment.settled', payload: { ok: true } });
+  record(
+    'an unsigned delivery is logged but not processed',
+    unsigned.status === 200 && unsigned.body?.result?.isProcessed === false,
+    JSON.stringify(unsigned.body?.result),
+  );
+
+  const crossedPayload = {
+    endpointId: whId,
+    event: 'shipping.updated',
+    eventId: `cross-${run}`,
+    payload: { crossed: true },
+  };
+  const crossedSig = crypto
+    .createHmac('sha256', rotated)
+    .update(JSON.stringify(crossedPayload))
+    .digest('hex');
+
+  const crossed = await request(app)
+    .post('/api/v1/webhooks/shipping')
+    .set('x-webhook-signature', crossedSig)
+    .send(crossedPayload);
+  record(
+    'the shipping receiver does not accept a razorpay-route signature either',
+    crossed.status === 200 && crossed.body?.result?.isProcessed === false,
+    JSON.stringify(crossed.body?.result),
+  );
+
+  const unknownProvider = await request(app)
+    .post('/api/v1/webhooks/payment-gateway/notaprovider')
+    .set('x-signature', endpointSig)
+    .send({ endpointId: whId, event: 'ping' });
+  record(
+    'an unknown provider -> 400',
+    unknownProvider.status === 400,
+    `status=${unknownProvider.status} msg=${unknownProvider.body?.message}`,
+  );
+
   const logs = await admin.get('/api/v1/webhooks/getLogs');
-  record('GET /content/webhooks/logs -> 200', logs.status === 200, `status=${logs.status}`);
-  envelope(logs, 'GET /content/webhooks/logs');
+  record('GET /webhooks/getLogs -> 200', logs.status === 200, `status=${logs.status}`);
+  envelope(logs, 'GET /webhooks/getLogs');
   record(
     'every delivery is logged',
     D_arr(logs.body?.result?.itemList).length >= 4,
@@ -1222,7 +1254,8 @@ const main = async (): Promise<void> => {
   const processedOnly = await admin.get('/api/v1/webhooks/getLogs?isProcessed=false');
   record(
     'the log filters on isProcessed',
-    D_arr(processedOnly.body?.result?.itemList).every((l: any) => l?.isProcessed === false),
+    D_arr(processedOnly.body?.result?.itemList).every((l: any) => l?.isProcessed === false) &&
+      D_arr(processedOnly.body?.result?.itemList).length > 0,
     `count=${D_arr(processedOnly.body?.result?.itemList).length}`,
   );
 
@@ -1233,21 +1266,15 @@ const main = async (): Promise<void> => {
     `status=${noEndpoint.status}`,
   );
 
-  const delWh = await admin.del(`/api/v1/webhooks/${whId}/delete`);
-  record(
-    'DELETE /content/webhooks/:id/delete -> 200',
-    delWh.status === 200,
-    `status=${delWh.status}`,
-  );
+  const delWh = await admin.del(`/api/v1/webhooks/delete/${whId}`);
+  record('DELETE /webhooks/delete/:id -> 200', delWh.status === 200, `status=${delWh.status}`);
 
-  const delWhAgain = await admin.del(`/api/v1/webhooks/${whId}/delete`);
+  const delWhAgain = await admin.del(`/api/v1/webhooks/delete/${whId}`);
   record(
     'deleting a webhook twice -> 404',
     delWhAgain.status === 404,
     `status=${delWhAgain.status}`,
   );
-
-  // ── Bulk import ────────────────────────────────────────────────────────────
 
   const imp = await api(vendor.token).post('/api/v1/bulk/importProducts', {
     rows: [
@@ -1304,10 +1331,6 @@ const main = async (): Promise<void> => {
   const missingJob = await api(vendor.token).get('/api/v1/bulk/getJobStatus/bulk_does_not_exist');
   record('an unknown job id -> 404', missingJob.status === 404, `status=${missingJob.status}`);
 
-  /**
-   * A row pointing at a category that does not exist fails inside the service, after the zod
-   * layer has already accepted the shape.
-   */
   const badRow = await api(vendor.token).post('/api/v1/bulk/importProducts', {
     rows: [
       { name: `Partial A ${run}`, price: 10, stock: 1, sku: `PRTA${run}` },
@@ -1358,8 +1381,6 @@ const main = async (): Promise<void> => {
         .then((r) => D_arr(r.body?.result?.itemList).length),
     ) === 0,
   );
-
-  // ── Reports ────────────────────────────────────────────────────────────────
 
   const sales = await admin.get('/api/v1/reports/sales');
   record(
@@ -1423,8 +1444,19 @@ const main = async (): Promise<void> => {
     JSON.stringify(taxR.body?.result?.summary),
   );
 
-  const badReport = await admin.get('/api/v1/reports/not_a_report');
-  record('an unknown report type -> 400', badReport.status === 400, `status=${badReport.status}`);
+  const badReport = await admin.get('/api/v1/reports/export/not_a_report');
+  record(
+    'an unknown export type -> 400',
+    badReport.status === 400,
+    `status=${badReport.status} msg=${badReport.body?.message}`,
+  );
+
+  const noSuchReport = await admin.get('/api/v1/reports/not_a_report');
+  record(
+    'an unknown report name -> 404',
+    noSuchReport.status === 404,
+    `status=${noSuchReport.status}`,
+  );
 
   const custReport = await cu.get('/api/v1/reports/sales');
   record(
@@ -1442,8 +1474,6 @@ const main = async (): Promise<void> => {
     ranged.status === 200 && D_num(ranged.body?.result?.totalRecord) === 0,
     `status=${ranged.status} total=${D_num(ranged.body?.result?.totalRecord)}`,
   );
-
-  // ── Report schedules ───────────────────────────────────────────────────────
 
   const sched = await admin.post('/api/v1/reports/schedule', {
     name: `Weekly sales ${run}`,
@@ -1513,11 +1543,9 @@ const main = async (): Promise<void> => {
     `status=${updSched.status}`,
   );
 
-  const delSched = await admin.del(
-    `/content/reports/schedules/${schedId}/delete`.replace('/content', '/api/v1/content'),
-  );
+  const delSched = await admin.del(`/api/v1/reports/schedule/${schedId}/delete`);
   record(
-    'DELETE /content/reports/schedules/:id/delete -> 200',
+    'DELETE /reports/schedule/:id/delete -> 200',
     delSched.status === 200,
     `status=${delSched.status}`,
   );
@@ -1528,8 +1556,6 @@ const main = async (): Promise<void> => {
     delSchedAgain.status === 404,
     `status=${delSchedAgain.status}`,
   );
-
-  // ── Cleanup ────────────────────────────────────────────────────────────────
 
   await prisma.product.deleteMany({
     where: {
@@ -1554,13 +1580,14 @@ const main = async (): Promise<void> => {
   await prisma.taxConfig.deleteMany({ where: { name: { contains: run } } });
   await prisma.currency.deleteMany({ where: { code: 'EUR' } });
   await prisma.newsletterSubscriber.deleteMany({ where: { email: subEmail } });
-  await prisma.contactSubmission.deleteMany({ where: { email: { contains: '_ct_' } } });
+  await prisma.contactSubmission.deleteMany({ where: { email: { contains: run } } });
   await prisma.banner.deleteMany({ where: { title: { contains: run } } });
   await prisma.faq.deleteMany({ where: { question: { contains: run } } });
   await prisma.blog.deleteMany({ where: { title: { contains: run } } });
   await prisma.page.deleteMany({ where: { title: { contains: run } } });
   await prisma.reportSchedule.deleteMany({ where: { name: { contains: run } } });
-  await prisma.user.deleteMany({ where: { email: { contains: 'ct_' } } });
+
+  await prisma.user.deleteMany({ where: { email: { contains: run } } });
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

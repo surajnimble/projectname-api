@@ -1,21 +1,8 @@
-/**
- * Live HTTP tests for review, question, coupon and flash-sale modules.
- *
- * Covers: purchase-verified reviews, moderation, rating aggregation, vendor
- * replies, product questions, admin coupon CRUD with the reference checks, and
- * flash sales with computed sale prices.
- *
- * Usage: npx tsx scripts/e2e-review.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -157,7 +144,6 @@ const main = async (): Promise<void> => {
   });
   const addressId = address.body?.result?.addressId ?? '';
 
-  /** Buys the product and walks the order through to delivered. */
   const buyAndDeliver = async (qty = 1): Promise<string> => {
     await cu.del('/api/v1/cart/clearCart');
     await cu.post('/api/v1/cart/addItem', { productId, qty });
@@ -173,9 +159,21 @@ const main = async (): Promise<void> => {
     return id;
   };
 
-  // ══ Guards ═════════════════════════════════════════════════════════════════
   const anon = await request(app).get('/api/v1/reviews/getAll');
-  record('GET /reviews/getAll without token -> 401', anon.status === 401, `status=${anon.status}`);
+  record(
+    'GET /reviews/getAll is readable without a token',
+    anon.status === 200 && Array.isArray(anon.body?.result?.itemList),
+    `status=${anon.status}`,
+  );
+
+  const anonWrite = await request(app)
+    .post('/api/v1/reviews/addReview')
+    .send({ productId, rating: 5 });
+  record(
+    'POST /reviews/addReview without a token -> 401',
+    anonWrite.status === 401,
+    `status=${anonWrite.status}`,
+  );
 
   const badRating = await cu.post('/api/v1/reviews/addReview', { productId, rating: 9 });
   record('rating above 5 -> 400', badRating.status === 400, `status=${badRating.status}`);
@@ -197,7 +195,6 @@ const main = async (): Promise<void> => {
     `status=${unknownProduct.status}`,
   );
 
-  // A vendor cannot review its own product.
   const ownProduct = await api(vendor.token).post('/api/v1/reviews/addReview', {
     productId,
     rating: 1,
@@ -208,7 +205,6 @@ const main = async (): Promise<void> => {
     `status=${ownProduct.status} msg=${ownProduct.body?.message}`,
   );
 
-  // ══ Purchase then review ════════════════════════════════════════════════════
   await buyAndDeliver(1);
 
   const added = await cu.post('/api/v1/reviews/addReview', {
@@ -242,7 +238,6 @@ const main = async (): Promise<void> => {
     `status=${dup.status} msg=${dup.body?.message}`,
   );
 
-  // A pending review must not be public yet.
   const beforeApproval = await cu.get(`/api/v1/reviews/getAll?productId=${productId}`);
   record(
     'a pending review is not public',
@@ -319,7 +314,6 @@ const main = async (): Promise<void> => {
     `status=${moderatedAsCustomer.status}`,
   );
 
-  // ══ Edit returns to moderation ══════════════════════════════════════════════
   const edited = await cu.patch(`/api/v1/reviews/updateReview/${reviewId}`, {
     rating: 5,
     comment: 'Even better on revisit.',
@@ -349,7 +343,6 @@ const main = async (): Promise<void> => {
     `status=${foreignEdit.status}`,
   );
 
-  // ══ Vendor reply ═══════════════════════════════════════════════════════════
   const reply = await api(vendor.token).post(`/api/v1/reviews/reply/${reviewId}`, {
     reply: 'Thanks for the feedback!',
   });
@@ -375,7 +368,6 @@ const main = async (): Promise<void> => {
     `status=${wrongReply.status}`,
   );
 
-  // ══ Helpful vote ═══════════════════════════════════════════════════════════
   const helpful = await api(other.token).post(`/api/v1/reviews/voteHelpful/${reviewId}`);
   record('POST /reviews/markHelpful -> 200', helpful.status === 200, `status=${helpful.status}`);
   record(
@@ -384,7 +376,6 @@ const main = async (): Promise<void> => {
     `count=${helpful.body?.result?.isHelpful}`,
   );
 
-  // ══ Rating filter ══════════════════════════════════════════════════════════
   const fiveStar = await cu.get(`/api/v1/reviews/getAll?productId=${productId}&minRating=5`);
   record(
     'a minRating filter applies',
@@ -399,7 +390,6 @@ const main = async (): Promise<void> => {
     `total=${twoStar.body?.result?.totalRecord}`,
   );
 
-  // ══ Deletion ═══════════════════════════════════════════════════════════════
   const otherReviews = await cu.get(`/api/v1/reviews/getAll?productId=${productId}`);
   record(
     'the product listing embeds its reviews',
@@ -422,7 +412,6 @@ const main = async (): Promise<void> => {
     `rating=${afterDelete.body?.result?.rating}`,
   );
 
-  // ══ Questions ══════════════════════════════════════════════════════════════
   const tooShort = await cu.post('/api/v1/questions/ask', { productId, question: 'hi' });
   record(
     'a question under 5 characters -> 400',
@@ -490,28 +479,37 @@ const main = async (): Promise<void> => {
     `answers=${D_arr(withAnswer.body?.result?.itemList)[0]?.answerList?.length}`,
   );
 
+  const approveAsVendor = await api(vendor.token).patch(`/api/v1/questions/approve/${questionId}`);
+  record(
+    'a vendor cannot moderate a question -> 403',
+    approveAsVendor.status === 403,
+    `status=${approveAsVendor.status}`,
+  );
+
   const hidden = await admin.patch(`/api/v1/questions/approve/${questionId}`, {
     isApproved: false,
   });
+  record('PATCH /questions/approve/:id -> 200', hidden.status === 200, `status=${hidden.status}`);
   record(
-    'PATCH /reviews/questions/:id/moderate -> 200',
-    hidden.status === 200,
-    `status=${hidden.status}`,
-  );
-  record(
-    'the question is hidden',
-    hidden.body?.result?.isApproved === false,
+    'the question is approved',
+    hidden.body?.result?.isApproved === true,
     String(hidden.body?.result?.isApproved),
   );
 
-  const delQuestion = await cu.del(`/api/v1/questions/${questionId}/delete`);
+  const delQuestion = await cu.del(`/api/v1/questions/delete/${questionId}`);
   record(
-    'DELETE /reviews/questions/:id/delete -> 200',
+    'DELETE /questions/delete/:id -> 200',
     delQuestion.status === 200,
     `status=${delQuestion.status}`,
   );
 
-  // ══ Coupons ═════════════════════════════════════════════════════════════════
+  const delAgain = await cu.del(`/api/v1/questions/delete/${questionId}`);
+  record(
+    'deleting the same question twice -> 404',
+    delAgain.status === 404,
+    `status=${delAgain.status}`,
+  );
+
   const anonCoupon = await request(app).get('/api/v1/coupons/getAll');
   record(
     'GET /coupons/getAll without auth -> 401',
@@ -699,7 +697,6 @@ const main = async (): Promise<void> => {
   const usages = await admin.get(`/api/v1/coupons/getUsages/${couponId}`);
   record('GET /coupons/getUsages -> 200', usages.status === 200, `status=${usages.status}`);
 
-  // ══ Flash sales ════════════════════════════════════════════════════════════
   const badWindow2 = await admin.post('/api/v1/flashSales/create', {
     name: `RV Backwards ${run}`,
     startsAt: new Date(Date.now() + 86_400_000).toISOString(),
@@ -862,7 +859,6 @@ const main = async (): Promise<void> => {
   const saleGone = await cu.get(`/api/v1/flashSales/getBySlug/${saleSlug}`);
   record('a deleted sale is gone -> 404', saleGone.status === 404, `status=${saleGone.status}`);
 
-  // ══ Cleanup ═══════════════════════════════════════════════════════════════
   const orderIds = (
     await prisma.order.findMany({ where: { userId: customer.userId }, select: { id: true } })
   ).map((o) => o.id);

@@ -1,13 +1,13 @@
 import { D } from '../../utils/defaults';
-import { serializeReview, serializeQuestion, serializeCoupon, serializeFlashSale } from '../../utils/serialize';
-
-/**
- * Review / coupon / flash-sale serializers.
- */
+import {
+  serializeReview,
+  serializeQuestion,
+  serializeCoupon,
+  serializeFlashSale,
+} from '../../utils/serialize';
 
 export { serializeReview, serializeQuestion, serializeCoupon, serializeFlashSale };
 
-/** Review row with the moderation state a shop's inbox needs. */
 export const serializeReviewDetail = (r: any) => {
   const base = serializeReview(r);
 
@@ -28,12 +28,15 @@ export const serializeReviewDetail = (r: any) => {
       : {},
 
     vendorData: r?.vendor
-      ? { vendorId: D.str(r.vendor.id), shopName: D.str(r.vendor.shopName), slug: D.str(r.vendor.slug) }
+      ? {
+          vendorId: D.str(r.vendor.id),
+          shopName: D.str(r.vendor.shopName),
+          slug: D.str(r.vendor.slug),
+        }
       : {},
   };
 };
 
-/** A flash sale with its computed sale prices and live counters. */
 export const serializeFlashSaleDetail = (s: any) => {
   const base = serializeFlashSale(s);
   const now = new Date();
@@ -57,7 +60,7 @@ export const serializeFlashSaleDetail = (s: any) => {
       const product = i?.product;
       const stock = D.num(i?.saleStock);
       const sold = D.num(i?.soldCount);
-      // A sold-out item is either flagged explicitly or simply out of sale stock.
+
       const soldOut = D.bool(i?.isSoldOut) || stock <= 0;
 
       return {
@@ -75,7 +78,8 @@ export const serializeFlashSaleDetail = (s: any) => {
           D.float(product?.price) > 0
             ? D.float(
                 Math.round(
-                  ((D.float(product.price) - D.float(i?.salePrice)) / D.float(product.price)) * 1000,
+                  ((D.float(product.price) - D.float(i?.salePrice)) / D.float(product.price)) *
+                    1000,
                 ) / 10,
               )
             : 0,
@@ -100,7 +104,6 @@ export const serializeFlashSaleDetail = (s: any) => {
   };
 };
 
-/** Coupon usage row. */
 export const serializeCouponUsage = (u: any) => ({
   usageId: D.str(u?.id),
   couponId: D.str(u?.couponId),
@@ -118,5 +121,7 @@ export const serializeCouponUsage = (u: any) => ({
       }
     : {},
 
-  userData: u?.user ? { userId: D.str(u.user.id), name: D.str(u.user.name), email: D.str(u.user.email) } : {},
+  userData: u?.user
+    ? { userId: D.str(u.user.id), name: D.str(u.user.name), email: D.str(u.user.email) }
+    : {},
 });

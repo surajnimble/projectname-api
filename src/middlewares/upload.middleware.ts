@@ -36,16 +36,16 @@ const storage = multer.diskStorage({
 const fileFilter = (allowedMime: string[]) => (_req: any, file: any, cb: any) => {
   if (!allowedMime.includes(file.mimetype)) {
     return cb(
-      new AppError(ERROR.UPLOAD.UNSUPPORTED_TYPE, HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE, ERROR_CODE.UNSUPPORTED_TYPE),
+      new AppError(
+        ERROR.UPLOAD.UNSUPPORTED_TYPE,
+        HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE,
+        ERROR_CODE.UNSUPPORTED_TYPE,
+      ),
     );
   }
   return cb(null, true);
 };
 
-/**
- * Multipart handler with MIME + size + count validation.
- * Binary payloads are never run through the encryption middleware.
- */
 export const uploadFiles = (kind: UploadKind, field = 'files'): RequestHandler => {
   const limits = getUploadLimits(kind);
   return multer({
@@ -59,7 +59,6 @@ export const uploadFiles = (kind: UploadKind, field = 'files'): RequestHandler =
   }).array(field, limits.MAX_COUNT);
 };
 
-/** Single-file variant — rejects immediately when no file is present. */
 export const uploadSingle = (kind: UploadKind, field = 'file'): RequestHandler => {
   const limits = getUploadLimits(kind);
   return multer({
@@ -73,7 +72,6 @@ export const uploadSingle = (kind: UploadKind, field = 'file'): RequestHandler =
   }).single(field);
 };
 
-/** In-memory variant for small payloads (CSV/Excel parsing). */
 export const uploadMemory = (kind: UploadKind, field = 'file'): RequestHandler => {
   const limits = getUploadLimits(kind);
   return multer({
@@ -109,7 +107,11 @@ export const getUploadedFiles = (req: any): Express.Multer.File[] => {
 export const ensureFilePresent = (req: any): Express.Multer.File => {
   const files = getUploadedFiles(req);
   if (!files.length || !files[0]) {
-    throw new AppError(ERROR.UPLOAD.FILE_REQUIRED, HTTP_STATUS.BAD_REQUEST, ERROR_CODE.FILE_REQUIRED);
+    throw new AppError(
+      ERROR.UPLOAD.FILE_REQUIRED,
+      HTTP_STATUS.BAD_REQUEST,
+      ERROR_CODE.FILE_REQUIRED,
+    );
   }
   return files[0];
 };

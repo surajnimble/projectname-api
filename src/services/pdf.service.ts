@@ -30,7 +30,10 @@ const drawHeader = (doc: PDFKit.PDFDocument, meta: DocMeta): number => {
   doc
     .fontSize(PDF.HEADER_SIZE)
     .font('Helvetica-Bold')
-    .text(meta.title, left, PDF.MARGIN + PDF.TITLE_SIZE + 6, { width: contentWidth, align: 'right' });
+    .text(meta.title, left, PDF.MARGIN + PDF.TITLE_SIZE + 6, {
+      width: contentWidth,
+      align: 'right',
+    });
 
   let y = PDF.MARGIN + PDF.TITLE_SIZE + PDF.HEADER_SIZE + 14;
 
@@ -45,7 +48,9 @@ const drawHeader = (doc: PDFKit.PDFDocument, meta: DocMeta): number => {
     if (meta.from) {
       doc.font('Helvetica-Bold').fillColor(PDF.HEADER_COLOR).text(meta.from.label, left, y);
       doc.font('Helvetica').fillColor(PDF.TEXT_COLOR);
-      meta.from.lines.forEach((line, i) => doc.text(D.str(line), left, y + PDF.LINE_GAP * 3 * (i + 1)));
+      meta.from.lines.forEach((line, i) =>
+        doc.text(D.str(line), left, y + PDF.LINE_GAP * 3 * (i + 1)),
+      );
     }
     if (meta.to) {
       doc
@@ -60,7 +65,11 @@ const drawHeader = (doc: PDFKit.PDFDocument, meta: DocMeta): number => {
     y += PDF.LINE_GAP * 3 * Math.max(meta.from?.lines.length ?? 0, meta.to?.lines.length ?? 0) + 16;
   }
 
-  doc.moveTo(left, y).lineTo(left + contentWidth, y).strokeColor(PDF.LINE_COLOR).stroke();
+  doc
+    .moveTo(left, y)
+    .lineTo(left + contentWidth, y)
+    .strokeColor(PDF.LINE_COLOR)
+    .stroke();
   return y + 14;
 };
 
@@ -122,7 +131,11 @@ const drawTable = (
   return y + 12;
 };
 
-const drawTotals = (doc: PDFKit.PDFDocument, y: number, lines: { label: string; value: string; bold?: boolean }[]): number => {
+const drawTotals = (
+  doc: PDFKit.PDFDocument,
+  y: number,
+  lines: { label: string; value: string; bold?: boolean }[],
+): number => {
   const left = PDF.MARGIN;
   const boxWidth = 220;
   const boxLeft = doc.page.width - PDF.MARGIN - boxWidth;
@@ -183,9 +196,7 @@ const streamToBuffer = (doc: PDFKit.PDFDocument): Promise<Buffer> =>
 
 const symbol = (): string => currencySymbol();
 
-export const generateInvoicePdf = async (
-  order: Record<string, any>,
-): Promise<Buffer> => {
+export const generateInvoicePdf = async (order: Record<string, any>): Promise<Buffer> => {
   DAYJS_SETUP();
   const doc = baseDoc();
 
@@ -196,7 +207,10 @@ export const generateInvoicePdf = async (
     date: formatDate(order.createdAt),
     from: {
       label: 'Sold by',
-      lines: [D.str(order.vendor?.shopName || APP.NAME), D.str(order.vendor?.slug ? `/${order.vendor.slug}` : '')],
+      lines: [
+        D.str(order.vendor?.shopName || APP.NAME),
+        D.str(order.vendor?.slug ? `/${order.vendor.slug}` : ''),
+      ],
     },
     to: {
       label: 'Ship to',
@@ -243,9 +257,7 @@ export const generateInvoicePdf = async (
   return streamToBuffer(doc);
 };
 
-export const generatePackingSlipPdf = async (
-  subOrder: Record<string, any>,
-): Promise<Buffer> => {
+export const generatePackingSlipPdf = async (subOrder: Record<string, any>): Promise<Buffer> => {
   DAYJS_SETUP();
   const doc = baseDoc();
 
@@ -375,15 +387,16 @@ export const generateShippingLabelPdf = async (shipment: Record<string, any>): P
   return streamToBuffer(doc);
 };
 
-export const generatePdf = async (
-  type: PdfDocType,
-  payload: any,
-): Promise<Buffer> => {
+export const generatePdf = async (type: PdfDocType, payload: any): Promise<Buffer> => {
   switch (type) {
     case 'PACKING_SLIP':
       return generatePackingSlipPdf(payload);
     case 'PAYOUT_STATEMENT':
-      return generatePayoutStatementPdf(payload.vendor, payload.rows ?? [], payload.totals ?? { gross: 0, commission: 0, net: 0 });
+      return generatePayoutStatementPdf(
+        payload.vendor,
+        payload.rows ?? [],
+        payload.totals ?? { gross: 0, commission: 0, net: 0 },
+      );
     case 'SHIPPING_LABEL':
       return generateShippingLabelPdf(payload);
     case 'INVOICE':

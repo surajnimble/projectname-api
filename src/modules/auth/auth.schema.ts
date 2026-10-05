@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ERROR } from '../../messages/error';
 import {
   REGISTER_TYPE,
   OTP_TYPE,
@@ -48,28 +49,8 @@ const deviceData = z
   .strict()
   .optional();
 
-/**
- * Proof that the caller controls the contact being registered. Required: without
- * it anyone can register an account for an address they do not own.
- */
-/**
- * Proof that the caller controls the contact being registered.
- *
- * Optional at the schema level and enforced in the service, because whether it
- * is required depends on OTP_REQUIRED. Making it conditionally required here
- * would change the request contract the moment that flag is toggled.
- */
 const registerOtp = z.string().trim().length(OTP.LENGTH, VALIDATION.INVALID_OTP_FORMAT).optional();
 
-/**
- * `/auth/register` discriminated union on `type`.
- * CUSTOMER requires only identity fields; VENDOR additionally requires shop details.
- *
- * An unknown `type` is reported as "Invalid register type." rather than Zod's
- * generic enum error, so the caller can map it to INVALID_REGISTER_TYPE. The
- * fallback branch accepts any object solely so the custom issue is reachable —
- * a valid `type` always matches one of the two real branches first.
- */
 const registerUnion = z.discriminatedUnion('type', [
   z
     .object({
@@ -120,15 +101,6 @@ const registerUnion = z.discriminatedUnion('type', [
 
 const REGISTER_TYPES = [REGISTER_TYPE.CUSTOMER, REGISTER_TYPE.VENDOR] as const;
 
-/**
- * Surfaces the discriminated union's real issues instead of a catch-all.
- *
- * A bad `type` still gets the friendly message, because that is the one error a
- * caller is most likely to hit and the least likely to understand. Everything
- * else is passed through verbatim — a catch-all branch here would report a
- * missing `otp` as "Invalid register type." and send the caller to the wrong
- * field.
- */
 export const registerSchema = z.any().superRefine((value, ctx) => {
   const result = registerUnion.safeParse(value);
 
@@ -141,15 +113,11 @@ export const registerSchema = z.any().superRefine((value, ctx) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['type'],
-      message: 'Invalid register type.',
+      message: ERROR.AUTH.INVALID_REGISTER_TYPE,
     });
     return;
   }
 
-  /**
-   * The union's own issues, verbatim — a missing `otp` or an unknown key has to name itself, not
-   * arrive as a generic type error.
-   */
   for (const issue of result.error.errors) {
     ctx.addIssue(issue as z.ZodIssue);
   }
@@ -181,7 +149,7 @@ export const refreshTokenSchema = z
 export const sendOtpSchema = z
   .object({
     type: z.nativeEnum(OTP_TYPE, {
-      errorMap: () => ({ message: 'Invalid OTP type.' }),
+      errorMap: () => ({ message: ERROR.AUTH.INVALID_OTP_TYPE }),
     }),
     channel: z.nativeEnum(OTP_CHANNEL).default(OTP_CHANNEL.BOTH),
     identifier: z.string().trim().min(3, VALIDATION.IDENTIFIER_REQUIRED),
@@ -194,7 +162,7 @@ export const verifyOtpSchema = z
     identifier: z.string().trim().min(3, VALIDATION.IDENTIFIER_REQUIRED),
     otp: z.string().trim().length(OTP.LENGTH, VALIDATION.INVALID_OTP_FORMAT),
     channel: z.nativeEnum(OTP_CHANNEL).optional(),
-    /** Two-factor login completes the session when true. */
+
     isLoginFlow: z.boolean().optional().default(false),
     deviceData,
   })
@@ -223,11 +191,7 @@ export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, VALIDATION.REQUIRED('currentPassword')),
     newPassword: password,
-    /**
-     * Second factor for the change, required only while OTP_REQUIRED is on and
-     * the account has a verified contact. Optional in the schema so toggling
-     * the flag never changes the request contract; enforced in the service.
-     */
+
     otp: z.string().trim().length(OTP.LENGTH, VALIDATION.INVALID_OTP_FORMAT).optional(),
     logoutOtherDevices: z.boolean().optional().default(true),
   })
@@ -252,7 +216,7 @@ export const twoFactorSchema = z
 export const socialLoginSchema = z
   .object({
     provider: z.nativeEnum(SOCIAL_PROVIDER, {
-      errorMap: () => ({ message: 'Social provider not supported.' }),
+      errorMap: () => ({ message: ERROR.AUTH.SOCIAL_PROVIDER_INVALID }),
     }),
     idToken: z.string().trim().min(10, VALIDATION.REQUIRED('idToken')),
     accessToken: z.string().trim().max(4000).optional(),
@@ -282,7 +246,7 @@ export const checkAvailabilitySchema = z
   })
   .strict()
   .refine((v) => v.email || v.phone, {
-    message: 'Provide email or phone to check.',
+    message: ERROR.AUTH.AVAILABILITY_IDENTIFIER_REQUIRED,
   });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

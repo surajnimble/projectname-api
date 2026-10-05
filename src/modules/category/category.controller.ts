@@ -1,4 +1,3 @@
-import { Request, Response } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -23,14 +22,10 @@ export const guards = {
   ],
 };
 
-// ══ Public ═══════════════════════════════════════════════════════════════════
-
-/** GET /categories/getAll */
 export const getAll = asyncHandler(async (req, res) => {
   const { rows, total, tree } = await service.listCategories(req.query);
   const { page, limit } = getPagination(req.query);
 
-  // The tree response carries no pagination numbers: there are no pages.
   if (tree) {
     return ApiResponse.success(res, {
       message: SUCCESS.CATEGORY.FETCHED,
@@ -54,7 +49,20 @@ export const getAll = asyncHandler(async (req, res) => {
   });
 });
 
-/** GET /categories/getById/:id */
+/**
+ * @openapi
+ * /categories/getById/{id}:
+ *   get:
+ *     tags: [Categories]
+ *     summary: Single category with its immediate children and product count
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 40 }, example: clx0000000000000000000000 }
+ *     responses:
+ *       200: { description: Category found }
+ *       401: { description: Not signed in }
+ *       404: { description: No such category }
+ */
 export const getById = asyncHandler(async (req, res) => {
   const category = await service.getCategoryById(req.params.id);
   return ApiResponse.success(res, {
@@ -63,15 +71,19 @@ export const getById = asyncHandler(async (req, res) => {
   });
 });
 
-// ══ Admin ════════════════════════════════════════════════════════════════════
+export const getBySlug = asyncHandler(async (req, res) => {
+  const category = await service.getCategoryBySlug(req.params.slug);
+  return ApiResponse.success(res, {
+    message: SUCCESS.COMMON.FETCHED,
+    result: serializeCategory(category),
+  });
+});
 
-/** POST /categories/createCategory */
 export const createCategory = asyncHandler(async (req, res) => {
   const category = await service.createCategory(req.body, req);
   return ApiResponse.created(res, SUCCESS.CATEGORY.CREATED, serializeCategory(category));
 });
 
-/** PATCH /categories/updateCategory/:id */
 export const updateCategory = asyncHandler(async (req, res) => {
   const category = await service.updateCategory(req.params.id, req.body, req);
   return ApiResponse.success(res, {
@@ -80,7 +92,22 @@ export const updateCategory = asyncHandler(async (req, res) => {
   });
 });
 
-/** DELETE /categories/deleteCategory/:id — soft delete, refused when in use. */
+/**
+ * @openapi
+ * /categories/deleteCategory/{id}:
+ *   delete:
+ *     tags: [Categories]
+ *     summary: Soft delete a category, refused while products still reference it
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 40 }, example: clx0000000000000000000000 }
+ *     responses:
+ *       200: { description: Deleted, and whether it was a soft delete }
+ *       401: { description: Not signed in }
+ *       403: { description: Admin only }
+ *       404: { description: No such category }
+ *       409: { description: Products still reference this category }
+ */
 export const deleteCategory = asyncHandler(async (req, res) => {
   const result = await service.deleteCategory(req.params.id, req);
   return ApiResponse.success(res, {
@@ -94,7 +121,6 @@ export const deleteCategory = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /categories/reorder — ids in the desired order. */
 export const reorder = asyncHandler(async (req, res) => {
   const count = await service.reorderCategories(
     req.body.categoryIds,
@@ -108,7 +134,6 @@ export const reorder = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /categories/bulkCreate — per-row errors are reported, not thrown. */
 export const bulkCreate = asyncHandler(async (req, res) => {
   const result = await service.bulkCreate(req.body, req);
   return ApiResponse.created(res, SUCCESS.CATEGORY.CREATED, serializeBulkResult(result));

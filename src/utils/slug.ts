@@ -16,10 +16,6 @@ export const toSlug = (value: string): string =>
     replacement: SLUG.SEPARATOR,
   }).slice(0, SLUG.MAX_LENGTH);
 
-/**
- * Produces a unique slug by appending `-2`, `-3`, ... when the base is taken.
- * `exists` receives a candidate slug and must resolve to a boolean.
- */
 export const uniqueSlug = async (
   value: string,
   exists: (slug: string) => Promise<boolean>,
@@ -132,4 +128,7 @@ export const generateTicketNumber = (): string =>
 export const generateAwb = (): string => `AWB${nanoid(14).toUpperCase()}`;
 
 export const generateCode = (length = 10): string =>
-  nanoid(length).toUpperCase().replace(/[^A-Z0-9]/g, '').padEnd(length, 'X');
+  nanoid(length)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .padEnd(length, 'X');

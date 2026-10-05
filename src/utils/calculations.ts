@@ -10,14 +10,6 @@ export interface TokenConfig {
   applicableAbove: number;
 }
 
-/**
- * Token / advance amount formula (spec §7.14).
- *
- *  1. Order total below `applicableAbove`  -> token not required (0)
- *  2. raw = percent% of total, or the fixed amount
- *  3. clamp between minAmount and maxAmount
- *  4. never exceed the order total
- */
 export const calcTokenAmount = (orderTotal: number, cfg: TokenConfig): number => {
   const total = money(orderTotal);
   if (!cfg.enabled) return 0;
@@ -45,11 +37,6 @@ export interface CommissionBreakdown {
   total: number;
 }
 
-/**
- * Vendor earnings split.
- *   earnings = subtotal − commission − platformFee
- * Commission is a percentage of the subtotal; platform fee is a flat amount.
- */
 export const calcCommission = (input: {
   subtotal: number;
   commissionRate: number;
@@ -64,7 +51,6 @@ export const calcCommission = (input: {
   let taxAmount = 0;
 
   if (input.taxInclusive) {
-    // tax already inside the price — extract it from the gross
     const taxPercent = clamp(Number(input.taxPercent) || 0, 0, 100);
     taxAmount = money((subtotal * taxPercent) / (100 + taxPercent));
     base = money(subtotal - taxAmount);
@@ -87,7 +73,6 @@ export const calcCommission = (input: {
   };
 };
 
-/** Applies a coupon to a cart/order subtotal. */
 export const calcCouponDiscount = (input: {
   subtotal: number;
   type: 'FLAT' | 'PERCENT' | 'FREE_SHIPPING' | 'FIRST_ORDER';
@@ -102,7 +87,9 @@ export const calcCouponDiscount = (input: {
   }
 
   let discount =
-    input.type === 'PERCENT' ? money((subtotal * (Number(input.value) || 0)) / 100) : money(input.value);
+    input.type === 'PERCENT'
+      ? money((subtotal * (Number(input.value) || 0)) / 100)
+      : money(input.value);
 
   const caps = [input.maxDiscount, input.globalMaxDiscount].filter((c) => Number(c) > 0);
   if (caps.length) discount = money(Math.min(discount, ...caps));
@@ -146,7 +133,8 @@ export const calcCartTotals = (input: {
   const freeAbove = money(input.freeShippingAbove ?? 0);
 
   let shippingAmount = money(input.shippingCharge ?? 0);
-  if (input.freeShippingAbove !== undefined && freeAbove > 0 && gross >= freeAbove) shippingAmount = 0;
+  if (input.freeShippingAbove !== undefined && freeAbove > 0 && gross >= freeAbove)
+    shippingAmount = 0;
 
   let walletAmount = money(input.walletAmount ?? 0);
   if (walletAmount > gross) walletAmount = gross;
@@ -166,7 +154,6 @@ export const calcCartTotals = (input: {
   };
 };
 
-/** Shipping charge with optional free-shipping threshold and per-kg component. */
 export const calcShippingCharge = (input: {
   orderValue: number;
   defaultCharge: number;
@@ -185,7 +172,6 @@ export const calcShippingCharge = (input: {
   return { charge: isFree ? 0 : charge, isFree, weightKg };
 };
 
-/** Loyalty points earned for an order value. */
 export const calcLoyaltyPoints = (orderValue: number, pointsPerRupee: number): number =>
   Math.max(0, Math.floor(money(orderValue) * (Number(pointsPerRupee) || 0)));
 

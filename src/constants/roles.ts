@@ -12,8 +12,7 @@ export const ROLE_VALUES = Object.values(ROLES) as Role[];
 
 export const ADMIN_ROLES: Role[] = [ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN];
 
-export const isAdminRole = (role: string): boolean =>
-  ADMIN_ROLES.includes(role as Role);
+export const isAdminRole = (role: string): boolean => ADMIN_ROLES.includes(role as Role);
 
 export const REGISTER_TYPE = {
   CUSTOMER: 'CUSTOMER',

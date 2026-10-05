@@ -3,7 +3,7 @@ import { prisma } from '../../services/prisma.service';
 import { AppError } from '../../utils/AppError';
 import { D, money } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
-import { ERROR_CODE } from '../../constants/http';
+import { ERROR_CODE, HTTP_STATUS } from '../../constants/http';
 import { COUNTRIES } from '../../constants/countries';
 import { CURRENCY } from '../../config/currency.config';
 import { generateCode, uniquePageSlug, uniqueBlogSlug, uniqueBannerSlug } from '../../utils/slug';
@@ -15,21 +15,10 @@ import { writeAuditLog, writeActivityLog } from '../../services/audit.service';
 import { isFuture, isPast } from '../../utils/dates';
 import { startOfDay, endOfDay, subtractDays } from '../../utils/dates';
 
-/**
- * Content (pages, blog, faq, banners), contact and newsletter, geo/currency/tax
- * references, translations, dropdowns, webhooks, bulk jobs and reports.
- *
- * Content rows are soft-deleted rather than removed so an old inbound link keeps
- * resolving to a tombstone instead of a 404 that hides a real regression.
- */
-
-// ═══ Pages ═══════════════════════════════════════════════════════════════════
-
 export const listPages = async (
   query: Record<string, any>,
   isStaff = false,
 ): Promise<{ rows: any[]; total: number }> => {
-  // A public caller only ever sees published pages.
   const where: Prisma.PageWhereInput = {
     deletedAt: null,
     ...(isStaff ? {} : { isPublished: true }),
@@ -129,8 +118,6 @@ export const deletePage = async (pageId: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'Page', entityId: pageId });
 };
 
-// ═══ Blog ════════════════════════════════════════════════════════════════════
-
 export const listBlogs = async (
   query: Record<string, any>,
   isStaff = false,
@@ -144,7 +131,6 @@ export const listBlogs = async (
   if (D.str(query.isPublished) === 'false') where.isPublished = false;
   if (D.str(query.authorId)) where.authorId = D.str(query.authorId);
 
-  // Tags are a string array, so a containment filter matches the array itself.
   if (D.str(query.tag)) where.tags = { has: D.str(query.tag) };
 
   const [rows, total] = await Promise.all([
@@ -264,8 +250,6 @@ export const deleteBlog = async (blogId: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'Blog', entityId: blogId });
 };
 
-// ═══ FAQ ═════════════════════════════════════════════════════════════════════
-
 export const listFaqs = async (
   query: Record<string, any>,
   isStaff = false,
@@ -340,9 +324,6 @@ export const deleteFaq = async (faqId: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'Faq', entityId: faqId });
 };
 
-// ═══ Banners ═════════════════════════════════════════════════════════════════
-
-/** A banner is live only inside its window, so an expired one is filtered out. */
 const isBannerLive = (b: any): boolean => {
   if (!D.bool(b?.isActive)) return false;
   if (b?.startsAt && isFuture(b.startsAt)) return false;
@@ -360,7 +341,6 @@ export const listBanners = async (
   if (D.str(query.isActive) === 'true') where.isActive = true;
   if (D.str(query.isActive) === 'false') where.isActive = false;
 
-  // A public caller only sees banners inside their window.
   if (!isStaff) {
     where.isActive = true;
     where.AND = [
@@ -388,7 +368,7 @@ export const createBanner = async (input: Record<string, any>, req?: any): Promi
     D.str(input.endsAt) &&
     new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))
   ) {
-    throw AppError.unprocessable('Banner end time must be after start time.');
+    throw AppError.unprocessable(ERROR.BANNER.INVALID_WINDOW);
   }
 
   const slug = await uniqueBannerSlug(D.str(input.slug) || D.str(input.title));
@@ -447,7 +427,7 @@ export const updateBanner = async (
   const nextEnd = endsAt === undefined ? current?.endsAt : endsAt;
 
   if (nextStart && nextEnd && nextEnd <= nextStart) {
-    throw AppError.unprocessable('Banner end time must be after start time.');
+    throw AppError.unprocessable(ERROR.BANNER.INVALID_WINDOW);
   }
 
   const row = await prisma.banner.update({
@@ -483,8 +463,6 @@ export const deleteBanner = async (bannerId: string, req?: any): Promise<void> =
 
   void writeAuditLog({ req, action: 'DELETE', entity: 'Banner', entityId: bannerId });
 };
-
-// ═══ Contact / Newsletter ════════════════════════════════════════════════════
 
 export const submitContact = async (
   input: Record<string, any>,
@@ -549,10 +527,6 @@ export const markContactRead = async (id: string, isRead: boolean, req?: any): P
   return row;
 };
 
-/**
- * Subscribes an address. Re-subscribing after an unsubscribe reactivates the
- * same row rather than colliding on the unique email.
- */
 export const subscribe = async (email: string, req?: any): Promise<Record<string, any>> => {
   const address = D.str(email).toLowerCase();
 
@@ -560,7 +534,7 @@ export const subscribe = async (email: string, req?: any): Promise<Record<string
 
   if (existing) {
     if (existing.isSubscribed && existing.isActive) {
-      throw AppError.conflict('This email is already subscribed.', ERROR_CODE.DUPLICATE);
+      throw AppError.conflict(ERROR.NEWSLETTER.ALREADY_SUBSCRIBED, ERROR_CODE.DUPLICATE);
     }
 
     const row = await prisma.newsletterSubscriber.update({
@@ -585,14 +559,13 @@ export const subscribe = async (email: string, req?: any): Promise<Record<string
   return { email: D.str(row.email), isSubscribed: true };
 };
 
-/** Unsubscribe by token, so a link in an email works without a session. */
 export const unsubscribe = async (token: string): Promise<Record<string, any>> => {
   const row = await prisma.newsletterSubscriber.findFirst({ where: { token: D.str(token) } });
 
   if (!row) throw AppError.notFound(ERROR.NEWSLETTER.SUBSCRIBER_NOT_FOUND);
 
   if (!row.isSubscribed) {
-    throw AppError.unprocessable('This address is already unsubscribed.');
+    throw AppError.unprocessable(ERROR.NEWSLETTER.NOT_SUBSCRIBED);
   }
 
   await prisma.newsletterSubscriber.update({
@@ -623,8 +596,6 @@ export const listSubscribers = async (
 
   return { rows, total };
 };
-
-// ═══ Geo ═════════════════════════════════════════════════════════════════════
 
 export const listCountries = async (
   query: Record<string, any>,
@@ -663,10 +634,6 @@ export const listStates = async (
   if (D.str(query.countryCode)) where.countryCode = D.str(query.countryCode).toUpperCase();
   if (D.str(query.isActive) === 'true') where.isActive = true;
 
-  /**
-   * The nested cityList is only for a state -> city dropdown, so it stays opt-in; a plain list
-   * would otherwise ship every city of every state.
-   */
   const includeCities = D.str(query.includeCities) === 'true';
 
   const [rows, total] = await Promise.all([
@@ -740,7 +707,6 @@ export const checkPincode = async (pincode: string): Promise<Record<string, any>
   };
 };
 
-/** Seeds the country/state reference list from the shared constants. */
 export const seedCountries = async (
   req?: any,
 ): Promise<{ countries: number; states: number; cities: number }> => {
@@ -775,7 +741,6 @@ export const seedCountries = async (
 
     if (!existing) states += 1;
 
-    // Cities carry the pincodes that serviceability and checkout both need.
     for (const city of INDIAN_CITIES.filter((c) => c.stateCode === state.code)) {
       const known = await prisma.city.findFirst({
         where: { pincode: city.pincode },
@@ -828,10 +793,6 @@ const INDIAN_STATES: { code: string; name: string }[] = [
   { code: 'BR', name: 'Bihar' },
 ];
 
-/**
- * A few real pincodes per state. Without cities the pincode lookup and the serviceability
- * check have nothing to resolve against.
- */
 const INDIAN_CITIES: { name: string; stateCode: string; pincode: string }[] = [
   { name: 'Mumbai', stateCode: 'MH', pincode: '400001' },
   { name: 'Pune', stateCode: 'MH', pincode: '411001' },
@@ -862,8 +823,6 @@ const INDIAN_CITIES: { name: string; stateCode: string; pincode: string }[] = [
   { name: 'Patna', stateCode: 'BR', pincode: '800001' },
 ];
 
-// ═══ Currency / tax / translation / dropdown ═════════════════════════════════
-
 export const listCurrencies = async (isActiveOnly = false): Promise<any[]> =>
   prisma.currency.findMany({
     where: isActiveOnly ? { isActive: true } : {},
@@ -878,7 +837,6 @@ export const createCurrency = async (input: Record<string, any>, req?: any): Pro
   if (existing) throw AppError.conflict(ERROR.CURRENCY.ALREADY_EXISTS, ERROR_CODE.DUPLICATE);
 
   const row = await prisma.$transaction(async (tx) => {
-    // Only one default currency is allowed at a time.
     if (input.isDefault) {
       await tx.currency.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
     }
@@ -942,10 +900,6 @@ export const updateCurrency = async (
   return row;
 };
 
-/**
- * Deletes a currency. The default one is kept because every conversion is
- * anchored to it, so it has to be demoted before it can be removed.
- */
 export const deleteCurrency = async (id: string, req?: any): Promise<void> => {
   const existing = await prisma.currency.findUnique({
     where: { id },
@@ -961,7 +915,6 @@ export const deleteCurrency = async (id: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'Currency', entityId: id });
 };
 
-/** Converts an amount using a currency rate. */
 export const convertCurrency = async (
   amount: number,
   toCode: string,
@@ -999,8 +952,7 @@ export const createTaxConfig = async (input: Record<string, any>, req?: any): Pr
 
   const existing = await prisma.taxConfig.findUnique({ where: { slug }, select: { id: true } });
 
-  if (existing)
-    throw AppError.conflict('A tax config with this slug exists.', ERROR_CODE.DUPLICATE);
+  if (existing) throw AppError.conflict(ERROR.TAX.SLUG_EXISTS, ERROR_CODE.DUPLICATE);
 
   if (D.str(input.vendorId)) {
     const vendor = await prisma.vendorProfile.findUnique({
@@ -1090,7 +1042,6 @@ export const listTranslations = async (locale?: string, namespace?: string): Pro
     orderBy: [{ namespace: 'asc' }, { key: 'asc' }],
   });
 
-/** Applies a batch of translations; one bad entry does not lose the rest. */
 export const upsertTranslations = async (
   input: { locale: string; namespace?: string; entries: { key: string; value: string }[] },
   req?: any,
@@ -1154,8 +1105,7 @@ export const createDropdown = async (input: Record<string, any>, req?: any): Pro
     select: { id: true },
   });
 
-  if (existing)
-    throw AppError.conflict('This dropdown option already exists.', ERROR_CODE.DUPLICATE);
+  if (existing) throw AppError.conflict(ERROR.DROPDOWN.OPTION_EXISTS, ERROR_CODE.DUPLICATE);
 
   const row = await prisma.dropdown.create({
     data: {
@@ -1215,8 +1165,6 @@ export const deleteDropdown = async (id: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'Dropdown', entityId: id });
 };
 
-// ═══ Webhooks ════════════════════════════════════════════════════════════════
-
 export const listWebhooks = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {
@@ -1229,7 +1177,7 @@ export const listWebhooks = async (
   const [rows, total] = await Promise.all([
     prisma.webhookEndpoint.findMany({
       where,
-      // The signing secret is a credential and is never selected.
+
       select: {
         id: true,
         url: true,
@@ -1251,7 +1199,6 @@ export const listWebhooks = async (
 };
 
 export const createWebhook = async (input: Record<string, any>, req?: any): Promise<any> => {
-  // The signing secret is revealed once here and never on reads or updates.
   const secret = generateCode(40);
 
   const row = await prisma.webhookEndpoint.create({
@@ -1300,7 +1247,6 @@ export const updateWebhook = async (
   return row;
 };
 
-/** Rotates the signing secret, which is how a leaked key is dealt with. */
 export const rotateWebhookSecret = async (id: string, req?: any): Promise<Record<string, any>> => {
   const existing = await prisma.webhookEndpoint.findUnique({ where: { id }, select: { id: true } });
 
@@ -1331,7 +1277,6 @@ export const deleteWebhook = async (id: string, req?: any): Promise<void> => {
   void writeAuditLog({ req, action: 'DELETE', entity: 'WebhookEndpoint', entityId: id });
 };
 
-/** Verifies an inbound signature against the endpoint's stored secret. */
 export const verifyWebhookSignature = async (
   endpointId: string,
   rawBody: string,
@@ -1347,12 +1292,6 @@ export const verifyWebhookSignature = async (
   return safeCompare(hmacSha256(rawBody, endpoint.secret), D.str(signature));
 };
 
-/**
- * Verifies an inbound provider's signature.
- *
- * Each provider keeps its secret in its own environment variable, so a leaked Razorpay secret
- * cannot be replayed against the shipping endpoint.
- */
 export const verifyProviderSignature = async (
   provider: string,
   rawBody: string,
@@ -1366,7 +1305,6 @@ export const verifyProviderSignature = async (
 
   const secret = secrets[D.str(provider).toUpperCase()];
 
-  // Without a configured secret the delivery is recorded but cannot be trusted.
   if (!secret) return false;
 
   return safeCompare(hmacSha256(rawBody, secret), D.str(signature));
@@ -1395,7 +1333,6 @@ export const listWebhookLogs = async (
   return { rows, total };
 };
 
-/** Records an inbound webhook, marking it processed when the signature held. */
 export const recordWebhook = async (
   input: {
     endpointId?: string;
@@ -1424,13 +1361,6 @@ export const recordWebhook = async (
   return { logId: D.str(row.id), event: D.str(row.event), isProcessed: D.bool(row.isProcessed) };
 };
 
-// ═══ Bulk jobs ═══════════════════════════════════════════════════════════════
-
-/**
- * Imports products row by row.
- * With `continueOnError` a bad row is reported and the rest still land, which is
- * what makes a spreadsheet import usable on real data.
- */
 export const bulkImportProducts = async (
   vendorId: string,
   input: { rows: any[]; continueOnError?: boolean },
@@ -1545,18 +1475,11 @@ export const getBulkJob = async (jobId: string): Promise<any> => {
   return job;
 };
 
-// ═══ Reports ════════════════════════════════════════════════════════════════
-
 const reportRange = (query: Record<string, any>): { from: Date; to: Date } => ({
   from: D.str(query.from) ? startOfDay(D.str(query.from)) : startOfDay(subtractDays(29)),
   to: D.str(query.to) ? endOfDay(D.str(query.to)) : endOfDay(new Date()),
 });
 
-/**
- * Builds a flat object list plus a CSV rendering of the same rows. When `summary`
- * is supplied it is returned alongside the rows and appended as a TOTAL row in
- * the CSV, so aggregate columns are not silently dropped.
- */
 const toReport = (
   columns: string[],
   rows: Record<string, any>[],
@@ -1996,7 +1919,6 @@ export const deleteReportSchedule = async (id: string, req?: any): Promise<void>
   void writeAuditLog({ req, action: 'DELETE', entity: 'ReportSchedule', entityId: id });
 };
 
-/** Dispatches a report request to its builder. */
 export const runReport = async (
   type: string,
   query: Record<string, any>,
@@ -2025,14 +1947,6 @@ export const runReport = async (
   }
 };
 
-// ═══ Newsletter campaign ══════════════════════════════════════════════════════
-
-/**
- * Queues one email per active subscriber.
- *
- * Delivery goes through the email queue one job per recipient rather than a single fan-out job,
- * so a retry after a partial failure cannot resend to somebody who already got the mail.
- */
 export const sendCampaign = async (
   input: { subject: string; body: string; templateKey?: string },
   actorId?: string,
@@ -2080,8 +1994,6 @@ export const sendCampaign = async (
   return { jobId, recipientCount: subscribers.length, status: 'QUEUED' };
 };
 
-// ═══ Bulk import — orders and users ════════════════════════════════════════════
-
 const openBulkJob = async (type: string, totalRows: number, actorId?: string): Promise<string> => {
   const jobId = `bulk_${generateCode(12)}`;
 
@@ -2110,7 +2022,6 @@ const closeBulkJob = async (
   await prisma.bulkJob.update({
     where: { jobId },
     data: {
-      // A run with some bad rows is still a completed run; FAILED is reserved for a crash.
       status: 'COMPLETED',
       successCount,
       failCount: errors.length,
@@ -2209,7 +2120,12 @@ export const bulkImportUsers = async (
     try {
       const email = D.str(row.email).toLowerCase();
 
-      if (!email) throw new Error('email is required');
+      if (!email)
+        throw new AppError(
+          ERROR.NEWSLETTER.EMAIL_REQUIRED,
+          HTTP_STATUS.BAD_REQUEST,
+          ERROR_CODE.VALIDATION_ERROR,
+        );
 
       const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
 
@@ -2254,9 +2170,6 @@ export const bulkImportUsers = async (
   };
 };
 
-// ═══ Translations (single-key CRUD) ═════════════════════════════════════════════
-
-/** Locales that actually have at least one key, plus how many keys each holds. */
 export const listLocales = async (): Promise<any[]> => {
   const grouped = await prisma.translation.groupBy({
     by: ['locale'],
@@ -2375,10 +2288,7 @@ export const deleteTranslation = async (id: string, req?: any): Promise<void> =>
 
 export { isBannerLive };
 
-// ═══ API keys ══════════════════════════════════════════════════════════════════
-
 export const listApiKeys = async (): Promise<any[]> =>
-  // The secret is never selected - only the prefix, which is safe to show.
   prisma.apiKey.findMany({
     select: {
       id: true,
@@ -2395,10 +2305,6 @@ export const listApiKeys = async (): Promise<any[]> =>
     orderBy: { createdAt: 'desc' },
   });
 
-/**
- * Creates a key and returns the secret exactly once.
- * Only a hash is stored, so a lost key cannot be recovered and must be rotated.
- */
 export const createApiKey = async (
   input: { name: string; scopes?: string[]; expiresInDays?: number },
   actorId?: string,
@@ -2493,7 +2399,6 @@ export const deleteApiKey = async (keyId: string, actorId?: string, req?: any): 
   });
 };
 
-/** Per-key call counters, so an integrator can see whether a key is still in use. */
 export const getApiKeyUsage = async (keyId: string): Promise<Record<string, any>> => {
   const key = await prisma.apiKey.findUnique({
     where: { id: keyId },

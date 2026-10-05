@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { ERROR } from '../../messages/error';
 import { GiftCardStatus, LoyaltyTxnType, NotificationChannel } from '@prisma/client';
 import { VALIDATION } from '../../messages/validation';
 import { NAME } from '../../config/password.config';
@@ -6,8 +8,6 @@ import { common, paginationSchema } from '../../middlewares/validate.middleware'
 
 const id = common.cuid;
 const money2 = z.coerce.number().min(0).max(10_000_000);
-
-// ─── Loyalty ──────────────────────────────────────────────────────────────────
 
 export const listLoyaltySchema = z
   .object({
@@ -22,13 +22,12 @@ export const redeemPointsSchema = z
   })
   .strict();
 
-/** POST /loyalty/adjust/:userId — the target comes from the path, not the body. */
 export const adjustPointsSchema = z
   .object({
     points: z.coerce
       .number()
       .int()
-      .refine((v) => v !== 0, { message: 'Points cannot be zero.' }),
+      .refine((v) => v !== 0, { message: ERROR.LOYALTY.ZERO_POINTS }),
     description: z
       .string()
       .trim()
@@ -39,8 +38,6 @@ export const adjustPointsSchema = z
   .strict();
 
 export const loyaltyUserIdParamSchema = z.object({ userId: id });
-
-// ─── Referral ─────────────────────────────────────────────────────────────────
 
 export const applyReferralSchema = z
   .object({
@@ -64,14 +61,11 @@ export const listAdminReferralsSchema = z
 
 export const referralIdParamSchema = z.object({ id });
 
-/** PATCH /referrals/:id/updateStatus */
 export const referralStatusSchema = z
   .object({
     status: z.enum(['PENDING', 'COMPLETED', 'EXPIRED', 'REJECTED']),
   })
   .strict();
-
-// ─── Gift cards ───────────────────────────────────────────────────────────────
 
 export const listGiftCardsSchema = z
   .object({
@@ -86,7 +80,7 @@ export const createGiftCardSchema = z
     title: z.string().trim().max(NAME.TITLE_MAX_LENGTH).optional().default(''),
     description: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional().default(''),
     value: money2,
-    /** No `code` means the server generates one. */
+
     code: z.string().trim().min(6).max(24).optional(),
     userId: id.optional(),
     expiresInDays: z.coerce.number().int().positive().max(3650).optional(),
@@ -97,7 +91,7 @@ export const redeemGiftCardSchema = z
   .object({
     code: z.string().trim().min(6).max(24),
     orderId: id.optional(),
-    /** Partial redemption leaves the remainder on the card. */
+
     amount: money2.optional(),
   })
   .strict();
@@ -115,13 +109,6 @@ export const checkGiftCardSchema = z.object({ code: z.string().trim().min(6).max
 
 export const giftCardCodeParamSchema = z.object({ code: z.string().trim().min(6).max(24) });
 
-// ─── Message templates ────────────────────────────────────────────────────────
-
-/**
- * Template fields carry no `.default()` on purpose. This schema backs an
- * upsert, and a default would be applied on the update path too — silently
- * wiping an omitted field. The columns' own defaults cover creation instead.
- */
 const templateBody = z.object({
   key: z
     .string()
@@ -134,7 +121,6 @@ const templateBody = z.object({
   isActive: z.boolean().optional(),
 });
 
-/** POST /templates/email — also the update path, so every field is optional. */
 export const createEmailTemplateSchema = templateBody
   .extend({
     subject: z.string().trim().min(1, VALIDATION.REQUIRED('subject')).max(300),
@@ -143,14 +129,12 @@ export const createEmailTemplateSchema = templateBody
   })
   .strict();
 
-/** POST /templates/sms */
 export const createSmsTemplateSchema = templateBody
   .extend({
     body: z.string().trim().min(1, VALIDATION.REQUIRED('body')).max(1000),
   })
   .strict();
 
-/** POST /templates/notification */
 export const createNotificationTemplateSchema = templateBody
   .extend({
     channel: z.nativeEnum(NotificationChannel).optional(),
@@ -168,11 +152,6 @@ export const listTemplatesSchema = z
 
 export const templateKeyParamSchema = z.object({ key: z.string().trim().min(2).max(80) });
 
-/**
- * Renders a template with `{{token}}` placeholders. A placeholder with no
- * matching value is left in place so a missing variable is visible in the
- * preview instead of silently rendering as an empty gap.
- */
 export const renderTemplateSchema = z
   .object({
     values: z
@@ -182,7 +161,6 @@ export const renderTemplateSchema = z
   })
   .strict();
 
-/** POST /templates/email/:key/render */
 export const renderTemplateValuesSchema = z
   .object({
     values: z

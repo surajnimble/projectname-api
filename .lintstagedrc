@@ -1,4 +1,3 @@
 {
-  "*.ts": ["prettier --write", "eslint --fix"],
-  "*.prisma": ["prettier --write"]
+  "*.ts": ["prettier --write", "eslint --fix"]
 }

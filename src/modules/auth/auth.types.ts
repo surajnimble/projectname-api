@@ -1,5 +1,11 @@
-import { Request } from 'express';
-import { ROLES, Role, RegisterType, OtpType, SocialProvider, Platform } from '../../constants/roles';
+import {
+  ROLES,
+  Role,
+  RegisterType,
+  OtpType,
+  SocialProvider,
+  Platform,
+} from '../../constants/roles';
 
 export interface AuthUser {
   id: string;
@@ -27,7 +33,6 @@ export interface AuthUserWithVendor extends AuthUser {
   vendorProfile: VendorProfileLite | null;
 }
 
-/** Explicit select shared by every auth read — never selects passwordHash implicitly. */
 export const AUTH_USER_SELECT = {
   id: true,
   name: true,
@@ -87,7 +92,6 @@ export interface RequestContext {
   requestId: string;
 }
 
-/** Builds the context used by audit/activity logs from a request. */
 export const buildRequestContext = (req: any): RequestContext => ({
   userId: req?.auth?.userId ?? '',
   role: req?.auth?.role ?? '',

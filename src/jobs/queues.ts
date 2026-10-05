@@ -4,10 +4,6 @@ import { ENV, isRedisConfigured } from '../config/env.config';
 import { QUEUE, QueueName, JOB, JobName } from '../config/socket.config';
 import { logger } from '../services/logger.service';
 
-/**
- * BullMQ queues. Redis is required; when it is not configured every enqueue is a
- * no-op so the HTTP API still works (jobs simply run inline or get skipped).
- */
 let connection: IORedis | null = null;
 
 export const getQueueConnection = (): IORedis | null => {
@@ -68,12 +64,13 @@ export const enqueue = async (
     });
     return { queued: true, jobId: job.id ?? '' };
   } catch (err) {
-    logger.error({ err: (err as Error)?.message, queue: queueName, jobName }, '[queue] enqueue failed');
+    logger.error(
+      { err: (err as Error)?.message, queue: queueName, jobName },
+      '[queue] enqueue failed',
+    );
     return { queued: false, jobId: '' };
   }
 };
-
-// ─── Typed enqueue helpers ────────────────────────────────────────────────────
 
 export const enqueueEmail = (data: {
   to: string;
@@ -104,7 +101,9 @@ export const enqueueOrderStatusRollup = (data: { orderId: string; status: string
   enqueue(QUEUE.ORDER_STATUS, JOB.ROLLUP_ORDER_STATUS, data as any);
 
 export const enqueueAnalyticsRollup = (data: { date?: string } = {}) =>
-  enqueue(QUEUE.ANALYTICS, JOB.AGGREGATE_ANALYTICS, data as any, { jobId: `rollup-${data.date ?? 'now'}` });
+  enqueue(QUEUE.ANALYTICS, JOB.AGGREGATE_ANALYTICS, data as any, {
+    jobId: `rollup-${data.date ?? 'now'}`,
+  });
 
 export const enqueueBulkImport = (data: Record<string, any>) =>
   enqueue(QUEUE.BULK_IMPORT, JOB.PROCESS_BULK_IMPORT, data as any);
@@ -122,9 +121,7 @@ export const enqueueCleanup = () => enqueue(QUEUE.CLEANUP, JOB.CLEANUP_EXPIRED, 
 
 export const closeQueues = async (): Promise<void> => {
   await Promise.all(
-    Array.from(queues.values()).map((queue) =>
-      queue.close().catch(() => undefined),
-    ),
+    Array.from(queues.values()).map((queue) => queue.close().catch(() => undefined)),
   );
   queues.clear();
 

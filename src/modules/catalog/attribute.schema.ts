@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { ERROR } from '../../messages/error';
 import { ATTRIBUTE_TYPE, COLLECTION_TYPE } from '../../constants/roles';
 import { NAME } from '../../config/password.config';
 import { VALIDATION } from '../../messages/validation';
@@ -22,8 +24,6 @@ const slug = z
 
 const image = z.string().trim().url(VALIDATION.INVALID_URL).max(500).optional().or(z.literal(''));
 
-// ─── Attribute ───────────────────────────────────────────────────────────────
-
 export const createAttributeSchema = z
   .object({
     name,
@@ -37,19 +37,14 @@ export const createAttributeSchema = z
   })
   .strict();
 
-const VARIANT_TYPES: string[] = [
-  ATTRIBUTE_TYPE.SIZE,
-  ATTRIBUTE_TYPE.COLOR,
-  ATTRIBUTE_TYPE.SELECT,
-];
+const VARIANT_TYPES: string[] = [ATTRIBUTE_TYPE.SIZE, ATTRIBUTE_TYPE.COLOR, ATTRIBUTE_TYPE.SELECT];
 
-/** A variant attribute must be one that can actually define a variant axis. */
 export const createAttributeBodySchema = createAttributeSchema.superRefine((v, ctx) => {
   if (v.isVariant === true && !VARIANT_TYPES.includes(String(v.type))) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['type'],
-      message: 'A variant attribute must be of type SIZE, COLOR or SELECT.',
+      message: ERROR.ATTRIBUTE.INVALID_VARIANT_TYPE,
     });
   }
 });
@@ -66,7 +61,7 @@ export const updateAttributeSchema = createAttributeSchema
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['type'],
-        message: 'A variant attribute must be of type SIZE, COLOR or SELECT.',
+        message: ERROR.ATTRIBUTE.INVALID_VARIANT_TYPE,
       });
     }
   });
@@ -79,12 +74,6 @@ export const listAttributesSchema = paginationSchema.extend({
   search: z.string().trim().max(120).optional(),
 });
 
-// ─── Collection ──────────────────────────────────────────────────────────────
-
-/**
- * Manual collections hold an explicit productIds list. Dynamic collections
- * derive membership from `rules` instead.
- */
 const rulesSchema = z
   .object({
     vendorIds: z.array(id).optional(),

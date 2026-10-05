@@ -20,7 +20,10 @@ export const comparePassword = async (plain: string, hash: string): Promise<bool
 };
 
 export const randomString = (length = 32): string =>
-  crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
+  crypto
+    .randomBytes(Math.ceil(length / 2))
+    .toString('hex')
+    .slice(0, length);
 
 export const randomNumericCode = (length: number): string => {
   let out = '';
@@ -77,7 +80,7 @@ export const verifyAccessToken = (token: string): AccessTokenPayload => {
       issuer: JWT.ISSUER,
       audience: JWT.AUDIENCE,
     }) as AccessTokenPayload;
-    if (decoded.type !== 'access') throw new Error('wrong token type');
+    if (decoded.type !== 'access') throw new Error(ERROR.SYSTEM.TOKEN_TYPE_MISMATCH);
     return decoded;
   } catch (err: any) {
     if (err?.name === 'TokenExpiredError') {
@@ -93,7 +96,7 @@ export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
       issuer: JWT.ISSUER,
       audience: JWT.AUDIENCE,
     }) as RefreshTokenPayload;
-    if (decoded.type !== 'refresh') throw new Error('wrong token type');
+    if (decoded.type !== 'refresh') throw new Error(ERROR.SYSTEM.TOKEN_TYPE_MISMATCH);
     return decoded;
   } catch (err: any) {
     if (err?.name === 'TokenExpiredError') {
@@ -103,7 +106,6 @@ export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
   }
 };
 
-/** Simple spec-compliant TOTP — avoids an extra native dependency. */
 export const generateTotpSecret = (): string => {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const bytes = crypto.randomBytes(TWO_FA.BACKUP_CODE_COUNT * 2);
@@ -150,7 +152,8 @@ export const generateTotp = (secret: string, atMs: number = Date.now()): string 
 export const verifyTotp = (secret: string, token: string): boolean => {
   if (!secret || !token) return false;
   for (let drift = -TWO_FA.WINDOW; drift <= TWO_FA.WINDOW; drift += 1) {
-    if (safeCompare(generateTotp(secret, Date.now() + drift * TWO_FA.STEP * 1000), token)) return true;
+    if (safeCompare(generateTotp(secret, Date.now() + drift * TWO_FA.STEP * 1000), token))
+      return true;
   }
   return false;
 };
@@ -163,7 +166,6 @@ export const buildOtpAuthUri = (secret: string, account: string): string => {
 export const generateBackupCodes = (count = TWO_FA.BACKUP_CODE_COUNT): string[] =>
   Array.from({ length: count }, () => randomNumericCode(8));
 
-/** Verifies a Razorpay-style HMAC SHA256 signature over `body`. */
 export const verifyGatewaySignature = (
   body: string,
   signature: string,

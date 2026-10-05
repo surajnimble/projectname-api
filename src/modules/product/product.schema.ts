@@ -34,7 +34,6 @@ const imageInput = z
   })
   .strict();
 
-/** POST /products/createProduct */
 export const createProductSchema = z
   .object({
     name: z
@@ -66,11 +65,13 @@ export const createProductSchema = z
     isFeatured: z.boolean().optional(),
     images: z.array(imageInput).max(20).optional(),
     variants: z.array(variantInput).max(100).optional(),
-    attributes: z.array(z.object({ attributeId: id, value: z.string().trim().max(120) }).strict()).max(50).optional(),
+    attributes: z
+      .array(z.object({ attributeId: id, value: z.string().trim().max(120) }).strict())
+      .max(50)
+      .optional(),
   })
   .strict();
 
-/** PATCH /products/updateProduct/:id — every field optional. */
 export const updateProductSchema = createProductSchema
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
@@ -79,7 +80,6 @@ export const productIdParamSchema = z.object({ id });
 
 export const productSlugParamSchema = z.object({ slug: common.cuidOrSlug });
 
-/** PATCH /products/updateStock/:id */
 export const updateStockSchema = z
   .object({
     stock: z.coerce.number().int().min(0, VALIDATION.NEGATIVE_NOT_ALLOWED('stock')),
@@ -88,14 +88,8 @@ export const updateStockSchema = z
   })
   .strict();
 
-/** PATCH /products/toggleStatus/:id */
 export const toggleStatusSchema = z.object({ status: z.nativeEnum(PRODUCT_STATUS) }).strict();
 
-/**
- * Loose item shape for bulk import. Business rules (positive price, non-negative
- * stock) are enforced per row inside the service so one bad row is skipped and
- * reported instead of failing the whole request.
- */
 const bulkItemSchema = z
   .object({
     name: z
@@ -121,11 +115,13 @@ const bulkItemSchema = z
     isFeatured: z.boolean().optional(),
     images: z.array(imageInput).max(20).optional(),
     variants: z.array(variantInput).max(100).optional(),
-    attributes: z.array(z.object({ attributeId: id, value: z.string().trim().max(120) }).strict()).max(50).optional(),
+    attributes: z
+      .array(z.object({ attributeId: id, value: z.string().trim().max(120) }).strict())
+      .max(50)
+      .optional(),
   })
   .strict();
 
-/** POST /products/bulkCreate */
 export const bulkCreateSchema = z
   .object({
     products: z.array(bulkItemSchema).min(1).max(100),
@@ -133,7 +129,6 @@ export const bulkCreateSchema = z
   })
   .strict();
 
-/** PATCH /products/bulkUpdate */
 export const bulkUpdateSchema = z
   .object({
     productIds: z.array(id).min(1).max(200),
@@ -151,10 +146,8 @@ export const bulkUpdateSchema = z
   })
   .strict();
 
-/** PATCH /products/bulkDelete */
 export const bulkDeleteSchema = z.object({ productIds: z.array(id).min(1).max(200) }).strict();
 
-/** POST /products/bulkPriceUpdate */
 export const bulkPriceUpdateSchema = z
   .object({
     productIds: z.array(id).min(1).max(200),
@@ -164,7 +157,6 @@ export const bulkPriceUpdateSchema = z
   })
   .strict();
 
-/** GET /products/getAll — the main catalog query. */
 export const listProductsSchema = paginationSchema.extend({
   categoryId: id.optional(),
   categorySlug: z.string().trim().max(140).optional(),

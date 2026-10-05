@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { PAYMENT_STATUS, VENDOR_STATUS, PRODUCT_STATUS } from '../../constants/roles';
 import { prisma } from '../../services/prisma.service';
 import { AppError } from '../../utils/AppError';
-import { D, money } from '../../utils/defaults';
+import { D, money, round } from '../../utils/defaults';
 
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
@@ -19,29 +19,9 @@ import {
 import { writeActivityLog } from '../../services/audit.service';
 import { METRIC, ANALYTICS } from '../../config/analytics.config';
 
-/**
- * Behaviour tracking, analytics, funnels, search and uploads.
- *
- * Aggregates are computed from the raw event tables on demand rather than from
- * pre-rolled buckets, so a new filter never reports stale numbers. That is the
- * right trade here because the read volume is far below the write volume.
- */
-
-// ═══ Tracking ════════════════════════════════════════════════════════════════
-
-/**
- * Every write below lands in the raw tables rather than a pre-aggregated bucket, because
- * the rollup job reads from here and a lossy write here is unrecoverable.
- */
 const sessionKeyOf = (input: Record<string, any>, req?: any): string =>
   D.str(req?.sessionKey ?? input.sessionKey);
 
-/**
- * Starts or resumes a session.
- *
- * The tracking middleware already creates a session row per request, so this endpoint only
- * fills in the first-touch context a client knows better than the server: referrer and UTM.
- */
 export const startSession = async (
   input: Record<string, any>,
   req?: any,
@@ -123,7 +103,6 @@ export const endSession = async (
   };
 };
 
-/** Writes a raw event that is not part of the curated `TRACKING.ALLOWED_EVENTS` vocabulary. */
 const recordMetricEvent = async (
   metric: string,
   meta: Record<string, any>,
@@ -216,10 +195,6 @@ export const trackScroll = async (input: Record<string, any>, req?: any) =>
     req,
   );
 
-/**
- * Records a search performed inside the app rather than through `/search`, so mobile
- * clients are represented in the same SearchLog the search box writes to.
- */
 export const trackSearch = async (input: Record<string, any>, req?: any) => {
   const term = D.str(input.term);
   const resultCount = D.num(input.resultCount);
@@ -292,7 +267,6 @@ export const trackReferrer = async (input: Record<string, any>, req?: any) => {
   return { sessionKey, referrer: D.str(input.referrer) };
 };
 
-/** Keeps a session marked alive without writing a row per beat. */
 export const trackHeartbeat = async (input: Record<string, any>, req?: any) => {
   const sessionKey = sessionKeyOf(input, req);
   const at = new Date();
@@ -339,7 +313,6 @@ export const trackAppOpen = async (input: Record<string, any>, req?: any) =>
     req,
   );
 
-/** Attributes a session to a funnel step, deduplicated per session and step. */
 const attributeFunnelStep = async (
   funnelId: string,
   stepId: string,
@@ -370,7 +343,6 @@ const attributeFunnelStep = async (
   return { funnelId, stepId: step.id, sessionKey };
 };
 
-/** Resolves a funnel by id or slug so the client can post either. */
 const resolveFunnel = async (
   ref: string,
   stepRef?: string,
@@ -431,7 +403,6 @@ export const trackEvent = async (
   },
   req?: any,
 ): Promise<{ name: string; sessionKey: string }> => {
-  // Unknown event names are refused so the analytics table cannot be polluted.
   const name = assertAllowedEvent(input.name);
   const sessionKey = D.str(req?.sessionKey ?? input.sessionKey);
 
@@ -503,10 +474,6 @@ export const trackCrash = async (
   return { crashId: D.str(row.id) };
 };
 
-/**
- * Registers or refreshes a device.
- * The token and identity are merged so a reinstall does not lose its history.
- */
 export const registerDevice = async (
   input: Record<string, any>,
   userId?: string,
@@ -519,9 +486,8 @@ export const registerDevice = async (
     select: { id: true, userId: true },
   });
 
-  // A device belonging to someone else is not silently reassigned.
   if (existing && existing.userId && userId && existing.userId !== userId) {
-    throw AppError.forbidden('This device is registered to another account.');
+    throw AppError.forbidden(ERROR.DEVICE.DIFFERENT_ACCOUNT);
   }
 
   const data = {
@@ -584,7 +550,6 @@ export const listDevicesByUser = async (
   return { rows, total };
 };
 
-/** Every device on record, for the admin trust-and-safety view. */
 export const listAllDevices = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {
@@ -652,9 +617,6 @@ export const toggleDeviceBlock = async (
   return row;
 };
 
-// ═══ Analytics ═══════════════════════════════════════════════════════════════
-
-/** Resolves `?days=` / `?from=&to=` into a concrete window. */
 const resolveRange = (query: Record<string, any>): { from: Date; to: Date } => {
   if (D.str(query.from) || D.str(query.to)) {
     return {
@@ -704,7 +666,7 @@ export const getOverview = async (query: Record<string, any>): Promise<Record<st
     orders,
     newUsers: users,
     revenue: D.float(revenue._sum.total),
-    conversionRate: views > 0 ? D.float(Math.round((orders / views) * 10000) / 100) : 0,
+    conversionRate: views > 0 ? D.float(round(orders / views, 2)) : 0,
   };
 };
 
@@ -730,7 +692,6 @@ export const getVisitors = async (query: Record<string, any>): Promise<Record<st
     byPlatform[key] = (byPlatform[key] ?? 0) + 1;
   }
 
-  // The busiest day, so a client can highlight it without a second request.
   const byDay: Record<string, number> = {};
   for (const r of rows) {
     const key = new Date(r.createdAt).toISOString().slice(0, 10);
@@ -774,12 +735,10 @@ export const getTopPages = async (query: Record<string, any>): Promise<any[]> =>
   return grouped.map((g) => ({
     pageUrl: D.str(g.pageUrl),
     views: D.num(g._count._all),
-    percentage:
-      totalViews > 0 ? D.float(Math.round((D.num(g._count._all) / totalViews) * 1000) / 10) : 0,
+    percentage: totalViews > 0 ? D.float(round(D.num(g._count._all) / totalViews, 1)) : 0,
   }));
 };
 
-/** Referrer sources, classified so the client does not have to parse URLs. */
 export const getTrafficSources = async (query: Record<string, any>): Promise<any[]> => {
   const { from, to } = resolveRange(query);
 
@@ -817,7 +776,7 @@ export const getTrafficSources = async (query: Record<string, any>): Promise<any
       source,
       views: data.views,
       visitors: data.sessions.size,
-      percentage: totalViews > 0 ? D.float(Math.round((data.views / totalViews) * 1000) / 10) : 0,
+      percentage: totalViews > 0 ? D.float(round(data.views / totalViews, 1)) : 0,
     }))
     .sort((a, b) => b.views - a.views);
 };
@@ -840,7 +799,6 @@ export const getGeoBreakdown = async (query: Record<string, any>): Promise<any[]
   }));
 };
 
-/** Revenue grouped by day, week or month. */
 export const getRevenue = async (query: Record<string, any>): Promise<Record<string, any>> => {
   const { from, to } = resolveRange(query);
 
@@ -895,7 +853,6 @@ export const getRevenue = async (query: Record<string, any>): Promise<Record<str
   };
 };
 
-/** Best sellers, ranked by whichever metric the caller picks. */
 export const getProductPerformance = async (
   query: Record<string, any>,
   vendorId?: string,
@@ -949,7 +906,6 @@ export const getProductPerformance = async (
   return { rows: rows.slice(0, limit), total: rows.length };
 };
 
-/** Carts left behind, with what they were worth. */
 export const getAbandonedCarts = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number; value: number }> => {
@@ -1040,7 +996,6 @@ export const getSearchTerms = async (
   return { rows, total };
 };
 
-/** Carts converted within the window, bucketed by creation day. */
 export const getCohorts = async (query: Record<string, any>): Promise<Record<string, any>> => {
   const { from, to } = resolveRange(query);
 
@@ -1078,14 +1033,12 @@ export const getCohorts = async (query: Record<string, any>): Promise<Record<str
       carts: data.carts,
       orders: data.orders,
       revenue: data.revenue,
-      conversionRate:
-        data.carts > 0 ? D.float(Math.round((data.orders / data.carts) * 1000) / 10) : 0,
+      conversionRate: data.carts > 0 ? D.float(round(data.orders / data.carts, 1)) : 0,
     }));
 
   return { from: from.toISOString(), to: to.toISOString(), series };
 };
 
-/** Live counters for the last 15 minutes. */
 export const getRealtime = async (): Promise<Record<string, any>> => {
   const since = new Date(Date.now() - 15 * 60_000);
 
@@ -1115,7 +1068,6 @@ export const getRealtime = async (): Promise<Record<string, any>> => {
   };
 };
 
-/** Distinct session keys, which is the definition of a unique visitor here. */
 export const getUniqueVisitors = async (
   query: Record<string, any>,
 ): Promise<Record<string, any>> => {
@@ -1127,10 +1079,6 @@ export const getUniqueVisitors = async (
     _min: { createdAt: true },
   });
 
-  /**
-   * A visitor counts as returning only once their first view of the whole table predates
-   * the window, so the same session cannot make itself look like a repeat visit.
-   */
   let returningVisitors = 0;
   for (const row of rows) {
     const firstEver = await prisma.pageView.findFirst({
@@ -1178,9 +1126,7 @@ export const getPageViews = async (query: Record<string, any>): Promise<Record<s
     totalPageViews: total,
     sessions: distinctSessions.length,
     avgViewsPerSession:
-      distinctSessions.length > 0
-        ? D.float(Math.round((total / distinctSessions.length) * 100) / 100)
-        : 0,
+      distinctSessions.length > 0 ? D.float(round(total / distinctSessions.length, 2)) : 0,
     series: Array.from(byDayMap.entries())
       .sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([date, count]) => ({ date, views: count })),
@@ -1191,7 +1137,6 @@ export const getPageViews = async (query: Record<string, any>): Promise<Record<s
   };
 };
 
-/** OS and browser split, so an app team can see what to optimise for. */
 export const getDeviceBreakdown = async (
   query: Record<string, any>,
 ): Promise<Record<string, any>> => {
@@ -1218,7 +1163,7 @@ export const getDeviceBreakdown = async (
       .map(([key, count]) => ({
         key,
         count,
-        percentage: D.float(Math.round((count / total) * 1000) / 10),
+        percentage: D.float(round(count / total, 1)),
       }));
 
   const os = tally((r) => D.str(r.os));
@@ -1260,7 +1205,6 @@ export const listSessionRows = async (
   return { rows, total };
 };
 
-/** The whole journey for one session, in the order the client reported it. */
 export const getSessionDetail = async (id: string): Promise<Record<string, any>> => {
   const session = await prisma.session.findUnique({ where: { id } });
   if (!session) throw AppError.notFound(ERROR.SESSION.NOT_FOUND, ERROR_CODE.NOT_FOUND);
@@ -1325,7 +1269,6 @@ export const getSessionDetail = async (id: string): Promise<Record<string, any>>
   };
 };
 
-/** Orders and revenue inside the window, bucketed by day. */
 export const getConversions = async (query: Record<string, any>): Promise<Record<string, any>> => {
   const { from, to } = resolveRange(query);
 
@@ -1355,15 +1298,13 @@ export const getConversions = async (query: Record<string, any>): Promise<Record
     to: to.toISOString(),
     totalConversions: orders.length,
     totalRevenue,
-    conversionRate:
-      visits.length > 0 ? D.float(Math.round((orders.length / visits.length) * 10000) / 100) : 0,
+    conversionRate: visits.length > 0 ? D.float(round(orders.length / visits.length, 2)) : 0,
     series: Array.from(byDay.entries())
       .sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([date, data]) => ({ date, orders: data.orders, revenue: data.revenue })),
   };
 };
 
-/** Per-vendor revenue, order count and fulfilment rate. */
 export const getVendorPerformance = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {
@@ -1439,9 +1380,7 @@ export const getVendorPerformance = async (
       commission: stats.commission,
       earnings: stats.earnings,
       fulfilmentRate:
-        stats.subOrders > 0
-          ? D.float(Math.round((stats.delivered / stats.subOrders) * 1000) / 10)
-          : 0,
+        stats.subOrders > 0 ? D.float(round(stats.delivered / stats.subOrders, 1)) : 0,
     };
   });
 
@@ -1472,7 +1411,6 @@ export const listCrashes = async (
   return { rows, total };
 };
 
-/** Installed base per app version, so a bad release can be found fast. */
 export const getAppVersions = async (query: Record<string, any>): Promise<Record<string, any>> => {
   const { from, to } = resolveRange(query);
 
@@ -1495,7 +1433,7 @@ export const getAppVersions = async (query: Record<string, any>): Promise<Record
         platform,
         appVersion,
         deviceCount: count,
-        percentage: D.float(Math.round((count / total) * 1000) / 10),
+        percentage: D.float(round(count / total, 1)),
       };
     })
     .sort((a, b) => b.deviceCount - a.deviceCount);
@@ -1503,7 +1441,6 @@ export const getAppVersions = async (query: Record<string, any>): Promise<Record
   return { totalDevices: rows.length, versionList: list };
 };
 
-/** Flat rows for the analytics CSV export, capped so one request cannot stream the table. */
 export const exportAnalytics = async (
   query: Record<string, any>,
 ): Promise<{ columns: string[]; rows: any[][]; truncated: boolean }> => {
@@ -1530,8 +1467,6 @@ export const exportAnalytics = async (
     truncated: rows.length >= maxRows,
   };
 };
-
-// ═══ Funnels ═════════════════════════════════════════════════════════════════
 
 const FUNNEL_INCLUDE = { steps: { orderBy: { sortOrder: 'asc' } } } satisfies Prisma.FunnelInclude;
 
@@ -1591,7 +1526,7 @@ export const updateFunnel = async (
     select: { id: true },
   });
 
-  if (!existing) throw AppError.notFound('Funnel not found.');
+  if (!existing) throw AppError.notFound(ERROR.ANALYTICS.FUNNEL_NOT_FOUND);
 
   const row = await prisma.funnel.update({
     where: { id: funnelId },
@@ -1608,13 +1543,6 @@ export const updateFunnel = async (
   return row;
 };
 
-/**
- * Funnel results.
- *
- * Steps are counted as "sessions that fired this event", and the dropoff is
- * relative to the previous step, so a monotonic decline is visible rather than
- * each step looking like an independent total.
- */
 export const getFunnel = async (
   slug: string,
   query: Record<string, any>,
@@ -1624,7 +1552,7 @@ export const getFunnel = async (
     include: FUNNEL_INCLUDE,
   });
 
-  if (!funnel) throw AppError.notFound('Funnel not found.');
+  if (!funnel) throw AppError.notFound(ERROR.ANALYTICS.FUNNEL_NOT_FOUND);
 
   const { from, to } = resolveRange(query);
   const steps = D.arr(funnel.steps) as any[];
@@ -1642,7 +1570,6 @@ export const getFunnel = async (
       new Set(events.map((e: any) => D.str(e.sessionKey)).filter(Boolean)),
     ).sort();
 
-    // A session only counts for a step if it also cleared the previous one.
     const reached: string[] =
       previousSessions === null ? sessions : sessions.filter((s) => previousSessions!.includes(s));
 
@@ -1658,7 +1585,7 @@ export const getFunnel = async (
         previousSessions === null
           ? 100
           : previousSessions.length > 0
-            ? D.float(Math.round((reached.length / previousSessions.length) * 1000) / 10)
+            ? D.float(round(reached.length / previousSessions.length, 1))
             : 0,
     });
 
@@ -1673,12 +1600,10 @@ export const getFunnel = async (
     name: D.str(funnel.name),
     from: from.toISOString(),
     to: to.toISOString(),
-    overallConversionRate: first > 0 ? D.float(Math.round((last / first) * 1000) / 10) : 0,
+    overallConversionRate: first > 0 ? D.float(round(last / first, 1)) : 0,
     stepList: result,
   };
 };
-
-// ═══ Search ══════════════════════════════════════════════════════════════════
 
 export const searchProducts = async (
   query: Record<string, any>,
@@ -1738,10 +1663,6 @@ export const searchProducts = async (
     prisma.product.count({ where }),
   ]);
 
-  /**
-   * Awaited so a client that searches and then immediately opens its own history sees the term.
-   * A search nobody acted on is the signal a merchandiser needs.
-   */
   await prisma.searchLog.create({
     data: {
       userId: D.str(req?.auth?.userId) || null,
@@ -1794,11 +1715,6 @@ export const searchVendors = async (
   return { rows, total };
 };
 
-/**
- * Global search.
- * The product branch runs in parallel with the others, and only products that
- * are actually ACTIVE from an APPROVED shop can surface.
- */
 export const globalSearch = async (
   query: Record<string, any>,
   req?: any,
@@ -1899,7 +1815,6 @@ export const globalSearch = async (
   };
 };
 
-/** Term suggestions for the search box. */
 export const getSuggestions = async (query: Record<string, any>): Promise<any[]> => {
   const term = D.str(query.q);
   const limit = D.num(query.limit) || 10;
@@ -1950,7 +1865,6 @@ export const getSuggestions = async (query: Record<string, any>): Promise<any[]>
   ].slice(0, limit);
 };
 
-/** Trending terms: most searched recently, weighted towards recent searches. */
 export const getTrendingSearches = async (query: Record<string, any>): Promise<any[]> => {
   const days = D.num(query.days) || 7;
   const limit = D.num(query.limit) || 10;
@@ -1967,7 +1881,6 @@ export const getTrendingSearches = async (query: Record<string, any>): Promise<a
     const key = D.str(r.term).toLowerCase();
     if (!key) continue;
 
-    // Older searches count for less, so "trending" reflects now.
     const ageDays = (Date.now() - new Date(r.createdAt).getTime()) / 86_400_000;
     const weight = Math.max(0.1, 1 - ageDays / days);
 
@@ -1977,7 +1890,7 @@ export const getTrendingSearches = async (query: Record<string, any>): Promise<a
   return Array.from(weights.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([term, score]) => ({ term, score: D.float(Math.round(score * 100) / 100) }));
+    .map(([term, score]) => ({ term, score: D.float(round(score, 2)) }));
 };
 
 export const getRecentSearches = async (userId: string, req?: any): Promise<string[]> => {
@@ -2009,9 +1922,6 @@ export const clearRecentSearches = async (userId: string): Promise<number> => {
   return count;
 };
 
-// ═══ Uploads ══════════════════════════════════════════════════════════════════
-
-/** Storage is optional; without it uploads fail loudly rather than silently. */
 const requireStorage = (): void => {
   if (!isStorageConfigured) {
     throw AppError.serviceUnavailable(ERROR.UPLOAD.UPLOAD_FAILED, ERROR_CODE.SERVICE_UNAVAILABLE);
@@ -2026,13 +1936,13 @@ export const uploadFiles = async (
 ): Promise<Record<string, any>> => {
   requireStorage();
 
+  if (!Array.isArray(files) || files.length === 0) {
+    throw AppError.badRequest(ERROR.UPLOAD.FILE_REQUIRED, ERROR_CODE.FILE_REQUIRED);
+  }
+
   const uploaded: any[] = [];
 
   for (const file of files) {
-    /**
-     * multer writes to disk (uploads/tmp), so stream from the path — the helper unlinks the temp
-     * file in its `finally`, keeping the ephemeral disk clean.
-     */
     const asset = await uploadToCloudinary(file.path, kind, {
       publicId: D.str(req?.body?.publicId),
       folder: D.str(req?.body?.folder),
@@ -2086,7 +1996,6 @@ export const deleteFile = async (
   return { publicId: D.str(publicId), deleted: Boolean(deleted) };
 };
 
-/** Direct-to-CDN signature, so a large file never passes through the API. */
 export const getSignedParams = async (userId: string, kind: string) => {
   requireStorage();
 

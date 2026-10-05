@@ -8,7 +8,7 @@ import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
 import { ROLES, Role } from '../constants/roles';
 import { asyncHandler } from '../utils/asyncHandler';
 
-const extractToken = (req: any): string => {
+export const extractToken = (req: any): string => {
   const header = req.headers?.authorization;
   if (header && typeof header === 'string' && header.startsWith('Bearer ')) {
     return header.slice(7).trim();
@@ -19,10 +19,6 @@ const extractToken = (req: any): string => {
   return '';
 };
 
-/**
- * Rejects the request unless a valid, non-expired access token is present.
- * On success `req.auth` carries the identity + resolved vendorId + permissions.
- */
 export const authenticate: RequestHandler = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
   if (!token) {
@@ -68,10 +64,6 @@ export const authenticate: RequestHandler = asyncHandler(async (req, res, next) 
   next();
 });
 
-/**
- * Attaches `req.auth` when a token is present but never rejects.
- * Used by public endpoints that behave differently for logged-in users.
- */
 export const optionalAuth: RequestHandler = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
   if (!token) return next();
@@ -101,13 +93,12 @@ export const optionalAuth: RequestHandler = asyncHandler(async (req, res, next) 
       deviceId: payload.deviceId ?? req.deviceId ?? '',
     };
   } catch {
-    /* stay anonymous */
+    return next();
   }
 
   next();
 });
 
-/** Ensures the caller completed a second-factor challenge (when 2FA is enabled). */
 export const require2FAVerified: RequestHandler = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
   if (!token) return next();
@@ -140,26 +131,34 @@ export const require2FAVerified: RequestHandler = asyncHandler(async (req, res, 
   next();
 });
 
-/** Role gate. Pass roles in scope order — first match wins. */
-export const authorize = (...roles: Role[]): RequestHandler => (req, res, next) => {
-  if (!req.auth) {
+export const authorize = (...roles: Role[]): RequestHandler => {
+  const handler: RequestHandler = (req, res, next) => {
+    if (!req.auth) {
+      return ApiResponse.error(res, {
+        statusCode: HTTP_STATUS.UNAUTHORIZED,
+        message: ERROR.AUTH.UNAUTHORIZED,
+        code: ERROR_CODE.UNAUTHORIZED,
+      });
+    }
+
+    if (roles.includes(req.auth.role as Role)) return next();
+
     return ApiResponse.error(res, {
-      statusCode: HTTP_STATUS.UNAUTHORIZED,
-      message: ERROR.AUTH.UNAUTHORIZED,
-      code: ERROR_CODE.UNAUTHORIZED,
+      statusCode: HTTP_STATUS.FORBIDDEN,
+      message: ERROR.COMMON.FORBIDDEN,
+      code: ERROR_CODE.FORBIDDEN,
     });
-  }
+  };
 
-  if (roles.includes(req.auth.role as Role)) return next();
+  (handler as any).requiredRoles = roles;
 
-  return ApiResponse.error(res, {
-    statusCode: HTTP_STATUS.FORBIDDEN,
-    message: ERROR.COMMON.FORBIDDEN,
-    code: ERROR_CODE.FORBIDDEN,
-  });
+  return handler;
 };
 
 export const ADMIN_ROLES_GUARD = [ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN];
+
+(authenticate as any).requiresAuth = true;
+(optionalAuth as any).optionalAuth = true;
 
 export const requireRole = (...roles: Role[]) => [authenticate, authorize(...roles)];
 export const requireAdmin = () => [authenticate, authorize(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)];

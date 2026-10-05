@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { ERROR } from '../../messages/error';
 import { AdminAction, Role, ShipmentStatus } from '@prisma/client';
 import { VALIDATION } from '../../messages/validation';
 import { NAME } from '../../config/password.config';
@@ -8,8 +10,6 @@ import { common, paginationSchema } from '../../middlewares/validate.middleware'
 const id = common.cuid;
 
 const phone = z.string().trim().max(15).regex(PHONE_REGEX, VALIDATION.INVALID_PHONE);
-
-// ─── Shipping zones ───────────────────────────────────────────────────────────
 
 export const listZonesSchema = z
   .object({
@@ -43,8 +43,6 @@ export const updateZoneSchema = createZoneSchema
 
 export const zoneIdParamSchema = z.object({ id });
 
-// ─── Shipping methods ─────────────────────────────────────────────────────────
-
 export const listMethodsSchema = z
   .object({
     zoneId: id.optional(),
@@ -73,27 +71,23 @@ const methodBody = z
   })
   .strict();
 
-/** POST /shipping/methods - a method must promise at least as many days as its minimum. */
 export const createMethodSchema = methodBody.superRefine((v, ctx) => {
   if (D_max(v) < D_min(v)) {
-    ctx.addIssue({ code: 'custom', message: 'maxDays must be at least minDays.' });
+    ctx.addIssue({ code: 'custom', message: ERROR.SHIPPING.DELIVERY_WINDOW_INVALID });
   }
 });
 
-/** PATCH /shipping/methods/updateMethod/:id */
 export const updateMethodSchema = methodBody.partial().superRefine((v, ctx) => {
   if (Object.keys(v).length === 0) {
     ctx.addIssue({ code: 'custom', message: VALIDATION.INVALID_JSON });
   }
   if (D_max(v) < D_min(v)) {
-    ctx.addIssue({ code: 'custom', message: 'maxDays must be at least minDays.' });
+    ctx.addIssue({ code: 'custom', message: ERROR.SHIPPING.DELIVERY_WINDOW_INVALID });
   }
 });
 
 const D_min = (v: { minDays?: number }): number => Number(v.minDays ?? 1);
 const D_max = (v: { maxDays?: number }): number => Number(v.maxDays ?? 7);
-
-// ─── Shipping partners ────────────────────────────────────────────────────────
 
 export const createPartnerSchema = z
   .object({
@@ -104,7 +98,7 @@ export const createPartnerSchema = z
       .toUpperCase()
       .regex(/^[A-Z0-9_-]{2,24}$/, 'Code may contain A-Z, 0-9, _ and - only.'),
     apiUrl: z.string().trim().url(VALIDATION.INVALID_URL).optional().default(''),
-    /** Only ever written, never read back to a client. */
+
     apiKey: z.string().trim().max(200).optional().default(''),
     isActive: z.boolean().optional().default(true),
   })
@@ -116,7 +110,12 @@ export const updatePartnerSchema = createPartnerSchema
 
 export const partnerIdParamSchema = z.object({ id });
 
-/** POST /shipping/checkServiceable */
+export const awbParamSchema = z
+  .object({ awb: z.string().trim().min(4, 'Enter a valid tracking number.').max(40) })
+  .strict();
+
+export const subOrderIdParamSchema = z.object({ subOrderId: common.cuid });
+
 export const checkServiceableSchema = z
   .object({
     pincode: z
@@ -128,7 +127,6 @@ export const checkServiceableSchema = z
   })
   .strict();
 
-/** POST /shipping/calculateRate */
 export const calculateRateSchema = z
   .object({
     pincode: z
@@ -140,8 +138,6 @@ export const calculateRateSchema = z
     methodId: id.optional(),
   })
   .strict();
-
-// ─── Delivery boy ─────────────────────────────────────────────────────────────
 
 export const listDeliveryBoysSchema = z
   .object({
@@ -183,8 +179,6 @@ export const toggleDeliveryBoySchema = z
 
 export const deliveryBoyIdParamSchema = z.object({ id });
 
-// ─── Settings ─────────────────────────────────────────────────────────────────
-
 export const listSettingsSchema = z
   .object({
     category: z.string().trim().max(50).optional(),
@@ -193,7 +187,6 @@ export const listSettingsSchema = z
   .merge(paginationSchema)
   .strict();
 
-/** PATCH /settings/update — one key. */
 export const updateSettingSchema = z
   .object({
     key: z.string().trim().min(2, VALIDATION.REQUIRED('key')).max(120),
@@ -203,7 +196,6 @@ export const updateSettingSchema = z
   })
   .strict();
 
-/** PATCH /settings/bulkUpdate — many keys at once. */
 export const bulkUpdateSettingsSchema = z
   .object({
     settings: z
@@ -228,7 +220,6 @@ export const settingCategoryParamSchema = z.object({
   category: z.string().trim().min(2, VALIDATION.REQUIRED('category')).max(40),
 });
 
-/** PATCH /settings/toggleFeature */
 export const toggleFeatureSchema = z
   .object({
     key: z.string().trim().min(2, VALIDATION.REQUIRED('key')).max(120),
@@ -236,7 +227,6 @@ export const toggleFeatureSchema = z
   })
   .strict();
 
-/** PATCH /settings/updateMaintenance */
 export const updateMaintenanceSchema = z
   .object({
     enabled: z.boolean(),
@@ -245,16 +235,12 @@ export const updateMaintenanceSchema = z
   })
   .strict();
 
-/** POST /admin/triggerJob */
 export const triggerJobSchema = z
   .object({
     name: z.string().trim().min(2, VALIDATION.REQUIRED('name')).max(60),
   })
   .strict();
 
-// ── Shipments ────────────────────────────────────────────────────────────────
-
-/** POST /shipping/createShipment/:subOrderId */
 export const createShipmentSchema = z
   .object({
     methodId: id.optional(),
@@ -265,15 +251,12 @@ export const createShipmentSchema = z
   })
   .strict();
 
-/** PATCH /shipping/updateStatus/:id */
 export const shipmentStatusSchema = z
   .object({
     status: z.nativeEnum(ShipmentStatus),
     remarks: z.string().trim().max(300).optional(),
   })
   .strict();
-
-// ─── Admin ────────────────────────────────────────────────────────────────────
 
 export const createSubAdminSchema = z
   .object({
@@ -325,9 +308,10 @@ export const listActivityLogsSchema = z
 
 export const roleParamSchema = z.object({ role: z.nativeEnum(Role) });
 
+export const roleIdParamSchema = z.object({ id: z.nativeEnum(Role) });
+
 export const actorParamSchema = z.object({ userId: common.cuid });
 
-/** DELETE /auditLogs/purge — how much history to keep, not how much to drop. */
 export const purgeAuditLogsSchema = z
   .object({
     beforeDays: z.coerce.number().int().min(1).max(3650),

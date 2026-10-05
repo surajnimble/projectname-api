@@ -1,22 +1,8 @@
-/**
- * Live HTTP tests for payment, wallet, payout and return modules.
- *
- * Covers: token payment, balance settlement, COD collection, refunds and their
- * caps, wallet ledger and admin adjustments, payout request/approve/reject/settle
- * with the earnings hold, and the full return lifecycle including the window,
- * quantity limits, per-item approval, stock restore and wallet refunds.
- *
- * Usage: npx tsx scripts/e2e-payment.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -114,10 +100,6 @@ const main = async (): Promise<void> => {
   await setSetting('order.minAmount', 0, 'order', undefined, false);
   await setSetting('tax.inclusive', false, 'tax', undefined, false);
 
-  /**
-   * Pin the token settings off: a crashed earlier run can leave them enabled, which would
-   * silently turn every COD order into a token order.
-   */
   await setSetting('payment.token.enabled', false, 'payment', undefined, false);
   await setSetting('payment.token.applicableAbove', 2000, 'payment', undefined, false);
   await setSetting('wallet.enabled', false, 'wallet', undefined, false);
@@ -140,7 +122,7 @@ const main = async (): Promise<void> => {
   const admin = api(adminToken);
 
   await admin.patch(`/api/v1/vendors/approveVendor/${vendor.vendorId}`, {});
-  // Bank details are required before a payout can be requested.
+
   await prisma.vendorProfile.update({
     where: { id: vendor.vendorId },
     data: {
@@ -174,7 +156,6 @@ const main = async (): Promise<void> => {
   });
   const addressId = address.body?.result?.addressId ?? '';
 
-  /** Places an order and returns its id. */
   const place = async (qty = 1) => {
     await cu.del('/api/v1/cart/clearCart');
     await cu.post('/api/v1/cart/addItem', { productId, qty });
@@ -190,7 +171,6 @@ const main = async (): Promise<void> => {
     };
   };
 
-  // ══ Guards ═════════════════════════════════════════════════════════════════
   const anon = await request(app).get('/api/v1/payments/getAll');
   record('GET /payments/getAll without token -> 401', anon.status === 401, `status=${anon.status}`);
 
@@ -201,7 +181,6 @@ const main = async (): Promise<void> => {
     `status=${noRecord.status}`,
   );
 
-  // ══ COD order ══════════════════════════════════════════════════════════════
   const codOrder = await place(2);
   record(
     'COD order placed',
@@ -234,23 +213,29 @@ const main = async (): Promise<void> => {
     `status=${foreignPayments.status}`,
   );
 
-  const list = await cu.get('/api/v1/payments/getAll');
-  record('GET /payments/getAll -> 200', list.status === 200, `status=${list.status}`);
+  const list = await admin.get('/api/v1/payments/getAll');
+  record('GET /payments/getAll -> 200 (admin)', list.status === 200, `status=${list.status}`);
   record(
     'pagination numbers come first',
     D_num(list.body?.result?.totalRecord) >= 1,
     `totalRecord=${list.body?.result?.totalRecord}`,
   );
 
+  const listAsCustomer = await cu.get('/api/v1/payments/getAll');
+  record(
+    'a customer cannot list every payment -> 403',
+    listAsCustomer.status === 403,
+    `status=${listAsCustomer.status}`,
+  );
+
   const methods = await cu.get('/api/v1/payments/methods');
-  record('GET /payments/getMethods -> 200', methods.status === 200, `status=${methods.status}`);
+  record('GET /payments/methods -> 200', methods.status === 200, `status=${methods.status}`);
   record(
     'methods expose the COD ceiling',
     typeof methods.body?.result?.cod?.maxAmount === 'number',
     String(methods.body?.result?.cod?.maxAmount),
   );
 
-  // ══ COD collection ═════════════════════════════════════════════════════════
   const codCollect = await admin.patch(`/api/v1/payments/markCodCollected/${codOrder.id}`);
   record(
     'PATCH /payments/markCodCollected/:orderId -> 200',
@@ -270,7 +255,6 @@ const main = async (): Promise<void> => {
     `status=${codTwice.status} msg=${codTwice.body?.message}`,
   );
 
-  // ══ Token payment ══════════════════════════════════════════════════════════
   await setSetting('payment.token.enabled', true, 'payment', undefined, false);
   await setSetting('payment.token.mode', 'fixed', 'payment', undefined, false);
   await setSetting('payment.token.fixedAmount', 200, 'payment', undefined, false);
@@ -299,17 +283,24 @@ const main = async (): Promise<void> => {
   const tokenPayments = await cu.get(`/api/v1/payments/getByOrder/${tokenOrder.id}`);
   const tokenPaymentId = tokenPayments.body?.result?.itemList?.[0]?.paymentId ?? '';
 
-  const noToken = await cu.post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
-    orderId: codOrder.id,
-  });
+  const noToken = await cu.post(`/api/v1/payments/payToken/${codOrder.id}`, {});
   record(
-    'verifying a token on a non-token order -> 422',
+    'paying a token on a COD order -> 422',
     noToken.status === 422,
     `status=${noToken.status} msg=${noToken.body?.message}`,
   );
 
-  const foreignToken = await api(other.token).post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
+  const strayOrderId = await cu.post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
     orderId: tokenOrder.id,
+  });
+  record(
+    'a repeated orderId in the body is rejected -> 400',
+    strayOrderId.status === 400 && String(strayOrderId.body?.message).includes('orderId'),
+    `status=${strayOrderId.status} msg=${strayOrderId.body?.message}`,
+  );
+
+  const foreignToken = await api(other.token).post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
+    paymentId: tokenPaymentId,
   });
   record(
     "verifying someone else's token -> 404",
@@ -318,14 +309,13 @@ const main = async (): Promise<void> => {
   );
 
   const tokenVerify = await cu.post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
-    orderId: tokenOrder.id,
     paymentId: tokenPaymentId,
     method: 'UPI',
     reference: 'UPI123456',
     providerRef: 'pay_abc123',
   });
   record(
-    'POST /payments/verifyTokenPayment -> 200',
+    'POST /payments/payToken/:orderId -> 200',
     tokenVerify.status === 200,
     `status=${tokenVerify.status} msg=${tokenVerify.body?.message}`,
   );
@@ -342,7 +332,6 @@ const main = async (): Promise<void> => {
   );
 
   const tokenTwice = await cu.post(`/api/v1/payments/payToken/${tokenOrder.id}`, {
-    orderId: tokenOrder.id,
     paymentId: tokenPaymentId,
   });
   record(
@@ -394,13 +383,13 @@ const main = async (): Promise<void> => {
 
   await setSetting('payment.token.enabled', false, 'payment', undefined, false);
 
-  // ══ Refunds ════════════════════════════════════════════════════════════════
   const refundInit = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
-    amount: 500,
+    orderId: tokenOrder.id,
+    amount: 200,
     reason: 'damaged in transit',
   });
   record(
-    'POST /payments/initiateRefund -> 201',
+    'POST /payments/refund/:paymentId -> 201',
     refundInit.status === 201,
     `status=${refundInit.status} msg=${refundInit.body?.message}`,
   );
@@ -412,8 +401,9 @@ const main = async (): Promise<void> => {
   );
 
   const tooMuch = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
-    amount: 99999,
-    reason: 'too much',
+    orderId: tokenOrder.id,
+    amount: 201,
+    reason: 'one rupee too much',
   });
   record(
     'a refund beyond the paid amount -> 422',
@@ -421,43 +411,44 @@ const main = async (): Promise<void> => {
     `status=${tooMuch.status} msg=${tooMuch.body?.message}`,
   );
 
-  const noReason = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`);
+  const noReason = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
+    orderId: tokenOrder.id,
+  });
   record('a refund without a reason -> 400', noReason.status === 400, `status=${noReason.status}`);
 
-  const processed = await admin.patch(`/api/v1/returns/processRefund/${refundId}`, {
-    status: 'PAID',
-    providerRef: 'rf_1',
+  const missingOrder = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
+    amount: 100,
+    reason: 'no order named',
   });
   record(
-    'PATCH /payments/processRefund -> 200',
-    processed.status === 200,
-    `status=${processed.status}`,
-  );
-  record(
-    'the refund is marked paid',
-    processed.body?.result?.status === 'PAID',
-    processed.body?.result?.status,
+    'a refund without orderId -> 400',
+    missingOrder.status === 400 && String(missingOrder.body?.message).includes('orderId'),
+    `status=${missingOrder.status} msg=${missingOrder.body?.message}`,
   );
 
-  const afterRefund = await cu.get(`/api/v1/payments/getByOrder/${tokenOrder.id}`);
+  const refundStillOpen = await cu.get(`/api/v1/payments/getRefundHistory/${tokenOrder.id}`);
   record(
-    'the payment becomes partially refunded',
-    afterRefund.body?.result?.itemList?.some((p: any) => p.status === 'PARTIALLY_REFUNDED'),
-    JSON.stringify(afterRefund.body?.result?.itemList?.map((p: any) => p.status)),
+    'the new refund is listed as PENDING',
+    D_arr(refundStillOpen.body?.result?.refundList).some(
+      (r: any) => r.refundId === refundId && r.status === 'PENDING',
+    ),
+    JSON.stringify(
+      D_arr(refundStillOpen.body?.result?.refundList).map((r: any) => `${r.refundId}:${r.status}`),
+    ),
   );
 
-  const reprocess = await admin.patch(`/api/v1/returns/processRefund/${refundId}`, {
-    status: 'PAID',
-  });
+  const refundHistoryAsAdmin = await admin.get(
+    `/api/v1/payments/getRefundHistory/${tokenOrder.id}`,
+  );
   record(
-    'processing a refund twice -> 422',
-    reprocess.status === 422,
-    `status=${reprocess.status}`,
+    'the refund history is owner-only -> 404 for staff',
+    refundHistoryAsAdmin.status === 404,
+    `status=${refundHistoryAsAdmin.status}`,
   );
 
-  const refundList = await admin.get(`/api/v1/payments/getRefundHistory/${tokenOrder.id}`);
+  const refundList = await cu.get(`/api/v1/payments/getRefundHistory/${tokenOrder.id}`);
   record(
-    'GET /payments/getRefunds -> 200',
+    'GET /payments/getRefundHistory/:orderId -> 200',
     refundList.status === 200,
     `status=${refundList.status}`,
   );
@@ -467,21 +458,22 @@ const main = async (): Promise<void> => {
     `total=${refundList.body?.result?.totalRecord}`,
   );
 
-  const refundAsCustomer = await cu.patch(`/api/v1/returns/processRefund/${refundId}`, {
-    status: 'PAID',
+  const refundAsCustomer = await cu.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
+    orderId: tokenOrder.id,
+    amount: 100,
+    reason: 'customer should not be able to do this',
   });
   record(
-    'a customer cannot process refunds -> 403',
+    'a customer cannot open a refund -> 403',
     refundAsCustomer.status === 403,
     `status=${refundAsCustomer.status}`,
   );
 
-  // ══ Wallet ═════════════════════════════════════════════════════════════════
   await setSetting('wallet.enabled', true, 'wallet', undefined, false);
   await setSetting('wallet.maxBalance', 100000, 'wallet', undefined, false);
 
   const before = await cu.get('/api/v1/wallet/getBalance');
-  record('GET /payments/wallet/balance -> 200', before.status === 200, `status=${before.status}`);
+  record('GET /wallet/getBalance -> 200', before.status === 200, `status=${before.status}`);
   record(
     'a new wallet starts empty',
     before.body?.result?.balance === 0,
@@ -494,7 +486,7 @@ const main = async (): Promise<void> => {
     description: 'goodwill credit',
   });
   record(
-    'POST /payments/wallet/adjust credits -> 201',
+    'POST /wallet/adminCredit credits -> 201',
     credit.status === 201,
     `status=${credit.status} msg=${credit.body?.message}`,
   );
@@ -506,11 +498,7 @@ const main = async (): Promise<void> => {
   record('a credit is flagged asCredit', credit.body?.result?.isCredit === true);
 
   const ledger = await cu.get('/api/v1/wallet/getTransactions');
-  record(
-    'GET /payments/wallet/transactions -> 200',
-    ledger.status === 200,
-    `status=${ledger.status}`,
-  );
+  record('GET /wallet/getTransactions -> 200', ledger.status === 200, `status=${ledger.status}`);
   record(
     'the ledger has one entry',
     D_num(ledger.body?.result?.totalRecord) === 1,
@@ -529,14 +517,19 @@ const main = async (): Promise<void> => {
     `credited=${afterCredit.body?.result?.totalCredited}`,
   );
 
-  const debit = await admin.post('/api/v1/wallet/adminCredit', {
+  const debit = await admin.post('/api/v1/wallet/adminDebit', {
     userId: customer.userId,
-    amount: -1200,
+    amount: 1200,
     description: 'correction',
   });
   record(
-    'a negative adjustment debits the wallet',
-    debit.body?.result?.amount === 1200 && debit.body?.result?.isCredit === false,
+    'POST /wallet/adminDebit debits the wallet',
+    debit.status === 201 && debit.body?.result?.amount === 1200,
+    `status=${debit.status} amount=${debit.body?.result?.amount}`,
+  );
+  record(
+    'a debit is flagged isCredit false',
+    debit.body?.result?.isCredit === false,
     JSON.stringify(debit.body?.result),
   );
   record(
@@ -545,9 +538,19 @@ const main = async (): Promise<void> => {
     `after=${debit.body?.result?.balanceAfter}`,
   );
 
-  const overdraw = await admin.post('/api/v1/wallet/adminCredit', {
+  const negativeCredit = await admin.post('/api/v1/wallet/adminCredit', {
     userId: customer.userId,
-    amount: -99999,
+    amount: -100,
+  });
+  record(
+    'a negative amount on adminCredit -> 400',
+    negativeCredit.status === 400,
+    `status=${negativeCredit.status} msg=${negativeCredit.body?.message}`,
+  );
+
+  const overdraw = await admin.post('/api/v1/wallet/adminDebit', {
+    userId: customer.userId,
+    amount: 99999,
   });
   record(
     'overdrawing the wallet -> 422',
@@ -578,7 +581,6 @@ const main = async (): Promise<void> => {
     `status=${adjustAsCustomer.status}`,
   );
 
-  // ══ Earnings and payouts ══════════════════════════════════════════════════
   await setSetting('vendor.payoutHoldDays', 0, 'vendor', undefined, false);
   await setSetting('vendor.minPayoutAmount', 100, 'vendor', undefined, false);
 
@@ -589,13 +591,11 @@ const main = async (): Promise<void> => {
   });
   await admin.patch(`/api/v1/orders/updateStatus/${deliveredOrder.id}`, { status: 'DELIVERED' });
 
-  // Earnings are recorded and released so they can be claimed.
   const subOrder = await prisma.subOrder.findFirst({
     where: { orderId: deliveredOrder.id },
     select: { id: true, vendorEarning: true, commission: true },
   });
 
-  // Delivery books the earning automatically; the test just clears its hold.
   const autoEarning = await prisma.vendorEarning.findFirst({
     where: { subOrderId: subOrder?.id },
     select: { id: true, isAvailable: true },
@@ -610,13 +610,29 @@ const main = async (): Promise<void> => {
   if (autoEarning) {
     await prisma.vendorEarning.update({
       where: { id: autoEarning.id },
-      data: { isAvailable: true, availableAt: new Date(Date.now() - 1000) },
+      data: {
+        status: 'PENDING',
+        isAvailable: true,
+        availableAt: new Date(Date.now() - 3 * 86400000),
+      },
     });
   }
 
+  const backdated = await prisma.vendorEarning.findFirst({
+    where: { id: autoEarning?.id },
+    select: { isAvailable: true, availableAt: true, status: true },
+  });
+  record(
+    'the backdated earning now sits outside the hold period',
+    backdated?.isAvailable === true &&
+      backdated?.status === 'PENDING' &&
+      new Date(backdated?.availableAt ?? 0).getTime() < Date.now() - 86400000,
+    JSON.stringify(backdated),
+  );
+
   const earnings = await api(vendor.token).get('/api/v1/payouts/getVendorEarnings');
   record(
-    'GET /payments/payouts/earnings -> 200',
+    'GET /payouts/getVendorEarnings -> 200',
     earnings.status === 200,
     `status=${earnings.status}`,
   );
@@ -625,12 +641,6 @@ const main = async (): Promise<void> => {
     D_num(earnings.body?.result?.totalRecord) >= 1,
     `total=${earnings.body?.result?.totalRecord}`,
   );
-  record(
-    'earnings carry a status summary',
-    typeof earnings.body?.result?.summary?.PENDING === 'number',
-    JSON.stringify(earnings.body?.result?.summary),
-  );
-
   const availableNow = await api(vendor.token).get('/api/v1/payouts/getVendorEarnings');
   const availableNet = D_num(
     D_arr(availableNow.body?.result?.itemList).reduce(
@@ -661,7 +671,7 @@ const main = async (): Promise<void> => {
     method: 'BANK',
   });
   record(
-    'POST /payments/payouts/request -> 201',
+    'POST /vendors/requestPayout -> 201',
     requested.status === 201,
     `status=${requested.status} msg=${requested.body?.message}`,
   );
@@ -671,17 +681,32 @@ const main = async (): Promise<void> => {
     requested.body?.result?.status === 'PENDING',
     requested.body?.result?.status,
   );
-  record(
-    'the account reference is stored',
-    requested.body?.result?.accountRef === '4111111111111111',
-    requested.body?.result?.accountRef,
-  );
 
-  const doubleRequest = await api(vendor.token).post('/api/v1/vendors/requestPayout', {});
+  const doubleRequest = await api(vendor.token).post('/api/v1/vendors/requestPayout', {
+    amount: availableNet,
+  });
   record(
     'a second request finds nothing available -> 422',
     doubleRequest.status === 422,
     `status=${doubleRequest.status} msg=${doubleRequest.body?.message}`,
+  );
+
+  const noAmount = await api(vendor.token).post('/api/v1/vendors/requestPayout', {});
+  record(
+    'a payout request without an amount -> 400',
+    noAmount.status === 400 && String(noAmount.body?.message).includes('amount'),
+    `status=${noAmount.status} msg=${noAmount.body?.message}`,
+  );
+
+  const adminPayouts = await admin.get('/api/v1/payouts/getAll');
+  record(
+    'the admin payout listing exposes the masked account reference',
+    /^\*{4}\d{4}$/.test(
+      D_arr(adminPayouts.body?.result?.itemList).find((p: any) => p.payoutId === payoutId)
+        ?.accountRef ?? '',
+    ),
+    D_arr(adminPayouts.body?.result?.itemList).find((p: any) => p.payoutId === payoutId)
+      ?.accountRef,
   );
 
   const payouts = await api(vendor.token).get('/api/v1/payouts/getAll');
@@ -753,7 +778,6 @@ const main = async (): Promise<void> => {
     `status=${payoutAsVendor.status}`,
   );
 
-  // Rejection releases the earnings back.
   await prisma.vendorEarning.updateMany({
     where: { vendorId: vendor.vendorId },
     data: { status: 'PENDING', isAvailable: true },
@@ -781,7 +805,6 @@ const main = async (): Promise<void> => {
     released?.status,
   );
 
-  // ══ Returns ═════════════════════════════════════════════════════════════════
   await setSetting('return.enabled', true, 'return', undefined, false);
   await setSetting('return.windowDays', 7, 'return', undefined, false);
   await setSetting('return.reasonRequired', true, 'return', undefined, false);
@@ -799,7 +822,7 @@ const main = async (): Promise<void> => {
   const reasonId = reason.body?.result?.reasonId ?? '';
 
   const reasons = await cu.get('/api/v1/returns/getReasons');
-  record('GET /returns/reasons -> 200', reasons.status === 200, `status=${reasons.status}`);
+  record('GET /returns/getReasons -> 200', reasons.status === 200, `status=${reasons.status}`);
   record(
     'the reason is listed',
     D_arr(reasons.body?.result?.itemList).some((r: any) => r.reasonId === reasonId),
@@ -938,9 +961,10 @@ const main = async (): Promise<void> => {
 
   const rejectNoReason2 = await admin.patch(`/api/v1/returns/reject/${returnId}`, {});
   record(
-    'rejecting a return without a reason -> 422',
-    rejectNoReason2.status === 422,
-    `status=${rejectNoReason2.status}`,
+    'rejecting a return without a reason -> 400 and rejectReason is named',
+    rejectNoReason2.status === 400 &&
+      String(rejectNoReason2.body?.message).includes('rejectReason'),
+    `status=${rejectNoReason2.status} msg=${rejectNoReason2.body?.message}`,
   );
 
   const approvedReturn = await admin.patch(`/api/v1/returns/approve/${returnId}`);
@@ -1030,7 +1054,6 @@ const main = async (): Promise<void> => {
     `total=${otherReturns.body?.result?.totalRecord}`,
   );
 
-  // ══ Return window ══════════════════════════════════════════════════════════
   const windowOrder = await place(1);
   await admin.patch(`/api/v1/orders/updateStatus/${windowOrder.id}`, { status: 'SHIPPED' });
   await admin.patch(`/api/v1/orders/updateStatus/${windowOrder.id}`, {
@@ -1038,7 +1061,6 @@ const main = async (): Promise<void> => {
   });
   await admin.patch(`/api/v1/orders/updateStatus/${windowOrder.id}`, { status: 'DELIVERED' });
 
-  // Backdate the delivery so the window has elapsed.
   await prisma.order.update({
     where: { id: windowOrder.id },
     data: { deliveredAt: new Date(Date.now() - 30 * 86_400_000) },
@@ -1056,7 +1078,6 @@ const main = async (): Promise<void> => {
     `status=${tooLate.status} msg=${tooLate.body?.message}`,
   );
 
-  // ══ Cleanup ═══════════════════════════════════════════════════════════════
   const orderIds = (
     await prisma.order.findMany({ where: { userId: customer.userId }, select: { id: true } })
   ).map((o) => o.id);

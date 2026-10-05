@@ -3,7 +3,6 @@
  * These describe the strict envelope and the most reused payloads.
  */
 export const SERVER_SCHEMA: Record<string, any> = {
-  // ── Envelope ───────────────────────────────────────────────────────────────
   SuccessResponse: {
     type: 'object',
     required: ['status', 'message', 'result'],
@@ -38,7 +37,35 @@ export const SERVER_SCHEMA: Record<string, any> = {
       'Returned only when the request carried `x-encrypted: 1` and encryption is enabled.',
   },
 
-  // ── Pagination ─────────────────────────────────────────────────────────────
+  PaginatedResponse: {
+    allOf: [
+      { $ref: '#/components/schemas/SuccessResponse' },
+      {
+        type: 'object',
+        properties: {
+          result: {
+            type: 'object',
+            properties: {
+              totalRecord: { type: 'integer', example: 145 },
+              totalPage: { type: 'integer', example: 8 },
+              currentPage: { type: 'integer', example: 1 },
+              limit: { type: 'integer', example: 20 },
+              hasNext: { type: 'boolean', example: true },
+              hasPrevious: { type: 'boolean', example: false },
+              nextPage: { type: 'integer', example: 2 },
+              previousPage: { type: 'integer', example: 0 },
+              list: {
+                type: 'array',
+                items: { type: 'object' },
+                example: [{ productId: 'clx0000000000000000000000' }],
+              },
+            },
+          },
+        },
+      },
+    ],
+  },
+
   PaginationMeta: {
     type: 'object',
     description: 'Present inside `result` only when an `xxxList` is returned, always first.',
@@ -54,7 +81,30 @@ export const SERVER_SCHEMA: Record<string, any> = {
     },
   },
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
+  WebhookProviderPayload: {
+    type: 'object',
+    description:
+      'Provider-defined event payload. Only the fields below are read by the receiver; the rest is stored as-is.',
+    additionalProperties: true,
+    properties: {
+      endpointId: {
+        type: 'string',
+        description: 'Webhook endpoint this event belongs to. Falls back to empty.',
+        example: 'clx0000000000000000000000',
+      },
+      event: {
+        type: 'string',
+        description: 'Event name. Defaults to the provider.',
+        example: 'payment.captured',
+      },
+      eventId: {
+        type: 'string',
+        description: 'Provider event id. Read from `eventId`, else from `id`.',
+        example: 'evt_9f2a41c7',
+      },
+    },
+  },
+
   RegisterCustomerRequest: {
     type: 'object',
     required: ['type', 'name', 'email', 'password', 'otp'],
@@ -137,7 +187,6 @@ export const SERVER_SCHEMA: Record<string, any> = {
     ],
   },
 
-  // ── Shared ─────────────────────────────────────────────────────────────────
   DeviceData: {
     type: 'object',
     properties: {

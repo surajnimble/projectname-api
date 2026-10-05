@@ -1,17 +1,8 @@
-/**
- * Encryption + settings integration checks against a live database.
- *
- * Boots the real Express app in-process with ENCRYPTION_ENABLED=true and
- * verifies the AES-256-GCM transport contract in both directions.
- *
- * Usage: npx tsx scripts/e2e-encryption.ts
- */
 import crypto from 'crypto';
 import request from 'supertest';
 
 process.env.ENCRYPTION_ENABLED = 'true';
-process.env.ENCRYPTION_KEY =
-  process.env.ENCRYPTION_KEY ?? crypto.randomBytes(32).toString('hex');
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? crypto.randomBytes(32).toString('hex');
 
 const encrypt = (data: any, key: string) => {
   const iv = crypto.randomBytes(12);
@@ -25,10 +16,17 @@ const encrypt = (data: any, key: string) => {
 };
 
 const decrypt = (payload: { iv: string; tag: string; data: string }, key: string) => {
-  const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), Buffer.from(payload.iv, 'base64'));
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    Buffer.from(key, 'hex'),
+    Buffer.from(payload.iv, 'base64'),
+  );
   decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
   return JSON.parse(
-    Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'),
+    Buffer.concat([
+      decipher.update(Buffer.from(payload.data, 'base64')),
+      decipher.final(),
+    ]).toString('utf8'),
   );
 };
 
@@ -43,21 +41,16 @@ const key = process.env.ENCRYPTION_KEY;
 
 const main = async (): Promise<void> => {
   /* eslint-disable no-console */
-  // `createApp` is required lazily so env.config reads the flags set above.
+
   const { createApp } = await import('../src/app');
   const app = createApp();
 
-  // ── Plain request still works when encryption is on ──────────────────────
   const plain = await request(app).get('/api/v1/health');
   record('plain request unaffected by encryption', plain.status === 200, `status=${plain.status}`);
   record('plain response is readable JSON', plain.body?.status === true);
 
-  // ── Encrypted request → encrypted response ───────────────────────────────
   const payload = encrypt({ email: 'nobody@example.com', password: 'WrongPass@123' }, key);
-  const enc = await request(app)
-    .post('/api/v1/auth/login')
-    .set('x-encrypted', '1')
-    .send(payload);
+  const enc = await request(app).post('/api/v1/auth/login').set('x-encrypted', '1').send(payload);
 
   record('encrypted request accepted', enc.status === 401, `status=${enc.status}`);
   record('response is wrapped as encrypted', enc.body?.encrypted === true);
@@ -66,7 +59,8 @@ const main = async (): Promise<void> => {
   record('encrypted response decrypts', Boolean(decoded));
   record(
     'decrypted payload is the normal 3-key envelope',
-    decoded && JSON.stringify(Object.keys(decoded)) === JSON.stringify(['status', 'message', 'result']),
+    decoded &&
+      JSON.stringify(Object.keys(decoded)) === JSON.stringify(['status', 'message', 'result']),
     decoded ? JSON.stringify(Object.keys(decoded)) : 'n/a',
   );
   record(
@@ -76,7 +70,6 @@ const main = async (): Promise<void> => {
   );
   record('decrypted error result is empty', JSON.stringify(decoded?.result) === '{}');
 
-  // ── Tampered ciphertext must be rejected ─────────────────────────────────
   const tampered = encrypt({ email: 'a@b.com', password: 'x' }, key);
   tampered.data = Buffer.from('garbage-not-valid-ciphertext').toString('base64');
   const tamperRes = await request(app)
@@ -90,7 +83,6 @@ const main = async (): Promise<void> => {
     `status=${tamperRes.status} msg=${tamperRes.body?.message}`,
   );
 
-  // ── Header set but body not encrypted ────────────────────────────────────
   const badShape = await request(app)
     .post('/api/v1/auth/login')
     .set('x-encrypted', '1')
@@ -102,20 +94,17 @@ const main = async (): Promise<void> => {
     `status=${badShape.status} msg=${badShape.body?.message}`,
   );
 
-  // ── Skip paths are never encrypted ───────────────────────────────────────
   for (const skipPath of ['/api/v1/health', '/api/v1/version', '/api/v1/docs.json']) {
     const res = await request(app).get(skipPath).set('x-encrypted', '1');
-    record(`skip path ${skipPath} stays plain`, res.body?.encrypted !== true, `status=${res.status}`);
+    record(
+      `skip path ${skipPath} stays plain`,
+      res.body?.encrypted !== true,
+      `status=${res.status}`,
+    );
   }
 
-  // ── Dynamic settings read from the live DB ───────────────────────────────
-  const {
-    getSetting,
-    setSetting,
-    getFeatureFlags,
-    toggleFeature,
-    getMaintenanceStatus,
-  } = await import('../src/services/settings.service');
+  const { getSetting, setSetting, getFeatureFlags, toggleFeature, getMaintenanceStatus } =
+    await import('../src/services/settings.service');
 
   const before = await getSetting<string>('site.name', 'fallback');
   record('reads a seeded setting from DB', before === 'ProjectName', before);
@@ -139,13 +128,16 @@ const main = async (): Promise<void> => {
   record('toggleFeature invalidates the cache', flagsAfter['feature.wallet'] === true);
   await toggleFeature('feature.wallet', false);
 
-  // ── Maintenance mode ─────────────────────────────────────────────────────
   await setSetting('maintenance.enabled', true, 'system', undefined, false);
   const maintenance = await getMaintenanceStatus();
   record('maintenance mode reads ON from DB', maintenance.enabled === true);
 
   const blocked = await request(app).get('/api/v1/auth/getMe');
-  record('maintenance blocks normal routes with 503', blocked.status === 503, `status=${blocked.status}`);
+  record(
+    'maintenance blocks normal routes with 503',
+    blocked.status === 503,
+    `status=${blocked.status}`,
+  );
   record(
     'maintenance message follows the setting',
     String(blocked.body?.message).includes('back soon'),
@@ -153,13 +145,16 @@ const main = async (): Promise<void> => {
   );
 
   const healthDuring = await request(app).get('/api/v1/health');
-  record('maintenance still allows /health', healthDuring.status === 200, `status=${healthDuring.status}`);
+  record(
+    'maintenance still allows /health',
+    healthDuring.status === 200,
+    `status=${healthDuring.status}`,
+  );
 
   await setSetting('maintenance.enabled', false, 'system', undefined, false);
   const restored = await request(app).get('/api/v1/health');
   record('maintenance off restores traffic', restored.status === 200);
 
-  // ── Summary ──────────────────────────────────────────────────────────────
   const failed = checks.filter((c) => !c.passed);
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
   if (failed.length) {

@@ -1,6 +1,7 @@
 import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
+import { ERROR } from '../../messages/error';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { isAdminRole, ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
@@ -33,19 +34,15 @@ export const guards = {
   superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
 };
 
-/** Unpublished rows are only ever exposed to staff. */
 const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth?.role));
 
-/** A vendor may only import into its own catalogue. */
 const ownVendorId = (req: Request): string => {
   const vendorId = D.str(req.auth?.vendorId);
 
-  if (!vendorId) throw AppError.forbidden('A vendor profile is required for this action.');
+  if (!vendorId) throw AppError.forbidden(ERROR.VENDOR.PROFILE_REQUIRED);
 
   return vendorId;
 };
-
-// ═══ Pages ═══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -142,8 +139,6 @@ export const deletePage = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Blog ════════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/blogs:
@@ -239,8 +234,6 @@ export const deleteBlog = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ FAQ ═════════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/faqs:
@@ -315,8 +308,6 @@ export const deleteFaq = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Banners ══════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/banners:
@@ -390,8 +381,6 @@ export const deleteBanner = asyncHandler(async (req, res) => {
     result: { bannerId: D.str(req.params.id), isDeleted: true },
   });
 });
-
-// ═══ Contact + newsletter ═════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -508,8 +497,6 @@ export const listSubscribers = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Geo ══════════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/geo/countries:
@@ -568,7 +555,14 @@ export const listStates = asyncHandler(async (req, res) => {
 export const listCities = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
-  const { rows, total } = await service.listCities({ ...(req.query as any), skip, take });
+  const stateCode = D.str(req.params.stateCode) || D.str((req.query as any).stateCode);
+
+  const { rows, total } = await service.listCities({
+    ...(req.query as any),
+    stateCode,
+    skip,
+    take,
+  });
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.COUNTRY.CITIES_FETCHED,
@@ -598,7 +592,7 @@ export const listCities = asyncHandler(async (req, res) => {
  *       200: { description: Serviceability plus the resolved location }
  */
 export const checkPincode = asyncHandler(async (req, res) => {
-  const result = await service.checkPincode(D.str((req.query as any).pincode));
+  const result = await service.checkPincode(D.str(req.body?.pincode));
 
   return ApiResponse.success(res, { message: SUCCESS.COUNTRY.PINCODE_CHECKED, result });
 });
@@ -617,8 +611,6 @@ export const seedCountries = asyncHandler(async (req, res) => {
 
   return ApiResponse.success(res, { message: SUCCESS.COUNTRY.FETCHED, result });
 });
-
-// ═══ Currency ═════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -707,8 +699,6 @@ export const convertCurrency = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, { message: SUCCESS.CURRENCY.FETCHED, result });
 });
 
-// ═══ Tax ══════════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/taxConfigs:
@@ -778,8 +768,6 @@ export const deleteTaxConfig = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Translations ══════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/translations:
@@ -822,8 +810,6 @@ export const upsertTranslations = asyncHandler(async (req, res) => {
     },
   });
 });
-
-// ═══ Dropdowns ════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -923,8 +909,6 @@ export const deleteDropdown = asyncHandler(async (req, res) => {
     result: { dropdownId: D.str(req.params.id), isDeleted: true },
   });
 });
-
-// ═══ Webhooks ══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -1075,8 +1059,6 @@ export const listWebhookLogs = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Bulk jobs ═════════════════════════════════════════════════════════════════
-
 /**
  * @openapi
  * /content/bulk/importProducts:
@@ -1140,8 +1122,6 @@ export const getBulkJobStatus = asyncHandler(async (req, res) => {
     result: serializeBulkJob(job),
   });
 });
-
-// ═══ Reports ══════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -1254,14 +1234,12 @@ export const deleteSchedule = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /reports/schedule — admin */
 export const scheduleReport = asyncHandler(async (req, res) => {
   const row = await service.createReportSchedule(req.body, userId(req), req);
 
   return ApiResponse.created(res, SUCCESS.REPORT.SCHEDULE_CREATED, serializeReportSchedule(row));
 });
 
-/** GET /reports/export/:type — admin */
 export const exportReport = asyncHandler(async (req, res) => {
   const result = await service.runReport(D.str(req.params.type).toUpperCase(), req.query as any);
 
@@ -1274,31 +1252,21 @@ export const exportReport = asyncHandler(async (req, res) => {
   return res.status(200).send(D.str(result.csv));
 });
 
-// ═══ Newsletter campaign ══════════════════════════════════════════════════════
-
-/** POST /newsletter/sendCampaign — admin */
 export const sendCampaign = asyncHandler(async (req, res) => {
   const result = await service.sendCampaign(req.body, userId(req), req);
   return ApiResponse.created(res, SUCCESS.NEWSLETTER.CAMPAIGN_SENT, result);
 });
 
-// ═══ Bulk import of orders and users ══════════════════════════════════════════
-
-/** POST /bulk/importOrders — admin */
 export const importOrders = asyncHandler(async (req, res) => {
   const result = await service.bulkImportOrders(req.body, userId(req), req);
   return ApiResponse.created(res, SUCCESS.BULK.ORDERS_IMPORTED, result);
 });
 
-/** POST /bulk/importUsers — admin */
 export const importUsers = asyncHandler(async (req, res) => {
   const result = await service.bulkImportUsers(req.body, userId(req), req);
   return ApiResponse.created(res, SUCCESS.BULK.USERS_IMPORTED, result);
 });
 
-// ═══ API keys ═════════════════════════════════════════════════════════════════
-
-/** GET /apiKeys/getAll — admin; secrets are never listed */
 export const listApiKeys = asyncHandler(async (_req, res) => {
   const rows = await service.listApiKeys();
 
@@ -1308,19 +1276,16 @@ export const listApiKeys = asyncHandler(async (_req, res) => {
   });
 });
 
-/** POST /apiKeys/create — admin; the secret is returned exactly once */
 export const createApiKey = asyncHandler(async (req, res) => {
   const row = await service.createApiKey(req.body, userId(req), req);
   return ApiResponse.created(res, SUCCESS.API_KEY.CREATED, row);
 });
 
-/** PATCH /apiKeys/revoke/:id — admin */
 export const revokeApiKey = asyncHandler(async (req, res) => {
   const row = await service.revokeApiKey(D.str(req.params.id), userId(req), req);
   return ApiResponse.success(res, { message: SUCCESS.API_KEY.REVOKED, result: row });
 });
 
-/** DELETE /apiKeys/delete/:id — admin */
 export const deleteApiKey = asyncHandler(async (req, res) => {
   await service.deleteApiKey(D.str(req.params.id), userId(req), req);
   return ApiResponse.success(res, {
@@ -1329,15 +1294,11 @@ export const deleteApiKey = asyncHandler(async (req, res) => {
   });
 });
 
-/** GET /apiKeys/getUsage/:id — admin */
 export const getApiKeyUsage = asyncHandler(async (req, res) => {
   const result = await service.getApiKeyUsage(D.str(req.params.id));
   return ApiResponse.success(res, { message: SUCCESS.API_KEY.USAGE_FETCHED, result });
 });
 
-// ═══ Translations ═════════════════════════════════════════════════════════════
-
-/** GET /i18n/getLocales */
 export const listLocales = asyncHandler(async (_req, res) => {
   const rows = await service.listLocales();
 
@@ -1347,7 +1308,6 @@ export const listLocales = asyncHandler(async (_req, res) => {
   });
 });
 
-/** GET /i18n/getTranslations/:locale */
 export const getTranslations = asyncHandler(async (req, res) => {
   const result = await service.getTranslationsByLocale(D.str(req.params.locale));
 
@@ -1357,13 +1317,11 @@ export const getTranslations = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /i18n/create — admin */
 export const createTranslation = asyncHandler(async (req, res) => {
   const row = await service.createTranslation(req.body, userId(req), req);
   return ApiResponse.created(res, SUCCESS.I18N.CREATED, serializeTranslation(row));
 });
 
-/** PATCH /i18n/update/:id — admin */
 export const updateTranslation = asyncHandler(async (req, res) => {
   const row = await service.updateTranslation(D.str(req.params.id), req.body, userId(req), req);
   return ApiResponse.success(res, {
@@ -1372,7 +1330,6 @@ export const updateTranslation = asyncHandler(async (req, res) => {
   });
 });
 
-/** DELETE /i18n/delete/:id — admin */
 export const deleteTranslation = asyncHandler(async (req, res) => {
   await service.deleteTranslation(D.str(req.params.id), req);
 
@@ -1382,7 +1339,6 @@ export const deleteTranslation = asyncHandler(async (req, res) => {
   });
 });
 
-/** POST /i18n/bulkUpsert — admin */
 export const bulkUpsertTranslations = asyncHandler(async (req, res) => {
   const count = await service.upsertTranslations(req.body, req);
 
@@ -1396,14 +1352,6 @@ export const bulkUpsertTranslations = asyncHandler(async (req, res) => {
   });
 });
 
-// ═══ Provider webhooks ═════════════════════════════════════════════════════════
-
-/**
- * One receiver for every inbound provider.
- *
- * The provider is known before the body is read so the signature can be checked against that
- * provider's own secret, and a delivery is always recorded even when verification fails.
- */
 const handleProviderWebhook = async (
   provider: string,
   req: Request,
@@ -1432,17 +1380,14 @@ const handleProviderWebhook = async (
   return ApiResponse.success(res, { message: SUCCESS.WEBHOOK.RECEIVED, result: row });
 };
 
-/** POST /webhooks/razorpay */
 export const receiveRazorpayWebhook = asyncHandler(async (req, res) =>
   handleProviderWebhook('razorpay', req, res),
 );
 
-/** POST /webhooks/shipping */
 export const receiveShippingWebhook = asyncHandler(async (req, res) =>
   handleProviderWebhook('shipping', req, res),
 );
 
-/** POST /webhooks/payment-gateway/:provider */
 export const receivePaymentGatewayWebhook = asyncHandler(async (req, res) =>
   handleProviderWebhook(D.str(req.params.provider).toLowerCase(), req, res),
 );

@@ -2,14 +2,6 @@ import type { Response } from 'express';
 import { D } from './defaults';
 import { PAGINATION } from '../config/pagination.config';
 
-/**
- * Strict response envelope. Exactly three top-level keys, always in this order:
- *   1. status   -> boolean
- *   2. message  -> string (never empty)
- *   3. result   -> object (never null, never a bare array)
- *
- * Request tracking is exposed via the `X-Request-Id` response header, never in the body.
- */
 export class ApiResponse {
   static success(
     res: Response,
@@ -46,11 +38,6 @@ export class ApiResponse {
     });
   }
 
-  /**
-   * List response. Pagination numbers come first inside `result`, in this exact
-   * order: totalRecord, totalPage, currentPage, limit, hasNext, hasPrevious,
-   * nextPage, previousPage — followed by filterData and then the xxxList array.
-   */
   static paginated(
     res: Response,
     {
@@ -70,13 +57,10 @@ export class ApiResponse {
       message: string;
       result?: any;
       totalRecord?: number;
-      /** Derived from totalRecord/limit when omitted. */
       totalPage?: number;
       currentPage?: number;
       limit?: number;
-      /** Derived from totalRecord/currentPage/limit when omitted. */
       hasNext?: boolean;
-      /** Derived from currentPage when omitted. */
       hasPrevious?: boolean;
       nextPage?: number;
       previousPage?: number;
@@ -99,9 +83,14 @@ export class ApiResponse {
         limit: safeLimit,
         hasNext: typeof hasNext === 'boolean' ? hasNext : derivedHasNext,
         hasPrevious: typeof hasPrevious === 'boolean' ? hasPrevious : derivedHasPrevious,
-        nextPage: typeof nextPage === 'number' ? D.num(nextPage) : derivedHasNext ? safePage + 1 : 0,
+        nextPage:
+          typeof nextPage === 'number' ? D.num(nextPage) : derivedHasNext ? safePage + 1 : 0,
         previousPage:
-          typeof previousPage === 'number' ? D.num(previousPage) : derivedHasPrevious ? safePage - 1 : 0,
+          typeof previousPage === 'number'
+            ? D.num(previousPage)
+            : derivedHasPrevious
+              ? safePage - 1
+              : 0,
         ...(result ?? {}),
       },
     });
@@ -127,10 +116,6 @@ export class ApiResponse {
     });
   }
 
-  /**
-   * Builds the paginated result payload without touching the response object.
-   * Useful for nested composition and for tests/snapshot assertions.
-   */
   static buildPaginatedResult(
     rows: any[],
     total: number,

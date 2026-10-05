@@ -7,21 +7,14 @@ import * as attributeSchema from './attribute.schema';
 
 const router = Router();
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Brand
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** GET /brands/getAll */
 router.get('/brands/getAll', validate({ query: schema.listBrandsSchema }), controller.listBrands);
 
-/** GET /brands/getById/:id */
 router.get(
   '/brands/getById/:id',
   validate({ params: schema.brandIdParamSchema }),
   controller.getBrandById,
 );
 
-/** GET /brands/getBySlug/:slug */
 router.get(
   '/brands/getBySlug/:slug',
   validate({ params: schema.brandSlugParamSchema }),
@@ -44,7 +37,6 @@ router.post(
   controller.createBrand,
 );
 
-/** PATCH /brands/updateBrand/:id */
 router.patch(
   '/brands/updateBrand/:id',
   authenticate,
@@ -70,14 +62,8 @@ router.delete(
   controller.deleteBrand,
 );
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Tag
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** GET /tags/getAll */
 router.get('/tags/getAll', validate({ query: schema.listTagsSchema }), controller.listTags);
 
-/** POST /tags/createTag */
 router.post(
   '/tags/createTag',
   authenticate,
@@ -86,7 +72,6 @@ router.post(
   controller.createTag,
 );
 
-/** POST /tags/bulkCreate — per-row errors are reported, not thrown. */
 router.post(
   '/tags/bulkCreate',
   authenticate,
@@ -95,7 +80,6 @@ router.post(
   controller.bulkCreateTags,
 );
 
-/** DELETE /tags/deleteTag/:id — 409 while products still use the tag. */
 router.delete(
   '/tags/deleteTag/:id',
   authenticate,
@@ -104,18 +88,12 @@ router.delete(
   controller.deleteTag,
 );
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  Attribute
-// ═══════════════════════════════════════════════════════════════════════════
-
-/** GET /attributes/getAll */
 router.get(
   '/attributes/getAll',
   validate({ query: attributeSchema.listAttributesSchema }),
   controller.listAttributes,
 );
 
-/** GET /attributes/getById/:id */
 router.get(
   '/attributes/getById/:id',
   validate({ params: attributeSchema.attributeIdParamSchema }),
@@ -141,16 +119,17 @@ router.post(
   controller.createAttribute,
 );
 
-/** PATCH /attributes/updateAttribute/:id */
 router.patch(
   '/attributes/updateAttribute/:id',
   authenticate,
   ...controller.guards.attribute,
-  validate({ params: attributeSchema.attributeIdParamSchema, body: attributeSchema.updateAttributeSchema }),
+  validate({
+    params: attributeSchema.attributeIdParamSchema,
+    body: attributeSchema.updateAttributeSchema,
+  }),
   controller.updateAttribute,
 );
 
-/** DELETE /attributes/deleteAttribute/:id — 409 while products still use it. */
 router.delete(
   '/attributes/deleteAttribute/:id',
   authenticate,
@@ -158,10 +137,6 @@ router.delete(
   validate({ params: attributeSchema.attributeIdParamSchema }),
   controller.deleteAttribute,
 );
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  Collection
-// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * @openapi
@@ -177,24 +152,24 @@ router.get(
   controller.listCollections,
 );
 
-/** GET /collections/getById/:id */
 router.get(
   '/collections/getById/:id',
   validate({ params: attributeSchema.collectionIdParamSchema }),
   controller.getCollectionById,
 );
 
-/** GET /collections/getBySlug/:slug */
 router.get(
   '/collections/getBySlug/:slug',
   validate({ params: attributeSchema.collectionSlugParamSchema }),
   controller.getCollectionBySlug,
 );
 
-/** GET /collections/getProducts/:id — resolves membership for MANUAL and DYNAMIC. */
 router.get(
   '/collections/getProducts/:id',
-  validate({ params: attributeSchema.collectionIdParamSchema, query: attributeSchema.collectionProductsSchema }),
+  validate({
+    params: attributeSchema.collectionIdParamSchema,
+    query: attributeSchema.collectionProductsSchema,
+  }),
   controller.getProducts,
 );
 
@@ -218,16 +193,17 @@ router.post(
   controller.createCollection,
 );
 
-/** PATCH /collections/updateCollection/:id */
 router.patch(
   '/collections/updateCollection/:id',
   authenticate,
   ...controller.guards.collection,
-  validate({ params: attributeSchema.collectionIdParamSchema, body: attributeSchema.updateCollectionSchema }),
+  validate({
+    params: attributeSchema.collectionIdParamSchema,
+    body: attributeSchema.updateCollectionSchema,
+  }),
   controller.updateCollection,
 );
 
-/** DELETE /collections/deleteCollection/:id */
 router.delete(
   '/collections/deleteCollection/:id',
   authenticate,
@@ -236,12 +212,14 @@ router.delete(
   controller.deleteCollection,
 );
 
-/** POST /collections/setProducts/:id — MANUAL collections only. */
 router.post(
   '/collections/setProducts/:id',
   authenticate,
   ...controller.guards.collection,
-  validate({ params: attributeSchema.collectionIdParamSchema, body: attributeSchema.setProductsSchema }),
+  validate({
+    params: attributeSchema.collectionIdParamSchema,
+    body: attributeSchema.setProductsSchema,
+  }),
   controller.setProducts,
 );
 

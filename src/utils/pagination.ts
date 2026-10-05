@@ -11,7 +11,10 @@ export const getPagination = (query: any): PaginationResult => {
   const rawPage = Number(query?.page);
   const rawLimit = Number(query?.limit);
 
-  const page = Math.max(1, Number.isFinite(rawPage) && rawPage > 0 ? Math.trunc(rawPage) : PAGINATION.DEFAULT_PAGE);
+  const page = Math.max(
+    1,
+    Number.isFinite(rawPage) && rawPage > 0 ? Math.trunc(rawPage) : PAGINATION.DEFAULT_PAGE,
+  );
 
   const limit = Math.min(
     PAGINATION.MAX_LIMIT,
@@ -25,10 +28,6 @@ export const getPagination = (query: any): PaginationResult => {
   return { page, limit, skip, take: limit };
 };
 
-/**
- * Converts `?sort=-createdAt` into a Prisma `orderBy` clause.
- * Only whitelisted fields are accepted — unknown fields fall back to the default.
- */
 export const getSort = (
   query: any,
   allowed: readonly string[] = PAGINATION.ALLOWED_SORTS,
@@ -45,18 +44,16 @@ export const getSort = (
   return { [field]: direction };
 };
 
-/** Non-paginated cursor helper used by exports and large reports. */
 export const getCursor = (query: any, defaultTake = 50) => {
   const take = Math.min(500, Math.max(1, Number(query?.take) || defaultTake));
-  return { take, cursor: query?.cursor ? { id: String(query.cursor) } : undefined, skip: query?.cursor ? 1 : 0 };
+  return {
+    take,
+    cursor: query?.cursor ? { id: String(query.cursor) } : undefined,
+    skip: query?.cursor ? 1 : 0,
+  };
 };
 
-/** Whitelisted `fields` selection for list endpoints. */
-export const getSelectedFields = (
-  query: any,
-  allowed: string[],
-  fallback: string[],
-): string[] => {
+export const getSelectedFields = (query: any, allowed: string[], fallback: string[]): string[] => {
   const raw = query?.fields;
   if (!raw) return fallback;
   const requested = String(raw)

@@ -11,7 +11,8 @@ export const VALIDATION = {
   INVALID_DATE: 'Please enter a valid date.',
   INVALID_ENUM: (field: string) => `${field} has invalid value.`,
   STRICT_FIELD: (field: string) => `Unknown field: ${field}`,
-  INVALID_PASSWORD: 'Password must be 8-64 characters with upper, lower, number and special character.',
+  INVALID_PASSWORD:
+    'Password must be 8-64 characters with upper, lower, number and special character.',
   INVALID_SLUG: 'Slug may only contain lowercase letters, numbers and hyphens.',
   INVALID_OTP_FORMAT: 'Please enter a valid 6 digit OTP.',
   INVALID_UUID: 'Please enter a valid identifier.',
@@ -40,10 +41,6 @@ export const VALIDATION = {
   STRICT_OBJECT: 'Request body contains unknown fields.',
 };
 
-/**
- * Maps a Zod issue to a human message. Falls back to the generic
- * VALIDATION_FAILED text so no internal detail ever leaks.
- */
 export const zodIssueToMessage = (issue: {
   path?: (string | number)[];
   code: string;
@@ -70,7 +67,6 @@ export const zodIssueToMessage = (issue: {
     case 'invalid_enum_value':
       return VALIDATION.INVALID_ENUM(field || 'value');
     case 'custom':
-      // Zod already carries a purpose-written message for these cases.
       return issue.message || VALIDATION.REQUIRED(field || 'value');
     default:
       return VALIDATION.INVALID_ENUM(field || 'value');

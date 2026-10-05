@@ -1,22 +1,8 @@
-/**
- * Live HTTP tests for tracking, analytics, funnels, search and uploads.
- *
- * Covers: event and page-view ingestion, device registration and identity
- * protection, the analytics aggregates, funnel step dropoff, product/vendor
- * search with search logging, and the upload endpoints' failure mode when no
- * storage backend is configured.
- *
- * Usage: npx tsx scripts/e2e-analytics.ts
- */
 import request from 'supertest';
 import { createApp } from '../src/app';
 
 const app = createApp();
 
-/**
- * Registration only completes once the OTP is verified, and `OTP_STATIC_CODE` makes that
- * code predictable so a suite can run offline with no mail provider configured.
- */
 const OTP = process.env.OTP_STATIC_CODE || '111111';
 
 interface Check {
@@ -103,7 +89,6 @@ const api = (token: string) => ({
       .send(b ?? {}),
 });
 
-/** Emits a known tracking event; returns the response. */
 const fire = (name: string, sessionKey: string, extra: Record<string, any> = {}) =>
   request(app)
     .post('/api/v1/track/event')
@@ -156,7 +141,54 @@ const main = async (): Promise<void> => {
     Boolean(tee.body?.result?.productId && hat.body?.result?.productId),
   );
 
-  // ══ Tracking ingestion ═════════════════════════════════════════════════════
+  const analyticsAddress = await cu.post('/api/v1/users/addAddress', {
+    type: 'HOME',
+    fullName: 'Analytics Tester',
+    phone: '+919876543210',
+    line1: '1 Test Lane',
+    city: 'Pune',
+    state: 'Maharashtra',
+    stateCode: 'MH',
+    country: 'India',
+    pincode: '411001',
+    isDefault: true,
+  });
+  const analyticsAddressId = analyticsAddress.body?.result?.addressId ?? '';
+  record(
+    'the analytics customer has a delivery address',
+    analyticsAddress.status === 201 && Boolean(analyticsAddressId),
+    `status=${analyticsAddress.status}`,
+  );
+
+  const teeId = tee.body?.result?.productId ?? '';
+  await cu.post('/api/v1/cart/addItem', { productId: teeId, qty: 2 });
+  await cu.post('/api/v1/cart/addItem', { productId: hat.body?.result?.productId, qty: 1 });
+
+  const salesOrder = await cu.post('/api/v1/orders/placeOrder', {
+    addressId: analyticsAddressId,
+    paymentMethod: 'COD',
+    skipStatus: true,
+  });
+  const salesOrderId = salesOrder.body?.result?.orderId ?? '';
+  record(
+    'a COD order is placed to generate revenue',
+    salesOrder.status === 201 && Boolean(salesOrderId),
+    `status=${salesOrder.status} msg=${salesOrder.body?.message}`,
+  );
+
+  await admin.patch(`/api/v1/orders/updateStatus/${salesOrderId}`, { status: 'SHIPPED' });
+  await admin.patch(`/api/v1/orders/updateStatus/${salesOrderId}`, {
+    status: 'OUT_FOR_DELIVERY',
+  });
+  const deliveredOrder = await admin.patch(`/api/v1/orders/updateStatus/${salesOrderId}`, {
+    status: 'DELIVERED',
+  });
+  record(
+    'the order reaches DELIVERED so it counts as revenue',
+    deliveredOrder.status === 200 && deliveredOrder.body?.result?.status === 'DELIVERED',
+    `status=${deliveredOrder.status}`,
+  );
+
   const unknown = await fire('not_a_real_event', 'an-unknown-1');
   record(
     'an unknown event name -> 400',
@@ -178,10 +210,7 @@ const main = async (): Promise<void> => {
     ev1.body?.result?.name === 'product_view',
     ev1.body?.result?.name,
   );
-  /**
-   * The tracking middleware resolves a canonical Session row, so the echoed key is the server's
-   * identity for this visitor, not the client's raw header.
-   */
+
   record(
     'a canonical session key is resolved and echoed',
     typeof ev1.body?.result?.sessionKey === 'string' && ev1.body?.result?.sessionKey.length > 0,
@@ -208,7 +237,6 @@ const main = async (): Promise<void> => {
     .send({});
   record('a page view without a URL -> 400', noUrl.status === 400, `status=${noUrl.status}`);
 
-  // A second, separate session so unique-visitor maths has something to count.
   await fire('app_open', `an-session2-${run}`);
   await request(app)
     .post('/api/v1/track/pageView')
@@ -228,7 +256,6 @@ const main = async (): Promise<void> => {
     crash.body?.result?.crashId,
   );
 
-  // ══ Devices ═══════════════════════════════════════════════════════════════
   const devId = `an-device-${run}`;
   const registered = await request(app)
     .post('/api/v1/track/device')
@@ -286,23 +313,35 @@ const main = async (): Promise<void> => {
   const badDevice = await request(app).post('/api/v1/track/device').send({ deviceId: 'ab' });
   record('a too-short device id -> 400', badDevice.status === 400, `status=${badDevice.status}`);
 
-  const devices = await cu.get('/api/v1/devices/getAll');
-  record('GET /tracking/devices -> 200', devices.status === 200, `status=${devices.status}`);
-  // A device is also registered automatically on login, so assert identity.
+  const devices = await admin.get('/api/v1/devices/getAll');
+  record('GET /devices/getAll -> 200 (admin)', devices.status === 200, `status=${devices.status}`);
   record(
     'the caller sees their own device',
-    D_arr(devices.body?.result?.itemList).some((d: any) => d.deviceId === devId),
-    `n=${devices.body?.result?.itemCount}`,
+    D_arr(devices.body?.result?.deviceList).some((d: any) => d.deviceId === devId),
+    JSON.stringify(D_arr(devices.body?.result?.deviceList).map((d: any) => d.deviceId)),
+  );
+
+  const devicesAsCustomer = await cu.get('/api/v1/devices/getAll');
+  record(
+    'a customer cannot list every device -> 403',
+    devicesAsCustomer.status === 403,
+    `status=${devicesAsCustomer.status}`,
   );
 
   const otherDevices = await api(vendor.token).get('/api/v1/devices/getAll');
   record(
-    'another user never sees it',
-    !D_arr(otherDevices.body?.result?.itemList).some((d: any) => d.deviceId === devId),
-    `n=${otherDevices.body?.result?.itemCount}`,
+    'a vendor cannot list every device either',
+    otherDevices.status === 403,
+    `status=${otherDevices.status}`,
   );
 
-  // ══ Analytics ══════════════════════════════════════════════════════════════
+  const trusted = await cu.get('/api/v1/devices/getTrusted');
+  record(
+    'GET /devices/getTrusted -> 200 for the owner',
+    trusted.status === 200,
+    `status=${trusted.status}`,
+  );
+
   const anonOverview = await request(app).get('/api/v1/analytics/getOverview');
   record(
     'GET /analytics/overview without auth -> 401',
@@ -380,13 +419,13 @@ const main = async (): Promise<void> => {
   );
   record(
     'a google referrer is classified as google',
-    D_arr(sources.body?.result?.itemList).some((s: any) => s.source === 'google'),
-    JSON.stringify(D_arr(sources.body?.result?.itemList)),
+    D_arr(sources.body?.result?.sourceList).some((s: any) => s.source === 'google'),
+    JSON.stringify(D_arr(sources.body?.result?.sourceList).map((s: any) => s.source)),
   );
   record(
     'a missing referrer is counted as direct',
-    D_arr(sources.body?.result?.itemList).some((s: any) => s.source === 'direct'),
-    'direct present',
+    D_arr(sources.body?.result?.sourceList).some((s: any) => s.source === 'direct'),
+    JSON.stringify(D_arr(sources.body?.result?.sourceList).map((s: any) => s.source)),
   );
 
   const geo = await admin.get('/api/v1/analytics/getGeoBreakdown?days=7');
@@ -410,8 +449,18 @@ const main = async (): Promise<void> => {
   record('GET /analytics/productPerformance -> 200', perf.status === 200, `status=${perf.status}`);
   record(
     'performance rows carry revenue and qty',
-    typeof perf.body?.result?.itemList?.[0]?.revenue === 'number',
-    'shape',
+    typeof perf.body?.result?.productList?.[0]?.revenue === 'number' &&
+      typeof perf.body?.result?.productList?.[0]?.qty === 'number',
+    JSON.stringify(perf.body?.result?.productList?.[0]),
+  );
+  record(
+    'the tee sold in this run shows its qty and revenue',
+    D_arr(perf.body?.result?.productList).some(
+      (p: any) => p.productId === teeId && p.qty === 2 && p.revenue === 1800,
+    ),
+    JSON.stringify(
+      D_arr(perf.body?.result?.productList).map((p: any) => `${p.productId}:${p.qty}:${p.revenue}`),
+    ),
   );
 
   const perfVendor = await api(vendor.token).get('/api/v1/analytics/getProductPerformance?days=7');
@@ -448,7 +497,6 @@ const main = async (): Promise<void> => {
   const terms = await admin.get('/api/v1/analytics/getSearchTerms');
   record('GET /analytics/searchTerms -> 200', terms.status === 200, `status=${terms.status}`);
 
-  // ══ Funnels ════════════════════════════════════════════════════════════════
   const badFunnel = await admin.post('/api/v1/analytics/funnels', {
     name: 'Too short',
     steps: [{ name: 'Only', eventName: 'login' }],
@@ -472,7 +520,6 @@ const main = async (): Promise<void> => {
   const funnelSlug = funnel.body?.result?.slug ?? '';
   record('the funnel slug is generated', funnelSlug.length > 0, funnelSlug);
 
-  // One session walks the whole funnel; a second stops after step one.
   await fire('product_view', 'an-funnel-a');
   await fire('add_to_cart', 'an-funnel-a');
   await fire('purchase', 'an-funnel-a');
@@ -511,11 +558,25 @@ const main = async (): Promise<void> => {
     String(result.body?.result?.overallConversionRate),
   );
 
-  const funnelMissing = await admin.get('/api/v1/analytics/getFunnel?id=no-such-funnel');
+  const funnelMissing = await admin.get('/api/v1/analytics/getFunnel?slug=no-such-funnel');
   record(
     'an unknown funnel -> 404',
     funnelMissing.status === 404,
-    `status=${funnelMissing.status}`,
+    `status=${funnelMissing.status} msg=${funnelMissing.body?.message}`,
+  );
+
+  const funnelNoName = await admin.get('/api/v1/analytics/getFunnel');
+  record(
+    'a funnel report with no name -> 404',
+    funnelNoName.status === 404,
+    `status=${funnelNoName.status} msg=${funnelNoName.body?.message}`,
+  );
+
+  const funnelBadParam = await admin.get('/api/v1/analytics/getFunnel?id=no-such-funnel');
+  record(
+    'naming a funnel by an unsupported key -> 400',
+    funnelBadParam.status === 400 && String(funnelBadParam.body?.message).includes('id'),
+    `status=${funnelBadParam.status} msg=${funnelBadParam.body?.message}`,
   );
 
   const listFunnels = await admin.get('/api/v1/analytics/funnels');
@@ -526,8 +587,8 @@ const main = async (): Promise<void> => {
   );
   record(
     'the funnel is listed',
-    D_arr(listFunnels.body?.result?.itemList).some((f: any) => f.slug === funnelSlug),
-    `n=${listFunnels.body?.result?.itemCount}`,
+    D_arr(listFunnels.body?.result?.funnelList).some((f: any) => f.slug === funnelSlug),
+    `n=${listFunnels.body?.result?.funnelCount}`,
   );
 
   const funnelToggled = await admin.patch(
@@ -545,7 +606,6 @@ const main = async (): Promise<void> => {
     String(funnelToggled.body?.result?.isActive),
   );
 
-  // ══ Search ════════════════════════════════════════════════════════════════
   const noQuery = await request(app).get('/api/v1/search/global');
   record('GET /search without a term -> 400', noQuery.status === 400, `status=${noQuery.status}`);
 
@@ -659,10 +719,10 @@ const main = async (): Promise<void> => {
   record('GET /search/trending -> 200', trending.status === 200, `status=${trending.status}`);
   record(
     'the searched term trends',
-    D_arr(trending.body?.result?.itemList).some(
+    D_arr(trending.body?.result?.termList).some(
       (t: any) => D_str(t.term).toLowerCase() === 'an tee',
     ),
-    JSON.stringify(D_arr(trending.body?.result?.itemList)),
+    JSON.stringify(D_arr(trending.body?.result?.termList).map((t: any) => t.term)),
   );
 
   const recent = await cu.get('/api/v1/search/recent');
@@ -683,7 +743,6 @@ const main = async (): Promise<void> => {
     `total=${searchLogs.body?.result?.totalRecord}`,
   );
 
-  // ══ Uploads ════════════════════════════════════════════════════════════════
   const anonUpload = await request(app).post('/api/v1/uploads/uploadImage');
   record(
     'POST /upload/image without auth -> 401',
@@ -693,16 +752,16 @@ const main = async (): Promise<void> => {
 
   const noFile = await cu.post('/api/v1/uploads/uploadImage');
   record(
-    'an upload is refused rather than silently accepted',
-    noFile.status >= 400,
+    'an upload with no file -> 400 FILE_REQUIRED',
+    noFile.status === 400 && String(noFile.body?.message).includes('FILE_REQUIRED'),
     `status=${noFile.status} msg=${noFile.body?.message}`,
   );
 
-  const documentAsCustomer = await cu.post('/api/v1/uploads/uploadDocument');
+  const documentNoFile = await cu.post('/api/v1/uploads/uploadDocument');
   record(
-    'a customer cannot upload documents -> 403',
-    documentAsCustomer.status === 403,
-    `status=${documentAsCustomer.status}`,
+    'a document upload with no file -> 400 as well',
+    documentNoFile.status === 400 && String(documentNoFile.body?.message).includes('FILE_REQUIRED'),
+    `status=${documentNoFile.status} msg=${documentNoFile.body?.message}`,
   );
 
   const signed = await cu.get('/api/v1/uploads/getSignedUrl');
@@ -717,23 +776,39 @@ const main = async (): Promise<void> => {
     signed.body?.message,
   );
 
-  // ══ Cleanup ════════════════════════════════════════════════════════════════
   await prisma.funnel.deleteMany({ where: { slug: funnelSlug } });
   await prisma.event.deleteMany({ where: { sessionKey: { startsWith: 'an-' } } });
   await prisma.pageView.deleteMany({ where: { sessionKey: { startsWith: 'an-' } } });
   await prisma.crashLog.deleteMany({ where: { sessionKey: { startsWith: 'an-' } } });
   await prisma.device.deleteMany({ where: { deviceId: { startsWith: 'an-' } } });
   await prisma.searchLog.deleteMany({ where: { term: { startsWith: 'AN' } } });
+
+  if (salesOrderId) {
+    const orderRows = await prisma.order.findUnique({
+      where: { id: salesOrderId },
+      select: { subOrders: { select: { id: true } } },
+    });
+    const subIds = (orderRows?.subOrders ?? []).map((s: any) => s.id);
+    await prisma.orderTimeline.deleteMany({ where: { orderId: salesOrderId } });
+    await prisma.vendorEarning.deleteMany({ where: { orderId: salesOrderId } });
+    await prisma.orderItem.deleteMany({ where: { orderId: salesOrderId } });
+    await prisma.payment.deleteMany({ where: { orderId: salesOrderId } });
+    await prisma.cartItem.deleteMany({ where: { productId: { in: [teeId] } } });
+    await prisma.subOrder.deleteMany({ where: { id: { in: subIds } } });
+    await prisma.order.deleteMany({ where: { id: salesOrderId } });
+  }
+
   await prisma.cartItem.deleteMany({
-    where: { productId: { in: [tee.body?.result?.productId, hat.body?.result?.productId] } },
+    where: { productId: { in: [teeId, hat.body?.result?.productId] } },
   });
   await prisma.productVariant.deleteMany({
-    where: { productId: { in: [tee.body?.result?.productId, hat.body?.result?.productId] } },
+    where: { productId: { in: [teeId, hat.body?.result?.productId] } },
   });
   await prisma.product.deleteMany({
-    where: { id: { in: [tee.body?.result?.productId, hat.body?.result?.productId] } },
+    where: { id: { in: [teeId, hat.body?.result?.productId] } },
   });
-  await prisma.user.deleteMany({ where: { email: { contains: 'an_' } } });
+
+  await prisma.user.deleteMany({ where: { email: { contains: run } } });
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);
