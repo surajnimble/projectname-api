@@ -39,7 +39,9 @@ Breaking these is not a style preference; several are enforced by
 7. **Comments are English and explain *why*, never *what*.** Four forms, each
    with one job: route marker, doc block, inline note, banner. Anything over one
    line is a doc block. Never narrate what was broken or what changed — it goes
-   stale and then misleads.
+   stale and then misleads. **A fix adds no comment of its own:** repairing code
+   that was not working leaves the surrounding comment count untouched. Only
+   write one if the fix introduces an invariant the code cannot express.
 8. **Do not commit or push unless asked.** Do not amend a pushed commit.
 
 ## Commands

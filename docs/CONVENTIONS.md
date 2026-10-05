@@ -1512,6 +1512,12 @@ Rules:
 - **Ek line ka matlab ek `//`.** Do line ki baat hai to doc block banao —
   `// …` ki do line ek form me nahi rehni chahiye, warna form ka matlab kho deta
   hai. Ye baat `npm run comments:check` enforce karta hai.
+- **Fix karoge to comment mat likho.** Koi code kaam nahi kar raha tha aur tumne
+  theek kiya — us fix ke saath koi comment mat add karo. Jo comment pehle se tha
+  woh theek rahega, naya nahi. Comment tabhi likho jab fix koi aisi invariant
+  introduce karta hai jo code se khud nahi pata chalti (jaise `Promise.all` ki
+  wajah se ordering guarantee hoti hai). Warna working code + ek naya comment =
+  wo comment bina wajah.
 - **Comment fix ki kahani mat batao.** "Pehle ye bug tha", "ab ye hota hai",
   "ye isliye ki na ho" — development ke dauran likha hua aisa comment us code
   ki history document karta hai, current behaviour nahi. Wo jaldi stale ho jata
