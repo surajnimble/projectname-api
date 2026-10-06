@@ -19,6 +19,7 @@ and setup, see the [README](../README.md).
 - [Folder Structure](#folder-structure)
 - [Prisma Models](#prisma-models)
 - [API Routes Outline](#api-routes-outline)
+- [Missing / Planned Features](#missing--planned-features)
 
 ---
 
@@ -3011,3 +3012,454 @@ live Express router, whereas a hand-written list drifts.
     POST           /wishlist/addItem
     POST           /wishlist/moveToCart/{id}
 ```
+
+---
+
+## Missing / Planned Features
+
+Jo cheezein abhi **nahi** hain — koi endpoint nahi, koi model nahi, koi setting
+nahi. Ye gap analysis se nikli hain, implementation nahi. Ye section sirf
+document hai: koi bhi item yahan implement nahi hua hai.
+
+Type column me do marker hain:
+
+| Marker | Matlab |
+| --- | --- |
+| 🔴 | Truly Missing — koi endpoint, model ya setting exist hi nahi karti |
+| 🟡 | Partial/Stub — endpoint ya setting hai, par actual kaam nahi karta |
+
+### 1. Auth & Security
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Login with Phone + Password** | 🔴 | Sirf email + password login. Phone sirf OTP ke liye. | Phone + password login endpoint, phone-based user lookup, phone normalization. | India me 60% users phone-first hain. Email bhool jate hain. |
+| **Account Recovery (no email)** | 🔴 | Email kho gaya to koi recovery nahi. | Alternate recovery (phone OTP, security questions, backup codes). | User permanently locked out ho jata hai. Support load badhta hai. |
+| **Password History** | 🔴 | Purana password reuse allowed. | Last N passwords ka hash store, reuse pe reject. | Security compliance (PCI-DSS, ISO 27001). |
+| **Password Expiry Policy** | 🔴 | Password kabhi expire nahi hota. | `passwordChangedAt` + N days force change. | Enterprise/B2B clients ki requirement. |
+| **Concurrent Session Limit** | 🟡 | Sessions list + revoke hai. Max devices enforcement nahi. | Per-user max active sessions, oldest auto-revoke. | Account sharing rokne ke liye (Netflix model). |
+| **Suspicious Login Alert** | 🔴 | Koi alert nahi. | New device/IP/country pe email + push alert. | Account takeover detect karne ke liye. |
+| **Login Notifications** | 🔴 | Koi notification nahi. | Har login pe email/push with device + IP + location. | User ko pata chale koi aur login kiya. |
+| **Brute-force per account** | 🟡 | IP-based rate limit hai. Per-account lockout nahi. | Failed attempts counter per email/phone, N attempts pe lock. | Attacker IP badal ke brute-force kar sakta hai. |
+| **Email Change Flow** | 🔴 | `verifyEmail` hai, par change flow nahi. | Old email pe notify + new email pe OTP + confirm link. | Email change security ke liye. |
+| **Phone Change Flow** | 🔴 | Phone change flow nahi. | Old phone pe OTP + new phone pe OTP. | Phone change security. |
+| **Account Deletion Grace Period** | 🟡 | `deleteAccount` soft delete hai. Purge job nahi. | 30-day recovery window + nightly purge cron. | DPDP compliance + accidental delete recovery. |
+| **Consent / Terms Acceptance** | 🔴 | Koi consent log nahi. | Terms, privacy policy, marketing consent ka timestamped log. | DPDP legal requirement. |
+
+### 2. Customer / User
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Multiple Address Types** | 🟡 | Sirf default flag hai. | Home/Office/Other tag, delivery instructions per address. | Checkout UX improve hota hai. |
+| **Saved Payment Methods** | 🔴 | Har baar card/UPI dobara daalna padta hai. | Tokenized card/UPI save, 1-click pay. | Conversion rate 20-30% badhta hai. |
+| **Customer Preferences** | 🟡 | Language/currency partial. | Notification channel prefs, timezone, digest frequency. | Personalization ke liye. |
+| **Customer Segments** | 🔴 | Koi segment/tag nahi. | VIP, wholesale, blocked, new, repeat tags. | Targeted marketing ke liye. |
+| **Customer Notes** | 🔴 | Admin customer pe note nahi likh sakta. | Internal notes with author + timestamp. | Support team coordination. |
+| **Customer Timeline** | 🔴 | Orders, returns, tickets alag-alag. | Unified timeline (orders + returns + tickets + chats + logins). | Support agent ko full context milta hai. |
+| **Customer Merge** | 🔴 | Duplicate accounts merge nahi. | Merge API with conflict resolution. | Duplicate accounts se data mess. |
+| **Customer Export** | 🟡 | Reports me hai, per-customer nahi. | Single customer ka full data export (JSON/CSV). | DPDP right to access. |
+| **DPDP Data Export** | 🔴 | Customer apna data download nahi kar sakta. | Self-service data export endpoint. | DPDP legal requirement. |
+| **Customer Block/Ban** | 🟡 | Sirf `isActive` toggle. | Proper block with reason, duration, auto-unban. | Fraud/abuse rokne ke liye. |
+
+### 3. Vendor
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Vendor Coupons** | 🔴 | `/coupons/createCoupon` sirf ADMIN. | Vendor-scoped coupon create/update/delete, vendor ke products pe apply. | Vendor growth ka #1 tool. Revenue 15-25% badhta hai. |
+| **Vendor Flash Sales** | 🔴 | `/flashSales/create` sirf ADMIN. | Vendor apni flash sale schedule kar sake. | Festive sales, inventory clearance. |
+| **Vendor Banners** | 🔴 | `/banners/create` sirf ADMIN. | Vendor store banner, product banner. | Store branding + promotion. |
+| **Vendor Promoted Listings** | 🔴 | Koi paid promotion nahi. | Bid-based ad slots, CPC/CPM, budget cap. | Naya revenue stream. |
+| **Vendor Bundle Offers** | 🔴 | Combo create nahi ho sakta. | Buy 2 get 1, combo pack, kit. | AOV badhane ke liye. |
+| **Vendor Tiered Discounts** | 🔴 | Volume discount nahi. | Buy 5+ = 10% off, Buy 10+ = 20% off. | B2B/wholesale ke liye. |
+| **Vendor Free Shipping** | 🔴 | Sirf global `shipping.freeAbove`. | Vendor apne products pe free shipping de sake. | Vendor ka competitive edge. |
+| **Vendor Cashback** | 🔴 | Customer ko cashback nahi. | Vendor-funded wallet credit on purchase. | Repeat purchase badhta hai. |
+| **Vendor Email/Push Campaign** | 🔴 | `/newsletter/sendCampaign` sirf ADMIN. | Vendor apne customers ko blast bhej sake. | Vendor retention tool. |
+| **Vendor Referral Program** | 🔴 | `/referral/*` global. | Vendor-specific referral with own rewards. | Vendor ka growth loop. |
+| **Vendor Loyalty Program** | 🔴 | `/loyalty/*` global. | Vendor-specific points program. | Vendor ke repeat customers. |
+| **Vendor Gift Cards** | 🔴 | Global gift cards. | Vendor apne gift cards issue kare. | Vendor branding + revenue. |
+| **Vendor Store Page** | 🔴 | Koi storefront nahi. | Logo, banner, about, policies, theme colors. | Vendor ki identity. |
+| **Store Policies** | 🔴 | Global policies. | Per-vendor return, shipping, privacy. | Vendor ka apna policy. |
+| **Store Vacation Mode** | 🔴 | Store pause nahi. | `isOnVacation` flag, orders block. | Vendor chhutti pe ja sake. |
+| **Store Announcements** | 🔴 | Koi announcement nahi. | Store pe notice banner. | Vendor customer ko inform kare. |
+| **Store Reviews** | 🔴 | Sirf product reviews. | Store-level rating + review. | Vendor reputation. |
+| **Vendor Staff / Sub-Users** | 🔴 | Sirf 1 user per vendor. | Team members with role-based permissions. | Vendor team scale nahi kar sakta. |
+| **Vendor Shipping Preferences** | 🔴 | `/shipping/createZone` sirf ADMIN. | Vendor apne zones/rates set kare. | Vendor apni shipping control kare. |
+| **Vendor Tax Config** | 🔴 | Sirf admin-level `TaxConfig`. | Vendor GSTIN, HSN, tax rate. | India GST compliance. |
+| **Vendor Return Policy** | 🔴 | Global `return.windowDays`. | Vendor apni return window. | Vendor ke business model. |
+| **Vendor Inventory Alerts** | 🔴 | Low stock pe koi alert nahi. | Threshold-based email/push. | Stockout rokne ke liye. |
+| **Vendor Restock Reminder** | 🔴 | Koi suggestion nahi. | Demand forecast + auto restock reminder. | Sales loss rokne ke liye. |
+| **Vendor Bulk Order Accept/Reject** | 🔴 | Ek-ek order handle. | Bulk select + accept/reject. | Vendor time bachta hai. |
+| **Vendor Order Notes** | 🔴 | Internal notes nahi. | Packing notes, internal comments. | Warehouse coordination. |
+| **Vendor Dispute Resolution** | 🔴 | Koi dispute workflow nahi. | Customer-vendor dispute, admin mediation. | Trust building. |
+| **Vendor Dashboard Analytics** | 🟡 | `getStats` hai. Deep analytics nahi. | Traffic, funnel, top products, cohorts. | Vendor informed decisions. |
+| **Vendor Product Performance** | 🟡 | `/analytics/getProductPerformance` hai. Funnel nahi. | View → cart → order funnel per product. | Vendor conversion optimize kare. |
+| **Vendor Traffic Sources** | 🔴 | Koi traffic data nahi. | Source, medium, campaign breakdown. | Marketing ROI. |
+| **Vendor Customer Insights** | 🔴 | Repeat/LTV/churn nahi. | Customer segmentation vendor ke liye. | Retention strategy. |
+| **Vendor Competitor Benchmark** | 🔴 | Category rank nahi. | Rank, competitor pricing, market share. | Competitive intelligence. |
+| **Vendor Payout Forecast** | 🔴 | Next payout nahi pata. | Pending orders → expected payout. | Cash flow planning. |
+| **Vendor Leaderboard** | 🔴 | Koi ranking nahi. | Top vendors, badges (Silver/Gold/Platinum). | Gamification. |
+| **Vendor Performance Score** | 🔴 | Koi score nahi. | Fulfilment, cancellation, response time, rating. | Quality control. |
+| **Vendor Subscription Plans** | 🔴 | Flat commission. | Free/Silver/Gold/Platinum SaaS plans. | New revenue model. |
+| **Vendor Commission Tiers** | 🟡 | Flat + per-vendor override. | Category-wise, volume-based tiers. | Fairness + incentive. |
+| **Vendor Featured Listing** | 🔴 | Koi featured section nahi. | Paid featured product slots. | Revenue + visibility. |
+| **Vendor Sponsored Search** | 🔴 | Search me paid spot nahi. | Bid-based sponsored results. | Revenue. |
+| **Vendor Ad Budget & Billing** | 🔴 | Koi ad wallet nahi. | Ad spend wallet, auto-debit, invoice. | Ad system chalane ke liye. |
+| **Vendor ↔ Admin Chat** | 🔴 | Sirf customer-vendor chat. | Vendor admin se directly chat kare. | Support efficiency. |
+| **Vendor Announcements** | 🔴 | Admin blast nahi bhej sakta. | Policy change, holiday, feature announcement. | Vendor communication. |
+| **Vendor Onboarding Checklist** | 🔴 | Koi progress tracking nahi. | Registration → KYC → first product → first sale. | Vendor activation rate. |
+| **Vendor Help Center** | 🔴 | Koi FAQ/guide nahi. | Vendor-specific docs, videos. | Support load kam. |
+| **Vendor Notification Preferences** | 🔴 | Vendor customize nahi kar sakta. | Per-event channel prefs. | Vendor control. |
+| **Vendor Fraud Detection** | 🔴 | Koi protection nahi. | Fake orders, fake reviews, coupon abuse. | Vendor trust. |
+| **Vendor Chargeback Protection** | 🔴 | Koi alert nahi. | Chargeback alert + evidence upload. | Vendor loss rokne ke liye. |
+| **Vendor Blacklist Customer** | 🔴 | Vendor blacklist nahi kar sakta. | Problematic customer blacklist. | Vendor safety. |
+| **Vendor GST e-Invoice** | 🔴 | Koi e-invoice nahi. | IRN generate, GSTN integration. | India compliance. |
+| **Vendor Payout Statement PDF** | 🟡 | `/payouts/getStatement` hai. Vendor download nahi. | Vendor self-service PDF download. | Vendor record keeping. |
+| **Vendor TDS/GST TDS** | 🔴 | Koi TDS nahi. | Payout pe TDS deduction, certificate. | India tax compliance. |
+
+### 4. Product / Catalog
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Product Approval Workflow** | 🔴 | Vendor create kare → direct live. | Admin approve/reject step. | Quality control. |
+| **Product Draft / Scheduled Publish** | 🔴 | Sirf active/inactive. | Draft, schedule future publish. | Vendor planning. |
+| **Product Versioning / Audit** | 🟡 | `AuditLog` hai, product-level nahi. | Per-product change history. | Dispute resolution. |
+| **Digital Products** | 🔴 | Sirf physical. | Downloadable files, license keys. | Naya product category. |
+| **Product Bundles / Kits** | 🔴 | Combo nahi. | Bundle with own pricing. | AOV badhta hai. |
+| **Product Variants Matrix** | 🟡 | Partial. | Full size × color × material matrix. | Fashion/electronics ke liye. |
+| **Custom Options / Personalization** | 🔴 | Koi custom field nahi. | Name engraving, custom text, upload. | Personalization products. |
+| **Product Q&A Moderation Queue** | 🟡 | Approve/reject hai. Bulk nahi. | Bulk moderation with filters. | Admin efficiency. |
+| **Product Compare API** | 🟡 | Flag hai, endpoints nahi. | Compare endpoint with attributes. | Conversion tool. |
+| **Product Restock Notification** | 🔴 | "Notify me" nahi. | Out-of-stock pe email/push. | Lost sales recover. |
+| **Product Import Mapping UI** | 🟡 | CSV import hai. Mapping nahi. | Column mapping, preview, validation. | Import UX. |
+| **Product Feed (Google/Facebook)** | 🔴 | Koi feed nahi. | Shopping feed XML/CSV. | Google Shopping. |
+| **Product Recall / Ban** | 🔴 | Admin ban nahi kar sakta. | Recall flag, notification to buyers. | Safety/compliance. |
+| **Category Restrictions** | 🔴 | Koi restriction nahi. | Category-wise vendor allow/block. | Marketplace policy. |
+| **Product Condition** | 🔴 | Koi condition nahi. | New/Used/Refurbished. | Refurb marketplace. |
+| **Product Warranty** | 🔴 | Koi warranty info nahi. | Warranty period, terms. | Electronics ke liye. |
+| **Product Expiry / Batch** | 🔴 | Koi batch nahi. | Batch no, expiry, manufacturing date. | Pharma/food compliance. |
+| **Product Serial / IMEI** | 🔴 | Koi serial nahi. | Serial tracking, warranty activation. | Electronics. |
+| **Product Reviews with Media** | 🔴 | Sirf text review. | Image/video upload. | Trust + conversion. |
+| **Product Size Chart** | 🔴 | Koi size chart nahi. | Fashion size chart per category. | Returns kam. |
+| **Product Ingredients / Specs** | 🟡 | Partial attributes. | Structured ingredients, specs. | Food/cosmetics compliance. |
+| **Product Cross-sell / Upsell Rules** | 🟡 | Manual related. Rules nahi. | Rule-based cross-sell. | AOV badhta hai. |
+| **Product Frequently Bought Together** | 🟡 | Endpoint hai, algorithm nahi. | Actual co-purchase algorithm. | AOV. |
+
+### 5. Cart
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Save for Later** | 🔴 | Cart se remove = gone. | Move to save-for-later list. | Conversion recovery. |
+| **Guest Cart Persistence** | 🟡 | `mergeGuestCart` hai. Storage partial. | Cookie/localStorage strategy. | Guest checkout. |
+| **Cart Expiry Notification** | 🔴 | Koi reminder nahi. | Abandon hone se pehle email/push. | Abandoned cart recovery. |
+| **Cart Sharing** | 🔴 | Cart link share nahi. | Shareable cart URL. | Social commerce. |
+| **Cart Price Drop Alert** | 🔴 | Price drop pe notify nahi. | Watch item, price drop alert. | Conversion. |
+| **Cart Stock Hold** | 🟡 | `cart.holdMinutes` setting. Actual reservation nahi. | Real stock reservation during checkout. | Oversell rokne ke liye. |
+| **Cart Per-Vendor Coupon** | 🔴 | Ek coupon. Multiple nahi. | Per-vendor coupon in multi-vendor cart. | Vendor coupons ke saath. |
+| **Cart Gift Wrap** | 🔴 | Koi gift wrap nahi. | Gift wrap option + charge. | Gifting. |
+| **Cart Delivery Instructions** | 🟡 | Partial. | Per-item delivery note. | Delivery accuracy. |
+| **Cart Scheduled Delivery** | 🔴 | Koi slot nahi. | Date/time slot selection. | Customer convenience. |
+
+### 6. Order
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Partial Cancellation** | 🔴 | Full order cancel. | Item-level cancel. | Customer flexibility. |
+| **Partial Shipment** | 🔴 | SubOrder full ship. | SubOrder ke andar bhi partial. | Multi-item orders. |
+| **Order Edit** | 🔴 | Place ke baad edit nahi. | Window me edit (address, items). | Customer mistakes. |
+| **Order Merge** | 🔴 | Multiple orders alag. | Same customer ke merge. | Shipping cost. |
+| **Order Split** | 🔴 | Ek order split nahi. | Split into multiple. | Warehouse ops. |
+| **Order Hold / On-hold** | 🔴 | Koi hold state nahi. | Payment issue pe hold. | Fraud prevention. |
+| **Order Priority** | 🔴 | Koi priority nahi. | VIP order priority. | Premium customers. |
+| **Order Notes (Customer)** | 🟡 | Partial. | Delivery note field. | Delivery accuracy. |
+| **Order Notes (Admin/Vendor)** | 🔴 | Internal notes nahi. | Internal comments. | Coordination. |
+| **Order Tags** | 🔴 | Koi tag nahi. | urgent, gift, fragile tags. | Filtering. |
+| **Order Attachments** | 🔴 | Koi attach nahi. | PO, prescription, KYC doc. | B2B orders. |
+| **Order Credit Note** | 🔴 | Koi credit note nahi. | Return ke baad credit note. | GST compliance. |
+| **Order Debit Note** | 🔴 | Koi debit note nahi. | Additional charge note. | GST compliance. |
+| **Order e-Invoice (IRN)** | 🔴 | Koi e-invoice nahi. | IRN generate, GSTN API. | India compliance. |
+| **Order e-Way Bill** | 🔴 | Koi e-way bill nahi. | Transport ke liye generate. | India compliance. |
+| **Order Delivery OTP** | 🟡 | `verifyDeliveryOtp` hai. Partial. | Full OTP flow with retry. | Delivery proof. |
+| **Order Proof of Delivery** | 🔴 | Koi POD nahi. | Photo, signature, geo. | Dispute proof. |
+| **Order Delivery Attempts** | 🔴 | Koi tracking nahi. | Failed attempts count. | NDR flow. |
+| **Order Reschedule Delivery** | 🔴 | Reschedule nahi. | Customer reschedule. | Flexibility. |
+| **Order COD Reconciliation** | 🟡 | Partial. | Cash collection → deposit → reconcile. | Finance accuracy. |
+| **Order Auto-complete** | 🔴 | Manual complete. | Delivered + N days → auto-complete. | Ops automation. |
+| **Order Auto-cancel Unpaid** | 🟡 | Setting hai. Cron nahi. | Nightly job to cancel unpaid. | Inventory release. |
+| **Order Reorder with Substitutions** | 🔴 | Reorder hai, substitute nahi. | Out-of-stock item substitute. | Conversion. |
+| **Order Backorder** | 🟡 | `allowBackorder` setting. Flow nahi. | Backorder accept + fulfil later. | Lost sales recover. |
+
+### 7. Payment
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Idempotency Keys** | 🔴 | Koi idempotency nahi. | `Idempotency-Key` header + DB table. | Duplicate payment rokne ke liye. |
+| **Actual Razorpay/Stripe SDK** | 🟡 | Routes hain, SDK call nahi. | Actual SDK integration. | Live payment ke liye. |
+| **Webhook Signature Verification** | 🟡 | Stub hai. | Actual HMAC verify. | Security. |
+| **Webhook Retry + DLQ** | 🔴 | Koi retry nahi. | Failed webhook retry + DLQ. | Reliability. |
+| **Payment Reconciliation** | 🔴 | Koi reconciliation nahi. | Daily settlement vs gateway. | Finance accuracy. |
+| **Refund to Source** | 🟡 | Endpoint hai. Gateway call nahi. | Actual gateway refund API. | Customer trust. |
+| **Partial Refund** | 🟡 | Full refund. Partial nahi. | Partial amount refund. | Flexibility. |
+| **Multiple Refunds per Order** | 🔴 | Ek refund. | Multiple partial refunds. | Complex returns. |
+| **Payment Retry** | 🔴 | Koi retry nahi. | Failed payment retry. | Conversion. |
+| **Payment Link** | 🔴 | Koi link nahi. | Shareable payment link. | B2B invoices. |
+| **Payment Reminder** | 🟡 | `balanceReminderHours` setting. Job nahi. | Actual cron to remind. | Balance recovery. |
+| **Split Payment** | 🟡 | Partial. | Wallet + card + COD mix. | Flexibility. |
+| **Payment Dispute / Chargeback** | 🔴 | Koi dispute nahi. | Evidence upload, tracking. | Loss rokne ke liye. |
+| **Payment Gateway Fallback** | 🔴 | Ek gateway. | Primary fail → secondary. | Uptime. |
+| **Payment Method Restrictions** | 🟡 | Partial. | Per-category, per-amount. | Risk control. |
+
+### 8. Shipping / Delivery
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Label Generation** | 🟡 | Endpoint hai. PDF nahi. | Actual label PDF. | Warehouse ops. |
+| **Manifest Generation** | 🔴 | Koi manifest nahi. | Pickup manifest PDF. | Carrier pickup. |
+| **Pickup Scheduling** | 🔴 | Manual pickup. | Carrier pickup API. No need now | Automation. |
+| **AWB Assignment** | 🔴 | Manual AWB. | Auto AWB from carrier. No need now | Automation. |
+| **Serviceability by Weight/Size** | 🟡 | Pincode check. Weight nahi. | Weight/size based serviceability. | Accuracy. |
+| **Hyperlocal Delivery** | 🔴 | Koi hyperlocal nahi. | Same-day, 2-hour. | Quick commerce. |
+| **Delivery Slots** | 🔴 | Koi slot nahi. | Time slot selection. | Customer convenience. |
+| **Multi-Package Shipment** | 🔴 | Ek box. | Multiple boxes per order. | Large orders. |
+| **Return Pickup** | 🟡 | Partial. | Reverse logistics API. | Returns. |
+| **Delivery Boy Earnings** | 🔴 | Koi rider payout nahi. | Per-delivery earnings. | Rider retention. |
+| **Delivery Boy Shift/Roster** | 🔴 | Koi roster nahi. | Shift management. | Ops. |
+| **Delivery Proof** | 🟡 | OTP hai. | Photo, signature, geo. | Dispute proof. |
+| **Delivery Attempts** | 🔴 | Koi tracking nahi. | Attempts count. | NDR. |
+| **NDR (Non-Delivery Report)** | 🔴 | Koi NDR nahi. | NDR flow + reattempt. | Delivery success. |
+| **RTO (Return to Origin)** | 🔴 | Koi RTO nahi. | RTO flow. | Loss control. |
+
+### 9. Returns / Refunds
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Exchange / Replacement** | 🔴 | Sirf return-refund. | Exchange flow. | Customer preference. |
+| **Partial Return** | 🟡 | Partial. | Item-level return. | Flexibility. |
+| **Return QC** | 🔴 | Koi QC step nahi. | Received pe quality check. | Fraud rokne ke liye. |
+| **Return Reason Analytics** | 🟡 | Partial. | Top reasons dashboard. | Product improvement. |
+| **Return Fraud Detection** | 🔴 | Koi detection nahi. | Serial returner flag. | Loss rokne ke liye. |
+| **Refund to Wallet vs Source** | 🟡 | `refund.mode` setting. Partial. | Actual routing. | Speed. |
+| **Return Pickup Scheduling** | 🔴 | Manual. | Auto pickup. | UX. |
+| **Return Window per Category** | 🔴 | Global window. | Category-wise. | Flexibility. |
+| **Return Policy per Vendor** | 🔴 | Global. | Vendor-specific. | Vendor control. |
+| **Non-returnable Items** | 🔴 | Koi flag nahi. | Per-product flag. | Policy. |
+| **Return Credit Note** | 🔴 | Koi credit note nahi. | GST credit note. | Compliance. |
+
+### 10. Reviews / Q&A
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Review with Images/Video** | 🔴 | Text only. | Media upload. | Trust. |
+| **Review Verification Badge** | 🟡 | Partial. | Verified purchase badge. | Trust. |
+| **Review Moderation Queue** | 🟡 | Approve/reject. Bulk nahi. | Bulk moderation. | Admin efficiency. |
+| **Review Reply Threading** | 🟡 | Flat reply. | Nested threads. | Conversation. |
+| **Review Edit Window** | 🟡 | Edit hai, limit nahi. | N days edit window. | Abuse rokne ke liye. |
+| **Review Fraud Detection** | 🔴 | Koi detection nahi. | Fake review detection. | Trust. |
+| **Q&A Follow** | 🔴 | Koi follow nahi. | Follow question. | Engagement. |
+| **Q&A Notification** | 🟡 | Partial. | Answer aane pe notify. | Engagement. |
+
+### 11. Coupons / Promotions
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Vendor Coupons** | 🔴 | Sirf admin. | Vendor-scoped coupons. | Vendor growth. |
+| **Category/Brand/Product Coupon** | 🟡 | Partial. | Full scoping. | Targeting. |
+| **Customer-specific Coupon** | 🔴 | Koi customer-specific nahi. | Assign to specific customer. | Loyalty. |
+| **First-order Coupon** | 🔴 | Koi first-order nahi. | Auto-apply new users. | Acquisition. |
+| **Referral Coupon** | 🔴 | Koi referral coupon nahi. | Referrer + referee coupon. | Growth. |
+| **Coupon Stacking Rules** | 🟡 | `stackable` hai. Complex nahi. | Rule engine. | Flexibility. |
+| **Coupon Budget Cap** | 🟡 | Partial. | Total discount cap. | Loss control. |
+| **Coupon Fraud Detection** | 🔴 | Koi detection nahi. | Abuse detection. | Loss. |
+| **Coupon A/B Testing** | 🔴 | Koi A/B nahi. | Variant testing. | Optimization. |
+| **Coupon Analytics** | 🟡 | Usage hai. ROI nahi. | ROI dashboard. | Marketing. |
+| **Bundle Discount** | 🔴 | Koi bundle nahi. | Bundle pricing. | AOV. |
+| **Cart-level Discount** | 🟡 | Partial. | Cart total discount. | AOV. |
+| **Free Gift with Purchase** | 🔴 | Koi free gift nahi. | Auto-add gift. | AOV. |
+| **Loyalty-based Discount** | 🔴 | Koi loyalty discount nahi. | Tier-based discount. | Loyalty. |
+| **Abandoned Cart Coupon** | 🔴 | Koi auto coupon nahi. | Cart recovery coupon. | Conversion. |
+
+### 12. Wallet / Loyalty / Referral / Gift Cards
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Wallet Withdrawal** | 🔴 | Koi withdrawal nahi. | Bank withdrawal. | Trust. |
+| **Loyalty Tiers** | 🟡 | `getTiers` hai. Upgrade nahi. | Auto tier upgrade. | Loyalty. |
+| **Loyalty Redemption Catalog** | 🔴 | Koi catalog nahi. | Points → products. | Redemption. |
+| **Referral Fraud Detection** | 🔴 | Koi detection nahi. | Self-referral block. | Loss. |
+| **Referral Multi-level** | 🔴 | Koi multi-level nahi. | 2-level referral. | Growth. |
+| **Referral Payout** | 🟡 | Partial. | Cash vs points choice. | Flexibility. |
+| **Gift Card Partial Redemption** | 🟡 | Partial. | Balance carry forward. | UX. |
+| **Gift Card Transfer** | 🔴 | Koi transfer nahi. | Gift to friend. | Social. |
+| **Gift Card Bulk Issue** | 🔴 | Koi bulk nahi. | Corporate bulk. | B2B. |
+| **Gift Card Design** | 🔴 | Koi design nahi. | Custom templates. | Branding. |
+
+### 13. Notifications
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **FCM Push Actual Implementation** | 🟡 | Settings hain. Code nahi. | Actual FCM send. | Engagement. |
+| **In-app Notification Center** | 🟡 | `getAll` hai. Realtime partial. | Real-time center. | UX. |
+| **Notification Scheduling** | 🔴 | Koi scheduling nahi. | Schedule future send. | Campaigns. |
+| **Notification A/B Testing** | 🔴 | Koi A/B nahi. | Variant testing. | Optimization. |
+| **Notification Digest** | 🔴 | Koi digest nahi. | Daily/weekly. | Frequency control. |
+| **Notification Quiet Hours** | 🔴 | Koi quiet hours nahi. | Do-not-disturb window. | UX. |
+| **Notification Frequency Cap** | 🔴 | Koi cap nahi. | Per-user cap. | Anti-spam. |
+| **Notification Retry** | 🔴 | Koi retry nahi. | Failed retry. | Reliability. |
+| **Notification Analytics** | 🔴 | Koi analytics nahi. | Delivered, opened, clicked. | Optimization. |
+| **Notification Templates Multilingual** | 🔴 | Single language. | Per-locale templates. | i18n. |
+| **Push Deep Linking** | 🔴 | Koi deep link nahi. | Open specific screen. | UX. |
+| **Rich Push (image, action buttons)** | 🔴 | Plain text. | Rich media. | Engagement. |
+
+### 14. Chat / Tickets
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Chat File/Image Upload** | 🔴 | Sirf text. | File/image upload. | Support. |
+| **Chat Canned Responses** | 🔴 | Koi canned nahi. | Pre-written replies. | Agent speed. |
+| **Chat Assignment** | 🔴 | Koi assignment nahi. | Agent assign. | Ops. |
+| **Chat SLA Tracking** | 🔴 | Koi SLA nahi. | Response time SLA. | Quality. |
+| **Chat CSAT Survey** | 🔴 | Koi CSAT nahi. | Post-chat survey. | Quality. |
+| **Ticket SLA / Escalation** | 🔴 | Koi SLA nahi. | Auto escalation. | Quality. |
+| **Ticket Canned Responses** | 🔴 | Koi canned nahi. | Pre-written. | Speed. |
+| **Ticket Attachments** | 🔴 | Koi attach nahi. | File upload. | Support. |
+| **Ticket Internal Notes** | 🔴 | Koi internal notes nahi. | Agent-only notes. | Coordination. |
+| **Ticket Merge** | 🔴 | Koi merge nahi. | Merge duplicates. | Ops. |
+| **Ticket CSAT** | 🔴 | Koi CSAT nahi. | Post-resolution survey. | Quality. |
+| **Knowledge Base / Help Center** | 🔴 | Koi KB nahi. | Self-service docs. | Support load. |
+
+### 15. Content
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Content Versioning** | 🔴 | Koi version nahi. | Revision history. | Editorial. |
+| **Content Scheduling** | 🔴 | Koi scheduling nahi. | Future publish. | Editorial. |
+| **Content Localization** | 🟡 | i18n hai. Content per-locale nahi. | Multi-locale content. | i18n. |
+| **Content Sitemap** | 🔴 | Koi sitemap nahi. | Auto sitemap.xml. | SEO. |
+| **Content RSS Feed** | 🔴 | Koi RSS nahi. | Auto RSS. | Distribution. |
+| **Content Comments** | 🔴 | Koi comments nahi. | Blog comments. | Engagement. |
+| **Content Categories/Tags** | 🟡 | Partial. | Blog taxonomy. | Discovery. |
+| **Content Author** | 🔴 | Koi author nahi. | Author profile. | Attribution. |
+| **Content Preview** | 🔴 | Koi preview nahi. | Draft preview. | Editorial. |
+| **Banner Scheduling** | 🟡 | Partial. | Start/end date. | Campaigns. |
+| **Banner Targeting** | 🔴 | Koi targeting nahi. | Audience, geo, device. | Personalization. |
+| **Banner A/B Testing** | 🔴 | Koi A/B nahi. | Variant testing. | Optimization. |
+| **Banner Click Tracking** | 🔴 | Koi tracking nahi. | CTR tracking. | Analytics. |
+| **Popup / Modal Management** | 🔴 | Koi popup nahi. | Popup builder. | Conversion. |
+| **Announcement Bar** | 🔴 | Koi announcement nahi. | Top bar announcement. | Communication. |
+| **Cookie Consent** | 🔴 | Koi consent nahi. | DPDP cookie banner. | Compliance. |
+
+### 16. Search
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Search Engine (Meilisearch/ES)** | 🟡 | Postgres search. Scale nahi. | Dedicated engine. | Performance. |
+| **Typo Tolerance** | 🔴 | Koi typo tolerance nahi. | Fuzzy match. | UX. |
+| **Synonyms** | 🔴 | Koi synonym nahi. | Custom synonyms. | Recall. |
+| **Zero-result Recovery** | 🟡 | `getZeroResultSearches` hai. Action nahi. | Fallback suggestions. | Conversion. |
+| **Search Filters Facets** | 🟡 | `getFilters` hai. Dynamic partial. | Dynamic facets. | UX. |
+
+### 17. Admin / System
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Admin Impersonation Audit** | 🟡 | `impersonate` hai. Log partial. | Full audit trail. | Security. |
+| **Admin Approval Workflow** | 🔴 | Koi multi-level nahi. | Multi-level approvals. | Governance. |
+| **Admin Bulk Operations** | 🟡 | Partial. | Full bulk actions. | Efficiency. |
+| **Admin Notification Center** | 🔴 | Koi center nahi. | Admin alerts. | Ops. |
+| **Admin Dashboard Widgets** | 🔴 | Koi widgets nahi. | Configurable widgets. | UX. |
+| **Admin Saved Filters** | 🔴 | Koi saved filters nahi. | Save filter presets. | Efficiency. |
+| **Admin Custom Reports** | 🟡 | `reports` hai. Builder nahi. | Report builder. | Flexibility. |
+| **Admin Scheduled Reports** | 🟡 | `schedule` hai. Cron partial. | Actual cron delivery. | Automation. |
+| **Admin Data Import** | 🟡 | Users, orders partial. | Full import. | Migration. |
+| **Admin System Alerts** | 🟡 | Partial. | DB down, queue stuck alerts. | Ops. |
+| **Admin Feature Flag UI** | 🟡 | API hai. UI nahi. | Admin UI. | Usability. |
+| **Admin Audit Log Retention** | 🟡 | `purge` hai. Policy nahi. | Retention policy. | Compliance. |
+| **Admin Session Timeout** | 🔴 | Koi timeout nahi. | Idle timeout. | Security. |
+| **Admin Activity Feed** | 🔴 | Koi feed nahi. | Real-time activity. | Ops. |
+
+### 18. i18n / Currency / Tax / Geo
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **GSTIN Validation** | 🔴 | Koi validation nahi. | GSTN API validation. | Compliance. |
+| **HSN Code Mapping** | 🔴 | Koi HSN nahi. | HSN per product. | GST. |
+| **e-Invoice / e-Way Bill** | 🔴 | Koi e-invoice nahi. | IRN, e-way bill. | India compliance. |
+| **TDS / TCS** | 🔴 | Koi TDS nahi. | TDS/TCS deduction. | India tax. |
+
+### 19. Bulk / Import / Export
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Import Column Mapping** | 🔴 | Koi mapping nahi. | Column map UI. | Import UX. |
+| **Import Validation Preview** | 🔴 | Koi preview nahi. | Preview before commit. | Data safety. |
+| **Import Rollback** | 🔴 | Koi rollback nahi. | Undo import. | Data safety. |
+| **Import Scheduling** | 🔴 | Koi scheduling nahi. | Schedule imports. | Automation. |
+| **Export Streaming** | 🟡 | Partial. | Streaming for large. | Performance. |
+| **Export Templates** | 🔴 | Koi templates nahi. | Saved export formats. | Efficiency. |
+
+### 20. API Keys / Webhooks
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **API Key Authentication Middleware** | 🟡 | Routes hain. Auth nahi. | Actual middleware. | Third-party access. |
+| **API Key Scopes/Permissions** | 🔴 | Koi scopes nahi. | Scope-based access. | Security. |
+| **API Key Rate Limit** | 🔴 | Koi per-key limit nahi. | Per-key throttle. | Fairness. |
+| **API Key Expiry** | 🔴 | Koi expiry nahi. | TTL on keys. | Security. |
+| **API Key Usage Analytics** | 🟡 | `getUsage` hai. Deep nahi. | Full analytics. | Monitoring. |
+| **Webhook Retry + DLQ** | 🔴 | Koi retry nahi. | Retry policy + DLQ. | Reliability. |
+| **Webhook Signature** | 🟡 | Partial. | Full HMAC. | Security. |
+| **Webhook Event Filtering** | 🔴 | Koi filter nahi. | Subscribe specific events. | Efficiency. |
+| **Webhook Payload Versioning** | 🔴 | Koi versioning nahi. | API versioning. | Compatibility. |
+| **Webhook Testing Tool** | 🔴 | Koi test tool nahi. | Test endpoint. | DX. |
+| **Webhook Replay** | 🔴 | Koi replay nahi. | Replay events. | Debugging. |
+
+### 21. Uploads
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Image Optimization** | 🟡 | Cloudinary partial. | WebP, compression. | Performance. |
+| **Image Variants** | 🟡 | Cloudinary partial. | Thumbnail, medium, large. | Performance. |
+| **CDN Invalidation** | 🔴 | Koi invalidation nahi. | Purge cache. | Freshness. |
+| **Upload Progress** | 🔴 | Koi progress nahi. | Progress events. | UX. |
+| **Chunked Upload** | 🔴 | Koi chunked nahi. | Large file chunking. | UX. |
+| **Resumable Upload** | 🔴 | Koi resumable nahi. | Resume failed uploads. | UX. |
+| **Direct-to-Cloud Upload** | 🟡 | Signed URL hai. Actual partial. | Full direct upload. | Performance. |
+| **Upload Retention Policy** | 🔴 | Koi policy nahi. | Auto-delete old. | Storage. |
+
+### 22. Jobs / Queue
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Dead Letter Queue** | 🔴 | Koi DLQ nahi. | Failed job DLQ. | Reliability. |
+| **Job Retry Policy** | 🔴 | Koi retry nahi. | Configurable retry. | Reliability. |
+| **Job Priority** | 🔴 | Koi priority nahi. | Priority queues. | UX. |
+| **Job Dashboard (Bull Board)** | 🔴 | Koi dashboard nahi. | Bull Board UI. | Ops. |
+| **Job Scheduling UI** | 🔴 | Koi UI nahi. | Schedule management. | Ops. |
+| **Job Metrics** | 🔴 | Koi metrics nahi. | Prometheus metrics. | Monitoring. |
+| **Job Alerting** | 🔴 | Koi alert nahi. | Failed job alerts. | Ops. |
+| **Cron Job Management** | 🟡 | `getCronJobs`, `triggerJob` hai. Actual partial. | Full cron mgmt. | Ops. |
+
+### 23. Realtime / Socket
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Socket JWT Auth** | 🔴 | Koi auth nahi. | Handshake JWT verify. | Security. |
+| **Redis Adapter** | 🔴 | Koi adapter nahi. | Multi-instance scaling. | Scale. |
+| **Room-based Delivery** | 🟡 | Partial. | Full room system. | Efficiency. |
+| **Presence** | 🟡 | Partial. | Online/offline tracking. | UX. |
+| **Read Receipts** | 🟡 | Partial. | Message read status. | UX. |
+| **Live Support Chat** | 🟡 | Partial. | Full live chat. | Support. |
+| **Socket Rate Limit** | 🔴 | Koi limit nahi. | Per-socket throttle. | Abuse. |
+| **Socket Reconnection** | 🔴 | Koi reconnection nahi. | Auto-reconnect. | UX. |
+
+### 24. Infrastructure / Ops
+
+| Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
+| --- | --- | --- | --- | --- |
+| **Idempotency** | 🔴 | Koi idempotency nahi. | Idempotency-Key + DB. | Duplicate rokne ke liye. |
+| **Observability (Sentry, OTel, Prometheus)** | 🔴 | Sirf pino logs. | Full observability. | Debugging. |
+| **Alerting (PagerDuty, Slack)** | 🔴 | Koi alert nahi. | Alert channels. | Ops. |
+| **Backup & DR** | 🔴 | Koi backup nahi. | Automated backup. | Data safety. |
+| **CSRF Protection** | 🔴 | Koi CSRF nahi. | CSRF token. | Security. |
+| **WAF** | 🔴 | Koi WAF nahi. | Cloudflare WAF. | Security. |
+| **DB Partitioning** | 🔴 | Koi partition nahi. | Logs/analytics partition. | Scale. |
+| **Caching Strategy (Redis)** | 🟡 | Partial. | Full cache layer. | Performance. |
+| **Compliance (DPDP, PCI)** | 🔴 | Koi compliance nahi. | Full compliance. | Legal. |
