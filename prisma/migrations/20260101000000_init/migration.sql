@@ -20,7 +20,10 @@ CREATE TYPE "PaymentMethod" AS ENUM ('COD', 'UPI', 'BANK', 'CARD', 'NETBANKING',
 CREATE TYPE "PayoutStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'PROCESSING', 'PAID', 'FAILED');
 
 -- CreateEnum
-CREATE TYPE "ReturnStatus" AS ENUM ('REQUESTED', 'APPROVED', 'REJECTED', 'PICKED_UP', 'RECEIVED', 'REFUNDED');
+CREATE TYPE "ReturnStatus" AS ENUM ('REQUESTED', 'APPROVED', 'REJECTED', 'PICKED_UP', 'RECEIVED', 'REFUNDED', 'EXCHANGE_PENDING', 'EXCHANGE_SHIPPED', 'EXCHANGE_COMPLETED');
+
+-- CreateEnum
+CREATE TYPE "ReturnType" AS ENUM ('REFUND', 'EXCHANGE', 'REPLACEMENT');
 
 -- CreateEnum
 CREATE TYPE "TicketStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
@@ -788,6 +791,7 @@ CREATE TABLE "ReturnRequest" (
     "userId" TEXT NOT NULL,
     "reasonId" TEXT,
     "reasonText" TEXT NOT NULL DEFAULT '',
+    "type" "ReturnType" NOT NULL DEFAULT 'REFUND',
     "status" "ReturnStatus" NOT NULL DEFAULT 'REQUESTED',
     "images" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "comment" TEXT NOT NULL DEFAULT '',
@@ -800,6 +804,8 @@ CREATE TABLE "ReturnRequest" (
     "pickedUpAt" TIMESTAMP(3),
     "receivedAt" TIMESTAMP(3),
     "refundedAt" TIMESTAMP(3),
+    "exchangeShippedAt" TIMESTAMP(3),
+    "exchangeDeliveredAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -807,16 +813,26 @@ CREATE TABLE "ReturnRequest" (
 );
 
 -- CreateTable
-CREATE TABLE "ReturnItem" (
+CREATE TABLE "ExchangeItem" (
     "id" TEXT NOT NULL,
     "returnRequestId" TEXT NOT NULL,
-    "orderItemId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "variantId" TEXT,
     "qty" INTEGER NOT NULL DEFAULT 1,
-    "refundAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-    "isApproved" BOOLEAN NOT NULL DEFAULT true,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "shippedAt" TIMESTAMP(3),
+    "deliveredAt" TIMESTAMP(3),
+    "userId" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "orderItemId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "ReturnItem_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "ExchangeItem_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateTable
+CREATE TABLE "ReturnItem" (
 
 -- CreateTable
 CREATE TABLE "Review" (
@@ -2192,6 +2208,24 @@ CREATE INDEX "ReturnItem_returnRequestId_idx" ON "ReturnItem"("returnRequestId")
 CREATE INDEX "ReturnItem_orderItemId_idx" ON "ReturnItem"("orderItemId");
 
 -- CreateIndex
+CREATE INDEX "ExchangeItem_returnRequestId_idx" ON "ExchangeItem"("returnRequestId");
+
+-- CreateIndex
+CREATE INDEX "ExchangeItem_productId_idx" ON "ExchangeItem"("productId");
+
+-- CreateIndex
+CREATE INDEX "ExchangeItem_variantId_idx" ON "ExchangeItem"("variantId");
+
+-- CreateIndex
+CREATE INDEX "ExchangeItem_userId_idx" ON "ExchangeItem"("userId");
+
+-- CreateIndex
+CREATE INDEX "ExchangeItem_orderId_idx" ON "ExchangeItem"("orderId");
+
+-- CreateIndex
+CREATE INDEX "ExchangeItem_orderItemId_idx" ON "ExchangeItem"("orderItemId");
+
+-- CreateIndex
 CREATE INDEX "Review_productId_status_idx" ON "Review"("productId", "status");
 
 -- CreateIndex
@@ -2823,7 +2857,37 @@ ALTER TABLE "ReturnItem" ADD CONSTRAINT "ReturnItem_returnRequestId_fkey" FOREIG
 ALTER TABLE "ReturnItem" ADD CONSTRAINT "ReturnItem_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Review" ADD CONSTRAINT "Review_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_returnRequestId_fkey" FOREIGN KEY ("returnRequestId") REFERENCES "ReturnRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_variantId_fkey" FOREIGN KEY ("variantId") REFERENCES "ProductVariant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_variantId_fkey" FOREIGN KEY ("variantId") REFERENCES "ProductVariant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ExchangeItem" ADD CONSTRAINT "ExchangeItem_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "OrderItem"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Review" ADD CONSTRAINT "Review_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
