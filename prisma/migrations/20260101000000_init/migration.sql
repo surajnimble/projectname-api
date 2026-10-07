@@ -508,10 +508,42 @@ CREATE TABLE "CartItem" (
     "qty" INTEGER NOT NULL DEFAULT 1,
     "price" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "userId" TEXT NOT NULL DEFAULT '',
+    "isGiftWrap" BOOLEAN NOT NULL DEFAULT false,
+    "giftWrapNote" TEXT NOT NULL DEFAULT '',
+    "deliveryNote" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "CartItem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SavedCartItem" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "variantId" TEXT,
+    "qty" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SavedCartItem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PriceWatch" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "variantId" TEXT,
+    "targetPrice" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    "lastSeenPrice" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    "lastNotifiedAt" TIMESTAMP(3),
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PriceWatch_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -550,6 +582,7 @@ CREATE TABLE "Order" (
     "couponDiscount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "taxAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "shippingAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    "giftWrapAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "walletAmount" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "total" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "tokenRequired" BOOLEAN NOT NULL DEFAULT false,
@@ -588,6 +621,9 @@ CREATE TABLE "OrderItem" (
     "total" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "vendorEarning" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     "commission" DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    "isGiftWrap" BOOLEAN NOT NULL DEFAULT false,
+    "giftWrapNote" TEXT NOT NULL DEFAULT '',
+    "deliveryNote" TEXT NOT NULL DEFAULT '',
 
     CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("id")
 );
@@ -652,6 +688,23 @@ CREATE TABLE "Payment" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Payment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "IdempotencyKey" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "scope" TEXT NOT NULL DEFAULT '',
+    "userId" TEXT NOT NULL DEFAULT '',
+    "requestHash" TEXT NOT NULL DEFAULT '',
+    "responseStatus" INTEGER,
+    "responseBody" TEXT,
+    "state" TEXT NOT NULL DEFAULT 'IN_PROGRESS',
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "IdempotencyKey_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1983,7 +2036,22 @@ CREATE INDEX "CartItem_cartId_idx" ON "CartItem"("cartId");
 CREATE INDEX "CartItem_productId_idx" ON "CartItem"("productId");
 
 -- CreateIndex
+CREATE INDEX "CartItem_userId_createdAt_idx" ON "CartItem"("userId", "createdAt");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "CartItem_cartId_productId_variantId_key" ON "CartItem"("cartId", "productId", "variantId");
+
+-- CreateIndex
+CREATE INDEX "SavedCartItem_userId_createdAt_idx" ON "SavedCartItem"("userId", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SavedCartItem_userId_productId_variantId_key" ON "SavedCartItem"("userId", "productId", "variantId");
+
+-- CreateIndex
+CREATE INDEX "PriceWatch_isActive_productId_idx" ON "PriceWatch"("isActive", "productId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PriceWatch_userId_productId_variantId_key" ON "PriceWatch"("userId", "productId", "variantId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Wishlist_userId_key" ON "Wishlist"("userId");
@@ -2059,6 +2127,15 @@ CREATE INDEX "Payment_createdAt_idx" ON "Payment"("createdAt");
 
 -- CreateIndex
 CREATE INDEX "Refund_paymentId_idx" ON "Refund"("paymentId");
+
+-- CreateIndex
+CREATE INDEX "IdempotencyKey_expiresAt_idx" ON "IdempotencyKey"("expiresAt");
+
+-- CreateIndex
+CREATE INDEX "IdempotencyKey_state_idx" ON "IdempotencyKey"("state");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IdempotencyKey_userId_key_key" ON "IdempotencyKey"("userId", "key");
 
 -- CreateIndex
 CREATE INDEX "Refund_orderId_idx" ON "Refund"("orderId");
@@ -2662,6 +2739,12 @@ ALTER TABLE "CartItem" ADD CONSTRAINT "CartItem_variantId_fkey" FOREIGN KEY ("va
 
 -- AddForeignKey
 ALTER TABLE "CartItem" ADD CONSTRAINT "CartItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "SavedCartItem" ADD CONSTRAINT "SavedCartItem_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "SavedCartItem" ADD CONSTRAINT "SavedCartItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "SavedCartItem" ADD CONSTRAINT "SavedCartItem_variantId_fkey" FOREIGN KEY ("variantId") REFERENCES "ProductVariant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "PriceWatch" ADD CONSTRAINT "PriceWatch_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PriceWatch" ADD CONSTRAINT "PriceWatch_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PriceWatch" ADD CONSTRAINT "PriceWatch_variantId_fkey" FOREIGN KEY ("variantId") REFERENCES "ProductVariant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Wishlist" ADD CONSTRAINT "Wishlist_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2713,6 +2796,7 @@ ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey" FOREIGN KEY ("paymen
 
 -- AddForeignKey
 ALTER TABLE "Refund" ADD CONSTRAINT "Refund_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "IdempotencyKey" ADD CONSTRAINT "IdempotencyKey_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "VendorEarning" ADD CONSTRAINT "VendorEarning_vendorId_fkey" FOREIGN KEY ("vendorId") REFERENCES "VendorProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;

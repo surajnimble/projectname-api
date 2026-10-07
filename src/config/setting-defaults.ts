@@ -155,6 +155,8 @@ export const SETTINGS: SettingSeed[] = [
   { key: 'cart.maxItems', value: 50, category: 'cart', isPublic: true },
   { key: 'cart.holdMinutes', value: 30, category: 'cart', isPublic: false },
   { key: 'cart.persistAcrossDevices', value: true, category: 'cart', isPublic: true },
+  { key: 'cart.giftWrapCharge', value: 49, category: 'cart', isPublic: true },
+  { key: 'cart.giftWrapNoteMaxLength', value: 200, category: 'cart', isPublic: false },
 
   { key: 'vendor.autoApprove', value: false, category: 'vendor', isPublic: false },
   { key: 'vendor.maxProducts', value: 500, category: 'vendor', isPublic: false },

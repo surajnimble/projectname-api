@@ -86,6 +86,20 @@ touches a request path.
   production; the env schema is the source of truth for what is required.
 - **`scripts/e2e-*.ts` hit the real app and a real database.** They are not unit
   tests and are not run by `npm test`.
+- **Running e2e against local PGlite needs three URL parameters.** Bare
+  `postgresql://postgres:postgres@127.0.0.1:5432/postgres` fails with
+  `42P05 prepared statement already exists`, then with dropped connections.
+  Use
+  `?pgbouncer=true&statement_cache_size=0&connection_limit=1` — PGlite's socket
+  server cannot handle Prisma's prepared statements or concurrent connections.
+  Order matters too: `db:down` → `db:migrate` → `db:up` → `seed`. Running
+  `db:migrate` while the server holds the dataDir leaves `_prisma_migrations`
+  populated with no tables, and it then reports "nothing to apply" forever; the
+  cure is deleting the local `pglite-data`. One known casualty of
+  `connection_limit=1`: any interactive transaction that queries the outer
+  client instead of its own `tx` (loyalty `adjustPoints`) deadlocks and fails
+  `P2028` at the 5s timeout. That is the harness, not the code — confirm those
+  against a real Postgres before believing them.
 - **Two OTP shapes.** Registration is three steps and mints a
   `verificationToken`; OTP login is two steps and signs in from the verify call
   itself. Do not add an inline `otp` back onto `/auth/login` or

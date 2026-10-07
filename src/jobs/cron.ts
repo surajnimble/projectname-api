@@ -56,6 +56,13 @@ export const CRON_JOB_LIST: CronDefinition[] = [
     cron: CRON.PURGE_DELETED_ACCOUNTS,
     description: 'Delete accounts whose deletion recovery window has closed',
   },
+  {
+    name: 'price-drop-scan',
+    queue: QUEUE.NOTIFICATION,
+    job: JOB.PRICE_DROP_SCAN,
+    cron: CRON.PRICE_DROP_SCAN,
+    description: 'Compare watched product prices and notify on a drop',
+  },
 ];
 
 export const startCronJobs = async (): Promise<number> => {

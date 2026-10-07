@@ -438,6 +438,15 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | DELETE | `/api/v1/cart/removeCoupon` | ✅ | CUSTOMER | Remove coupon |
 | POST | `/api/v1/cart/estimate` | ✅ | CUSTOMER | Pre-checkout totals |
 | POST | `/api/v1/cart/mergeGuestCart` | ✅ | CUSTOMER | Merge after login |
+| PATCH | `/api/v1/cart/updateItemOptions/:cartItemId` | ✅ | CUSTOMER | Gift wrap + per-item delivery note |
+| GET | `/api/v1/cart/getSavedForLater` | ✅ | CUSTOMER | List saved-for-later |
+| POST | `/api/v1/cart/saveForLater` | ✅ | CUSTOMER | Move a cart line aside |
+| POST | `/api/v1/cart/savedForLater/:id/moveToCart` | ✅ | CUSTOMER | Move a saved line back |
+| DELETE | `/api/v1/cart/savedForLater/:id` | ✅ | CUSTOMER | Drop a saved line |
+| DELETE | `/api/v1/cart/savedForLater` | ✅ | CUSTOMER | Clear saved lines |
+| GET | `/api/v1/priceWatches/getAll` | ✅ | CUSTOMER | List price watches |
+| POST | `/api/v1/priceWatches/watch` | ✅ | CUSTOMER | Watch a product price |
+| DELETE | `/api/v1/priceWatches/remove/:id` | ✅ | CUSTOMER | Stop watching |
 | GET | `/api/v1/wishlist/getAll` | ✅ | CUSTOMER | List wishlist |
 | POST | `/api/v1/wishlist/addItem` | ✅ | CUSTOMER | Add to wishlist |
 | DELETE | `/api/v1/wishlist/removeItem/:id` | ✅ | CUSTOMER | Remove |
@@ -2381,6 +2390,83 @@ an in-app `ALERT` notification with the IP and platform, controlled by
 recorded at that moment, so the alert fires once per device rather than once per
 login. `User.lastLoginIp` tracks the previous IP for location comparison.
 
+### Cart Rules
+
+**Gift wrap.** `CartItem.isGiftWrap` is per line, and the charge is
+`cart.giftWrapCharge` (default `49`) counted once per wrapped line - not per
+unit, so three units of one wrapped product still cost one wrap. It lands as
+`giftWrapAmount` on both the cart totals and `Order`, and
+`placeOrder` recomputes it from the lines it is actually fulfilling, so a
+line dropped for stock does not leave the customer paying for its wrap.
+Turning the flag off clears the note rather than keeping it orphaned.
+`cart.giftWrapNoteMaxLength` bounds the note.
+
+**Per-item delivery note.** `CartItem.deliveryNote` is distinct from
+`Address.deliveryInstructions`: the address note applies to the whole delivery,
+this one to a single line. Both survive onto `OrderItem`, so the packing slip and
+the order detail show the line-level note next to the item it belongs to.
+
+**Save for later.** `SavedCartItem` is a separate table rather than a flag on
+`CartItem`. That is deliberate - nothing that totals, checks out, counts against
+`cart.maxItems` or holds stock can see a saved line, which a flag could not
+guarantee. Saving *moves* the line out of the cart rather than copying it.
+`POST /cart/savedForLater/:id/moveToCart` takes an optional `qty`; a partial
+move leaves the remainder saved, and the saved row goes only when the quantity
+reaches zero.
+
+**Price drop alerts.** `PriceWatch` stores `targetPrice` plus the
+`lastSeenPrice` the last scan saw. The `price-drop-scan` cron compares the two
+and notifies only when the price has actually fallen *and* is at or below
+target - so an already-cheap watch stays quiet instead of re-notifying every
+pass. Target must be below the current price at creation.
+`POST /priceWatches/watch` takes a variant id, in which case the variant price
+is watched and `0` means "any drop".
+
+### Payment Rules
+
+**Partial and repeated refunds.** `POST /payments/refund/:id` takes an optional
+`amount`; omitting it refunds whatever is left. The cap is always
+`paidAmount - (sum of already-settled refunds)`, re-read at initiation, and
+exceeding it is 422 `REFUND_EXCEEDS_PAID`. Nhi: `Payment.status` and
+`Order.paymentStatus` only move to `REFUNDED` when the settled total reaches
+`paidAmount`; until then they sit at `PARTIALLY_REFUNDED`. There is no limit on
+how many refunds one order can carry - `GET /payments/getRefundHistory/:orderId`
+lists them all. This is what the old gap table called "multiple refunds per
+order"; it already worked.
+
+**Idempotency keys.** Money-moving routes accept an `Idempotency-Key` header -
+`payToken`, `payBalance`, `verifyUpi`, `verifyBank`, `markCodCollected`,
+`confirmPayment` and `refund`. The header is **optional**: without it the
+request behaves exactly as before, so adopting keys cannot break an older
+client.
+
+The rules the code holds to:
+
+| Situation | Result |
+| --- | --- |
+| No header | Normal handling, nothing recorded |
+| Key shorter than 8 chars | 400 `IDEMPOTENCY_KEY_INVALID` |
+| First use of a key | Handler runs; response stored as `COMPLETED` |
+| Same key, same body | Stored response replayed verbatim, header `x-idempotency-replayed: true` |
+| Same key, different body | 409 `IDEMPOTENCY_KEY_REUSED` |
+| Same key while the first call is still running | 409 `IDEMPOTENCY_IN_PROGRESS` |
+| Any 4xx/5xx outcome | Key **released**, so the client can fix and retry |
+| First attempt died mid-flight | Reclaimed once it is older than `IN_PROGRESS_MAX_AGE_SEC` |
+
+Three details that are easy to get wrong:
+
+- **`responseBody` is text, not `JSONB`.** JSONB does not preserve key order, so
+  a replayed response would come back `result, status, message` and break the
+  fixed `status, message, result` envelope contract.
+- **A key belongs to a call that *succeeded*.** The response is captured on
+  `finish` and any 4xx/5xx deletes the row instead of storing it, so a client
+  that sent a bad body once is not locked out of that key afterwards.
+- **Keys are unique per `(userId, key)`**, not globally, and the unique index is
+  what serialises concurrent retries - a check-then-insert would race.
+
+`cleanup-expired` sweeps rows past `expiresAt` (`IDEMPOTENCY.RETENTION_HOURS`,
+default 24).
+
 ---
 
 ## Folder Structure
@@ -2705,12 +2791,22 @@ live Express router, whereas a hand-written list drifts.
     DELETE         /cart/clearCart
     DELETE         /cart/removeCoupon
     DELETE         /cart/removeItem/{cartItemId}
+    DELETE         /cart/savedForLater
+    DELETE         /cart/savedForLater/{id}
     GET            /cart/getCart
+    GET            /cart/getSavedForLater
     PATCH          /cart/updateItem
+    PATCH          /cart/updateItemOptions/{cartItemId}
     POST           /cart/addItem
     POST           /cart/applyCoupon
     POST           /cart/estimate
     POST           /cart/mergeGuestCart
+    POST           /cart/saveForLater
+    POST           /cart/savedForLater/{id}/moveToCart
+/priceWatches
+    DELETE         /priceWatches/remove/{id}
+    GET            /priceWatches/getAll
+    POST           /priceWatches/watch
 /categories
     DELETE         /categories/deleteCategory/{id}
     GET            /categories/getAll
@@ -3168,8 +3264,10 @@ Type column me do marker hain:
 
 Jin gaps ka kaam poora ho chuka hai, unhe is table se hata diya gaya hai — unka
 naya behaviour ab [Catalog & Order Rules](#catalog--order-rules),
-[Password](#password--srcconfigpasswordconfigts) aur
-[Account Security Rules](#account-security-rules) mai documented hai. Jo row
+[Password](#password--srcconfigpasswordconfigts),
+[Account Security Rules](#account-security-rules),
+[Cart Rules](#cart-rules) and
+[Payment Rules](#payment-rules) mai documented hai. Jo row
 ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 ### 1. Auth & Security
@@ -3278,15 +3376,11 @@ ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 | Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
 | --- | --- | --- | --- | --- |
-| **Save for Later** | 🔴 | Cart se remove = gone. | Move to save-for-later list. | Conversion recovery. |
 | **Guest Cart Persistence** | 🟡 | `mergeGuestCart` hai. Storage partial. | Cookie/localStorage strategy. | Guest checkout. |
 | **Cart Expiry Notification** | 🔴 | Koi reminder nahi. | Abandon hone se pehle email/push. | Abandoned cart recovery. |
 | **Cart Sharing** | 🔴 | Cart link share nahi. | Shareable cart URL. | Social commerce. |
-| **Cart Price Drop Alert** | 🔴 | Price drop pe notify nahi. | Watch item, price drop alert. | Conversion. |
 | **Cart Stock Hold** | 🟡 | `cart.holdMinutes` setting. Actual reservation nahi. | Real stock reservation during checkout. | Oversell rokne ke liye. |
 | **Cart Per-Vendor Coupon** | 🔴 | Ek coupon. Multiple nahi. | Per-vendor coupon in multi-vendor cart. | Vendor coupons ke saath. |
-| **Cart Gift Wrap** | 🔴 | Koi gift wrap nahi. | Gift wrap option + charge. | Gifting. |
-| **Cart Delivery Instructions** | 🟡 | Partial. | Per-item delivery note. | Delivery accuracy. |
 | **Cart Scheduled Delivery** | 🔴 | Koi slot nahi. | Date/time slot selection. | Customer convenience. |
 
 ### 6. Order
@@ -3319,14 +3413,11 @@ ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 | Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
 | --- | --- | --- | --- | --- |
-| **Idempotency Keys** | 🔴 | Koi idempotency nahi. | `Idempotency-Key` header + DB table. | Duplicate payment rokne ke liye. |
 | **Actual Razorpay/Stripe SDK** | 🟡 | Routes hain, SDK call nahi. | Actual SDK integration. | Live payment ke liye. |
 | **Webhook Signature Verification** | 🟡 | Stub hai. | Actual HMAC verify. | Security. |
 | **Webhook Retry + DLQ** | 🔴 | Koi retry nahi. | Failed webhook retry + DLQ. | Reliability. |
 | **Payment Reconciliation** | 🔴 | Koi reconciliation nahi. | Daily settlement vs gateway. | Finance accuracy. |
 | **Refund to Source** | 🟡 | Endpoint hai. Gateway call nahi. | Actual gateway refund API. | Customer trust. |
-| **Partial Refund** | 🟡 | Full refund. Partial nahi. | Partial amount refund. | Flexibility. |
-| **Multiple Refunds per Order** | 🔴 | Ek refund. | Multiple partial refunds. | Complex returns. |
 | **Payment Retry** | 🔴 | Koi retry nahi. | Failed payment retry. | Conversion. |
 | **Payment Link** | 🔴 | Koi link nahi. | Shareable payment link. | B2B invoices. |
 | **Payment Reminder** | 🟡 | `balanceReminderHours` setting. Job nahi. | Actual cron to remind. | Balance recovery. |
@@ -3578,7 +3669,7 @@ ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 | Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
 | --- | --- | --- | --- | --- |
-| **Idempotency** | 🔴 | Koi idempotency nahi. | Idempotency-Key + DB. | Duplicate rokne ke liye. |
+| **Idempotency** | 🟢 | Payment writes key-protected. | Extend to every write route. | Duplicate rokne ke liye. |
 | **Observability (Sentry, OTel, Prometheus)** | 🔴 | Sirf pino logs. | Full observability. | Debugging. |
 | **Alerting (PagerDuty, Slack)** | 🔴 | Koi alert nahi. | Alert channels. | Ops. |
 | **Backup & DR** | 🔴 | Koi backup nahi. | Automated backup. | Data safety. |

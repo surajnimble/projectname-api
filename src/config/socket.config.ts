@@ -64,6 +64,7 @@ export const JOB = {
   SLOW_SESSION_CLEANUP: 'cleanup-slow-sessions',
   CLEANUP_EXPIRED: 'cleanup-expired',
   PURGE_DELETED_ACCOUNTS: 'purge-deleted-accounts',
+  PRICE_DROP_SCAN: 'price-drop-scan',
 } as const;
 
 export type JobName = (typeof JOB)[keyof typeof JOB];
@@ -75,5 +76,6 @@ export const CRON = {
   TOKEN_REMINDER: '0 */6 * * *',
   CLEANUP_EXPIRED: '0 4 * * *',
   PURGE_DELETED_ACCOUNTS: '30 4 * * *',
+  PRICE_DROP_SCAN: '0 */2 * * *',
   REALTIME_FLUSH: '*/1 * * * *',
 } as const;

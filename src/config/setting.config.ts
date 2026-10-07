@@ -123,6 +123,8 @@ export const SETTING_KEY = {
   CART_MAX_ITEMS: 'cart.maxItems',
   CART_HOLD_MINUTES: 'cart.holdMinutes',
   CART_PERSIST_ACROSS_DEVICES: 'cart.persistAcrossDevices',
+  CART_GIFT_WRAP_CHARGE: 'cart.giftWrapCharge',
+  CART_GIFT_WRAP_NOTE_MAX: 'cart.giftWrapNoteMaxLength',
 
   VENDOR_AUTO_APPROVE: 'vendor.autoApprove',
   VENDOR_MAX_PRODUCTS: 'vendor.maxProducts',
