@@ -29,13 +29,13 @@ CREATE TYPE "TicketStatus" AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED')
 CREATE TYPE "TicketPriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
 
 -- CreateEnum
-CREATE TYPE "OtpType" AS ENUM ('REGISTER', 'FORGOT_PASSWORD', 'LOGIN', 'CHANGE_PASSWORD', 'PHONE_VERIFY', 'EMAIL_VERIFY', 'TWO_FA');
+CREATE TYPE "OtpType" AS ENUM ('REGISTER', 'FORGOT_PASSWORD', 'LOGIN', 'CHANGE_PASSWORD', 'PHONE_VERIFY', 'EMAIL_VERIFY', 'TWO_FA', 'EMAIL_CHANGE', 'PHONE_CHANGE');
 
 -- CreateEnum
 CREATE TYPE "OtpChannel" AS ENUM ('EMAIL', 'SMS', 'BOTH');
 
 -- CreateEnum
-CREATE TYPE "VerificationPurpose" AS ENUM ('REGISTER', 'LOGIN');
+CREATE TYPE "VerificationPurpose" AS ENUM ('REGISTER', 'LOGIN', 'EMAIL_CHANGE', 'PHONE_CHANGE');
 
 -- CreateEnum
 CREATE TYPE "SocialProvider" AS ENUM ('GOOGLE', 'APPLE', 'FACEBOOK');
@@ -107,9 +107,16 @@ CREATE TABLE "User" (
     "twoFactorSecret" TEXT,
     "twoFactorBackupCodes" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "lastLoginAt" TIMESTAMP(3),
+    "lastLoginIp" TEXT NOT NULL DEFAULT '',
     "failedLoginAttempts" INTEGER NOT NULL DEFAULT 0,
     "lockedUntil" TIMESTAMP(3),
+    "passwordChangedAt" TIMESTAMP(3),
     "deletedAt" TIMESTAMP(3),
+    "purgeAfter" TIMESTAMP(3),
+    "deletionReason" TEXT NOT NULL DEFAULT '',
+    "deletionTokenHash" TEXT NOT NULL DEFAULT '',
+    "deletionEmailHash" TEXT NOT NULL DEFAULT '',
+    "deletionPhone" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "loyaltyTier" TEXT NOT NULL DEFAULT '',
@@ -1751,6 +1758,7 @@ CREATE INDEX "User_createdAt_idx" ON "User"("createdAt");
 
 -- CreateIndex
 CREATE INDEX "User_deletedAt_idx" ON "User"("deletedAt");
+CREATE INDEX "User_purgeAfter_idx" ON "User"("purgeAfter");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RefreshToken_tokenHash_key" ON "RefreshToken"("tokenHash");

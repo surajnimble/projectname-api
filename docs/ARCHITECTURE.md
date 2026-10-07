@@ -338,6 +338,11 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | POST | `/api/v1/auth/changePassword` | ✅ | Any | Change own password |
 | POST | `/api/v1/auth/verifyEmail` | ✅ | Any | Verify email |
 | POST | `/api/v1/auth/verifyPhone` | ✅ | Any | Verify phone |
+| POST | `/api/v1/auth/changeEmail/sendOtp` | ✅ | Any | Step 1 of email change — code to the new address |
+| POST | `/api/v1/auth/changeEmail/verifyOtp` | ✅ | Any | Step 2 — code → `verificationToken` |
+| POST | `/api/v1/auth/changeEmail` | ✅ | Any | Swap the sign-in email |
+| POST | `/api/v1/auth/changePhone` | ✅ | Any | Swap the phone number |
+| POST | `/api/v1/auth/restoreAccount` | ❌ | Public | Restore inside the deletion recovery window |
 | POST | `/api/v1/auth/enable2FA` | ✅ | Any | Enable 2FA |
 | POST | `/api/v1/auth/disable2FA` | ✅ | Any | Disable 2FA |
 | POST | `/api/v1/auth/verify2FA` | ❌ | Public | 2FA challenge |
@@ -349,7 +354,7 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | DELETE | `/api/v1/auth/sessions/:id` | ✅ | Any | Revoke session |
 | GET | `/api/v1/users/getProfile` | ✅ | Any | Self profile |
 | PATCH | `/api/v1/users/updateProfile` | ✅ | Any | Update self profile |
-| DELETE | `/api/v1/users/deleteAccount` | ✅ | Any | Soft-delete self |
+| DELETE | `/api/v1/users/deleteAccount` | ✅ | Any | Soft-delete self — recoverable for `security.accountPurgeDays` |
 | GET | `/api/v1/users/getAddresses` | ✅ | CUSTOMER | List addresses |
 | POST | `/api/v1/users/addAddress` | ✅ | CUSTOMER | Add address |
 | PATCH | `/api/v1/users/updateAddress/:id` | ✅ | CUSTOMER | Update address |
@@ -765,6 +770,7 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | PATCH | `/api/v1/analytics/funnels/:id` | ✅ | ADMIN | Update funnel |
 | GET | `/api/v1/attributes/getById/:id` | ❌ | Public | Single attribute |
 | POST | `/api/v1/auth/sendOtp` | ❌ | Public | Send OTP — `type: REGISTER\|FORGOT_PASSWORD\|LOGIN\|PHONE_VERIFY\|EMAIL_VERIFY\|TWO_FA` |
+| POST | `/api/v1/auth/changeEmail/sendOtp` | ✅ | Any | Send OTP — `type: EMAIL_CHANGE\|PHONE_CHANGE` |
 | GET | `/api/v1/brands/getBySlug/:slug` | ❌ | Public | Brand by slug |
 | POST | `/api/v1/categories/bulkCreate` | ✅ | ADMIN | Bulk create |
 | GET | `/api/v1/categories/getBySlug/:slug` | ❌ | Public | Category by slug |
@@ -1031,10 +1037,16 @@ Content-Type: application/json
 
 Refresh token → HttpOnly cookie, same register jaisa.
 
+`email` ya `phone` — dono chalte hain, jo bhi bhejo.
+
 **Note:** Ye endpoint sirf password leta hai. `otp` ya `type` field isme nahi
 hote — OTP login ke liye 6.1d use karo. `twoFactorRequired: true` aaye to
 response me tokens empty honge aur `twoFactorToken` milega, jise
 `POST /auth/verify2FA` par bhejna hoga.
+
+`revokedSessionCount` batata hai ki `security.maxActiveSessions` cap cross karne
+par kitni purani sessions band hui. `0` default hai. Rules
+[Account Security Rules](#account-security-rules) me hain.
 
 ### Login — OTP
 
@@ -1448,6 +1460,7 @@ export const PASSWORD = {
   REQUIRE_SPECIAL: true,
   BCRYPT_ROUNDS: 12,
   RESET_TOKEN_EXPIRY_MIN: 30,
+  CONTACT_CHANGE_COOLDOWN_MIN: 10,
 };
 
 export const WARRANTY = {
@@ -2327,6 +2340,47 @@ caller's userId and IP; `GET /orders/getNotes/:id` lists them newest-first;
 `DELETE /orders/removeNote/:id/:noteId` removes one. Notes are not visible to
 the customer and appear in the order detail alongside tags and timeline.
 
+### Account Security Rules
+
+Ye rules schema se nahi, code se padhchi jaatin hain.
+
+**Password expiry.** `User.passwordChangedAt` is stamped at registration and on
+every successful `changePassword` / `resetPassword`. When
+`security.passwordExpiryDays` is greater than `0`, a password older than that
+many days blocks `POST /auth/login` with 403 `PASSWORD_EXPIRED`; the default `0`
+means passwords never expire. OTP login is unaffected, since there is no password
+to expire.
+
+**Concurrent session limit.** `security.maxActiveSessions` (`0` = unlimited) is
+enforced inside `issueTokens` on every sign-in. Once a user is at the cap, the
+oldest sessions by `lastSeenAt` are closed and their refresh tokens revoked, and
+the session that just signed in is always kept. The login response returns
+`revokedSessionCount` so the client can say how many devices were signed out.
+
+**Contact change.** Changing the sign-in email or phone is a two-step flow, and
+the code always goes to the contact being *claimed*, never the current one.
+`POST /auth/changeEmail/sendOtp` sends it (rate limited by
+`PASSWORD.CONTACT_CHANGE_COOLDOWN_MIN` per target address), `POST
+/auth/changeEmail/verifyOtp` returns a single-use `verificationToken`, and
+`POST /auth/changeEmail` / `POST /auth/changePhone` need both. On success the new
+contact is marked verified and **every** refresh token is revoked, so a takeover
+cannot ride along on an existing session. The account is notified of the swap
+after the fact.
+
+**Deletion recovery window.** `DELETE /users/deleteAccount` no longer destroys
+anything outright: it sets `deletedAt`, releases the email and phone, and stamps
+`purgeAfter` at `security.accountPurgeDays` (default `30`). The restore token is
+emailed at that moment and stored only as a hash, so `POST /auth/restoreAccount`
+matches on `deletionTokenHash` — the released contacts cannot identify the row.
+The `purge-deleted-accounts` cron deletes accounts whose window has closed, and
+restore returns 410 `ACCOUNT_PURGE_WINDOW` once it has.
+
+**Sign-in alerts.** A login from a device the account has not used before raises
+an in-app `ALERT` notification with the IP and platform, controlled by
+`security.loginAlerts` and `security.newDeviceAlerts`. The first-known device is
+recorded at that moment, so the alert fires once per device rather than once per
+login. `User.lastLoginIp` tracks the previous IP for location comparison.
+
 ---
 
 ## Folder Structure
@@ -2591,7 +2645,11 @@ live Express router, whereas a hand-written list drifts.
     GET            /auth/getMyConsents
     GET            /auth/sessions
     POST           /auth/acceptConsent
+    POST           /auth/changeEmail
+    POST           /auth/changeEmail/sendOtp
+    POST           /auth/changeEmail/verifyOtp
     POST           /auth/changePassword
+    POST           /auth/changePhone
     POST           /auth/checkAvailability
     POST           /auth/disable2FA
     POST           /auth/enable2FA
@@ -2606,6 +2664,7 @@ live Express router, whereas a hand-written list drifts.
     POST           /auth/register/sendOtp
     POST           /auth/register/verifyOtp
     POST           /auth/resetPassword
+    POST           /auth/restoreAccount
     POST           /auth/sendOtp
     POST           /auth/socialLogin
     POST           /auth/unlinkSocial
@@ -3108,24 +3167,17 @@ Type column me do marker hain:
 | 🟡 | Partial/Stub — endpoint ya setting hai, par actual kaam nahi karta |
 
 Jin gaps ka kaam poora ho chuka hai, unhe is table se hata diya gaya hai — unka
-naya behaviour ab [Catalog & Order Rules](#catalog--order-rules) aur
-[Password](#password--srcconfigpasswordconfigts) mai documented hai. Jo row
+naya behaviour ab [Catalog & Order Rules](#catalog--order-rules),
+[Password](#password--srcconfigpasswordconfigts) aur
+[Account Security Rules](#account-security-rules) mai documented hai. Jo row
 ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 ### 1. Auth & Security
 
 | Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
 | --- | --- | --- | --- | --- |
-| **Login with Phone + Password** | 🔴 | Sirf email + password login. Phone sirf OTP ke liye. | Phone + password login endpoint, phone-based user lookup, phone normalization. | India me 60% users phone-first hain. Email bhool jate hain. |
-| **Account Recovery (no email)** | 🔴 | Email kho gaya to koi recovery nahi. | Alternate recovery (phone OTP, security questions, backup codes). | User permanently locked out ho jata hai. Support load badhta hai. |
-| **Password Expiry Policy** | 🔴 | Password kabhi expire nahi hota. | `passwordChangedAt` + N days force change. | Enterprise/B2B clients ki requirement. |
-| **Concurrent Session Limit** | 🟡 | Sessions list + revoke hai. Max devices enforcement nahi. | Per-user max active sessions, oldest auto-revoke. | Account sharing rokne ke liye (Netflix model). |
-| **Suspicious Login Alert** | 🔴 | Koi alert nahi. | New device/IP/country pe email + push alert. | Account takeover detect karne ke liye. |
-| **Login Notifications** | 🔴 | Koi notification nahi. | Har login pe email/push with device + IP + location. | User ko pata chale koi aur login kiya. |
-| **Brute-force per account** | 🟡 | IP-based rate limit hai. Per-account lockout nahi. | Failed attempts counter per email/phone, N attempts pe lock. | Attacker IP badal ke brute-force kar sakta hai. |
-| **Email Change Flow** | 🔴 | `verifyEmail` hai, par change flow nahi. | Old email pe notify + new email pe OTP + confirm link. | Email change security ke liye. |
-| **Phone Change Flow** | 🔴 | Phone change flow nahi. | Old phone pe OTP + new phone pe OTP. | Phone change security. |
-| **Account Deletion Grace Period** | 🟡 | `deleteAccount` soft delete hai. Purge job nahi. | 30-day recovery window + nightly purge cron. | DPDP compliance + accidental delete recovery. |
+| **Account Recovery (no email)** | 🔴 | Email kho gaya to koi recovery nahi. | Alternate recovery (security questions, backup codes). Phone OTP recovery chalta hai. | User permanently locked out ho jata hai. Support load badhta hai. |
+| **Login Notifications (every login)** | 🟡 | Sirf first-time-device pe alert. | Har login pe email/push with device + IP + location. | User ko pata chale koi aur login kiya. |
 
 ### 2. Customer / User
 

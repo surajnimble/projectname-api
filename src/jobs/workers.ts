@@ -425,6 +425,13 @@ register(QUEUE.CLEANUP, JOB.CLEANUP_EXPIRED, async () => {
   };
 });
 
+register(QUEUE.CLEANUP, JOB.PURGE_DELETED_ACCOUNTS, async () => {
+  const purged = await prisma.user.deleteMany({
+    where: { deletedAt: { not: null }, purgeAfter: { lte: new Date() } },
+  });
+  return { purged: purged.count };
+});
+
 export const startWorkers = (): void => {
   if (!ENV.WORKER_ENABLED) {
     logger.warn('[jobs] WORKER_ENABLED=false — background workers not started');

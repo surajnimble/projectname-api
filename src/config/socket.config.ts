@@ -63,6 +63,7 @@ export const JOB = {
   GENERATE_REPORT: 'generate-report',
   SLOW_SESSION_CLEANUP: 'cleanup-slow-sessions',
   CLEANUP_EXPIRED: 'cleanup-expired',
+  PURGE_DELETED_ACCOUNTS: 'purge-deleted-accounts',
 } as const;
 
 export type JobName = (typeof JOB)[keyof typeof JOB];
@@ -73,5 +74,6 @@ export const CRON = {
   AUTO_CANCEL_UNPAID: '*/15 * * * *',
   TOKEN_REMINDER: '0 */6 * * *',
   CLEANUP_EXPIRED: '0 4 * * *',
+  PURGE_DELETED_ACCOUNTS: '30 4 * * *',
   REALTIME_FLUSH: '*/1 * * * *',
 } as const;

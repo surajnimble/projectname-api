@@ -436,6 +436,11 @@ export const getSecurityConfig = async () => {
     requirePhoneVerify,
     requireEmailVerify,
     passwordHistoryCount,
+    passwordExpiryDays,
+    maxActiveSessions,
+    loginAlerts,
+    newDeviceAlerts,
+    accountPurgeDays,
   ] = await Promise.all([
     getSetting<number>(SETTING_KEY.SECURITY_MAX_LOGIN_ATTEMPTS, 5),
     getSetting<number>(SETTING_KEY.SECURITY_LOCKOUT_MINUTES, 15),
@@ -445,6 +450,11 @@ export const getSecurityConfig = async () => {
     getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_PHONE_VERIFY, true),
     getSetting<boolean>(SETTING_KEY.SECURITY_REQUIRE_EMAIL_VERIFY, false),
     getSetting<number>(SETTING_KEY.SECURITY_PASSWORD_HISTORY_COUNT, 3),
+    getSetting<number>(SETTING_KEY.SECURITY_PASSWORD_EXPIRY_DAYS, 0),
+    getSetting<number>(SETTING_KEY.SECURITY_MAX_ACTIVE_SESSIONS, 0),
+    getSetting<boolean>(SETTING_KEY.SECURITY_LOGIN_ALERTS, true),
+    getSetting<boolean>(SETTING_KEY.SECURITY_NEW_DEVICE_ALERTS, true),
+    getSetting<number>(SETTING_KEY.SECURITY_ACCOUNT_PURGE_DAYS, 30),
   ]);
   return {
     maxAttempts: Number(maxAttempts ?? 5),
@@ -455,6 +465,11 @@ export const getSecurityConfig = async () => {
     requirePhoneVerify: Boolean(requirePhoneVerify),
     requireEmailVerify: Boolean(requireEmailVerify),
     passwordHistoryCount: Number(passwordHistoryCount ?? 3),
+    passwordExpiryDays: Math.max(0, Number(passwordExpiryDays ?? 0)),
+    maxActiveSessions: Math.max(0, Number(maxActiveSessions ?? 0)),
+    loginAlerts: Boolean(loginAlerts),
+    newDeviceAlerts: Boolean(newDeviceAlerts),
+    accountPurgeDays: Math.max(1, Number(accountPurgeDays ?? 30)),
   };
 };
 
