@@ -64,9 +64,21 @@ touches a request path.
 - **Migrations.** There is one folder, `20260101000000_init`, and it holds the
   whole schema. While there is no production data it is fine to edit in place.
   Once real data exists, **never** — add a new dated folder instead.
+  The test is **not** whether the database holds real data. It is whether
+  `_prisma_migrations` already lists the folder. `migrate deploy` picks
+  migrations by *name* and skips anything with a `finished_at`, so an in-place
+  edit is a silent no-op on such a database — the schema in the repo moves on
+  while the deployed database never hears about it, and the first symptom is a
+  seed or boot failure on a column you can see in `schema.prisma`.
+  If you hit that, clear the history once (`DELETE FROM "_prisma_migrations";`
+  — only safe while there is nothing to lose) and the single-folder shape works
+  again. Verify a fresh install by replaying the folder against a throwaway
+  database rather than trusting a green `migrate status`.
 - **`.env` points at a real remote Postgres.** Editing the schema and running
   `prisma db push` changes the live database. Prefer `db push` over
-  `migrate deploy` during development, and never `migrate reset`.
+  `migrate deploy` during development, and never `migrate reset`. `db push` also
+  changes the live database without recording anything in `_prisma_migrations`,
+  so a deploy afterwards will still think the migration is unapplied.
 - **Secrets.** `.env` **is tracked**, on purpose — this is a private repo and it
   is the single source of truth for env values. It holds real credentials, so it
   must never become public: never make the repo public, and keep
