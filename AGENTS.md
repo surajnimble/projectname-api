@@ -6,8 +6,8 @@ doc your task needs. Do not load the others speculatively — they are large.
 ## What this is
 
 Multi-vendor marketplace REST API. Node 20+, Express 4, TypeScript (strict),
-Prisma + PostgreSQL, Redis, Zod, JWT. 494 operations across 17 module
-directories, 98 Prisma models.
+Prisma + PostgreSQL, Redis, Zod, JWT. 531 operations across 17 module
+directories, 110 Prisma models.
 
 ## Read exactly one of these
 
@@ -72,8 +72,8 @@ touches a request path.
   seed or boot failure on a column you can see in `schema.prisma`.
   If you hit that, clear the history once (`DELETE FROM "_prisma_migrations";`
   — only safe while there is nothing to lose) and the single-folder shape works
-  again. Verify a fresh install by replaying the folder against a throwaway
-  database rather than trusting a green `migrate status`.
+  again. Verify a fresh install by wiping `pglite-data` and replaying the folder
+  against a throwaway database rather than trusting a green `migrate status`.
 - **`.env` points at a real remote Postgres.** Editing the schema and running
   `prisma db push` changes the live database. Prefer `db push` over
   `migrate deploy` during development, and never `migrate reset`. `db push` also

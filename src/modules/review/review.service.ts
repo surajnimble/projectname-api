@@ -6,7 +6,7 @@ import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
 import { ReviewStatus, type CouponType } from '@prisma/client';
 import { ORDER_STATUS } from '../../constants/statuses';
-import { calcCouponDiscount } from '../../utils/calculations';
+import { calcCouponDiscount, toPercentDistribution } from '../../utils/calculations';
 import { getCouponConfig, getReviewEditWindowDays } from '../../services/settings.service';
 import { writeActivityLog } from '../../services/audit.service';
 import { daysBetween, isFuture, isPast } from '../../utils/dates';
@@ -229,16 +229,19 @@ export const getReviewSummary = async (productId: string): Promise<Record<string
     select: { rating: true, ratingCount: true },
   });
 
+  const stars = [5, 4, 3, 2, 1];
+  const shares = toPercentDistribution(stars.map((star) => D.num(buckets[String(star)])));
+
   return {
     productId,
     averageRating: total > 0 ? D.float(round(weighted / total, 2)) : D.float(product?.rating),
     totalCount: total,
     verifiedCount: total,
 
-    distributionList: [5, 4, 3, 2, 1].map((star) => ({
+    distributionList: stars.map((star, index) => ({
       rating: star,
       count: D.num(buckets[String(star)]),
-      percentage: total > 0 ? D.float(round(D.num(buckets[String(star)]) / total, 1)) : 0,
+      percentage: D.float(shares[index]),
     })),
   };
 };
@@ -971,7 +974,7 @@ export const createFlashSale = async (
 
             saleStock: Math.min(D.num(i.saleStock), D.num(priceMap.get(productId))),
             salePrice: computed,
-            createdById: D.str(actorId),
+            createdById: D.str(actorId) || null,
           };
         }),
       },
@@ -1042,7 +1045,7 @@ export const updateFlashSale = async (
             discountType,
             discountValue,
           ),
-          createdById: D.str(actorId),
+          createdById: D.str(actorId) || null,
         };
       }),
     });

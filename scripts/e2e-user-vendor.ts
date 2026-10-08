@@ -681,6 +681,146 @@ const main = async (): Promise<void> => {
     .send({});
   record('customer cannot approve vendors -> 403', approveDenied.status === 403);
 
+  const addNote = await request(app)
+    .post(`/api/v1/users/addNote/${customer.userId}`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ note: 'Asked for a refund twice, then settled.' });
+  record(
+    'POST /users/addNote -> 200',
+    addNote.status === 200 && assertEnvelope(addNote.body, true),
+    `status=${addNote.status} detail=${addNote.body?.result?.note}`,
+  );
+
+  const noteId = addNote.body?.result?.noteId;
+  record(
+    'the note records who wrote it',
+    addNote.body?.result?.createdBy === adminUserId,
+    `createdBy=${addNote.body?.result?.createdBy}`,
+  );
+
+  const emptyNote = await request(app)
+    .post(`/api/v1/users/addNote/${customer.userId}`)
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ note: '' });
+  record('empty note rejected -> 400', emptyNote.status === 400, `status=${emptyNote.status}`);
+
+  const noteForMissing = await request(app)
+    .post('/api/v1/users/addNote/does-not-exist')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ note: 'orphan' });
+  record(
+    'note on unknown customer -> 404',
+    noteForMissing.status === 404 && assertEnvelope(noteForMissing.body, false),
+    `status=${noteForMissing.status}`,
+  );
+
+  const customerNoteDenied = await request(app)
+    .post(`/api/v1/users/addNote/${customer.userId}`)
+    .set('Authorization', `Bearer ${customer.token}`)
+    .send({ note: 'should not work' });
+  record('customer cannot write an internal note -> 403', customerNoteDenied.status === 403);
+
+  const listNotes = await request(app)
+    .get(`/api/v1/users/getNotes/${customer.userId}`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    'GET /users/getNotes -> 200',
+    listNotes.status === 200 && Array.isArray(listNotes.body?.result?.noteList),
+    `status=${listNotes.status}`,
+  );
+
+  const customerListDenied = await request(app)
+    .get(`/api/v1/users/getNotes/${customer.userId}`)
+    .set('Authorization', `Bearer ${customer.token}`);
+  record('customer cannot read internal notes -> 403', customerListDenied.status === 403);
+
+  const removeNote = await request(app)
+    .delete(`/api/v1/users/removeNote/${customer.userId}/${noteId}`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    'DELETE /users/removeNote -> 200',
+    removeNote.status === 200 && removeNote.body?.result?.isRemoved === true,
+    `status=${removeNote.status}`,
+  );
+
+  const afterRemove = await request(app)
+    .get(`/api/v1/users/getNotes/${customer.userId}`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    'the note is gone after removal',
+    (afterRemove.body?.result?.noteList ?? []).every((n: any) => n.noteId !== noteId),
+    `remaining=${(afterRemove.body?.result?.noteList ?? []).length}`,
+  );
+
+  const removeAgain = await request(app)
+    .delete(`/api/v1/users/removeNote/${customer.userId}/${noteId}`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record('removing it twice -> 404', removeAgain.status === 404);
+
+  const timeline = await request(app)
+    .get(`/api/v1/users/getTimeline/${customer.userId}?limit=50`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  const timelineList = timeline.body?.result?.timelineList ?? [];
+  record(
+    'GET /users/getTimeline -> 200',
+    timeline.status === 200 && assertEnvelope(timeline.body, true),
+    `status=${timeline.status}`,
+  );
+
+  record(
+    'the timeline carries pagination numbers first',
+    timeline.body?.result?.totalRecord >= 0 &&
+      timeline.body?.result?.timelineList !== undefined &&
+      Object.keys(timeline.body?.result ?? {})[0] === 'totalRecord',
+    JSON.stringify(Object.keys(timeline.body?.result ?? {})),
+  );
+
+  record(
+    'a login is on the timeline',
+    timelineList.some((e: any) => e.type === 'LOGIN'),
+    `types=${[...new Set(timelineList.map((e: any) => e.type))].join(',')}`,
+  );
+
+  record(
+    'the timeline is newest first',
+    timelineList.every(
+      (e: any, i: number) => i === 0 || timelineList[i - 1].occurredAt >= e.occurredAt,
+    ),
+  );
+
+  record(
+    'no timeline entry carries a null',
+    timelineList.every((e: any) => Object.values(e).every((v) => v !== null)),
+  );
+
+  const timelineFiltered = await request(app)
+    .get(`/api/v1/users/getTimeline/${customer.userId}?type=ORDER&limit=50`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    '?type= narrows to one stream',
+    timelineFiltered.status === 200 &&
+      (timelineFiltered.body?.result?.timelineList ?? []).every((e: any) => e.type === 'ORDER'),
+    `types=${[...new Set((timelineFiltered.body?.result?.timelineList ?? []).map((e: any) => e.type))].join(',')}`,
+  );
+
+  const timelineBadType = await request(app)
+    .get(`/api/v1/users/getTimeline/${customer.userId}?type=BOGUS`)
+    .set('Authorization', `Bearer ${adminToken}`);
+  record('unknown ?type -> 400', timelineBadType.status === 400);
+
+  const timelineUnknownCustomer = await request(app)
+    .get('/api/v1/users/getTimeline/does-not-exist')
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    'timeline for an unknown customer -> 404',
+    timelineUnknownCustomer.status === 404 && assertEnvelope(timelineUnknownCustomer.body, false),
+  );
+
+  const timelineDenied = await request(app)
+    .get(`/api/v1/users/getTimeline/${customer.userId}`)
+    .set('Authorization', `Bearer ${customer.token}`);
+  record('customer cannot read the timeline -> 403', timelineDenied.status === 403);
+
   const failed = checks.filter((c) => !c.passed);
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
   if (failed.length) {

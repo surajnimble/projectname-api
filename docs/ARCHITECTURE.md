@@ -367,6 +367,10 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | DELETE | `/api/v1/users/deleteUser/:id` | ✅ | SUPER_ADMIN | Hard delete |
 | GET | `/api/v1/users/getActivity/:id` | ✅ | ADMIN | User activity |
 | GET | `/api/v1/users/getOrders/:id` | ✅ | ADMIN | User orders |
+| GET | `/api/v1/users/getTimeline/:id` | ✅ | ADMIN | Unified timeline |
+| POST | `/api/v1/users/addNote/:id` | ✅ | ADMIN | Internal note add |
+| GET | `/api/v1/users/getNotes/:id` | ✅ | ADMIN | Internal notes list |
+| DELETE | `/api/v1/users/removeNote/:id/:noteId` | ✅ | ADMIN | Internal note remove |
 | POST | `/api/v1/users/impersonate/:id` | ✅ | SUPER_ADMIN | Login as user |
 | GET | `/api/v1/vendors/getProfile` | ✅ | VENDOR | My vendor profile |
 | PATCH | `/api/v1/vendors/updateProfile` | ✅ | VENDOR | Update vendor profile |
@@ -634,6 +638,10 @@ me nahi hai: `PGLITE_MODE`, `PGLITE_PORT`, `PGLITE_HOST`, `PGLITE_DATA_DIR`,
 | POST | `/api/v1/admin/clearCache` | ✅ | SUPER_ADMIN | Flush Redis |
 | GET | `/api/v1/admin/getCronJobs` | ✅ | SUPER_ADMIN | Job list |
 | POST | `/api/v1/admin/triggerJob` | ✅ | SUPER_ADMIN | Manual run |
+| GET | `/api/v1/admin/getFailedJobs` | ✅ | SUPER_ADMIN | Dead letter queue |
+| POST | `/api/v1/admin/retryFailedJob/:id` | ✅ | SUPER_ADMIN | Replay a failed job |
+| PATCH | `/api/v1/admin/resolveFailedJob/:id` | ✅ | SUPER_ADMIN | Close without replay |
+| DELETE | `/api/v1/admin/deleteFailedJob/:id` | ✅ | SUPER_ADMIN | Drop the row |
 | GET | `/api/v1/analytics/getOverview` | ✅ | ADMIN | KPIs |
 | GET | `/api/v1/analytics/getVisitors` | ✅ | ADMIN | Visitor stats |
 | GET | `/api/v1/analytics/getUniqueVisitors` | ✅ | ADMIN | UV |
@@ -2469,6 +2477,109 @@ default 24).
 
 ---
 
+### Percentage Rules
+
+Har field jiska naam `percentage` hai, wo **0-100** pe hai, fraction nahi. Ye
+contract hai — clients ise directly template me lagate hain (`width: {percentage}%`),
+isliye `0.2` ka matlab hai `0.2%`, `20` ka matlab hai `20%`.
+
+Do helper `src/utils/calculations.ts` me hain:
+
+| Helper | Kahan | Behaviour |
+| --- | --- | --- |
+| `toPercent(part, total)` | Share-of-total lists | 0-100, 1 decimal, `0` jab total `0` ho |
+| `toPercentDistribution(parts)` | Fixed-bucket columns | Ye bhi 0-100, aur list **exactly 100** kaati hai |
+
+`toPercentDistribution` ka residual sabse bade share pe jaata hai. Ye zaroori
+hai kyunki har share ko alag round karne se drift hota hai — teen barabar
+shares `33.3 + 33.3 + 33.3 = 99.9` ban jaate hain — aur jo distribution 100 se
+kam ho, usse stacked bar me gap dikhta hai.
+
+**Call sites:** `reviews/getSummary/:productId` ka `distributionList` (5 star
+buckets, fixed column) → `toPercentDistribution`. Baaki chaar
+(`analytics/getTopPages`, `getTrafficSources`, device breakdown, app versions)
+→ `toPercent`, kyunki wo ranked lists hain, fixed column nahi, aur unhe exactly
+100 kaatne ki zaroorat nahi.
+
+`tests/percentage.test.ts` ye scale lock karta hai.
+
+---
+
+### Customer Timeline Rules
+
+`GET /users/getTimeline/:id` paanch streams ko ek ordered list me merge karta hai —
+`ORDER`, `RETURN`, `TICKET`, `CHAT`, `LOGIN` — taaki support agent ko paanch screens
+kholne na pade. `?type=` se ek stream tak filter hota hai, `?from=` / `?to=` range
+set karte hain.
+
+Ye **read-only** hai, koi naya table nahi. `getUserActivity` alag hai — wo sirf
+`ActivityLog` ka event stream padhta hai, business objects nahi.
+
+Ek cheez jo code se nahi dikhti: ye union SQL me nahi hai. Prisma ek `skip`/`take`
+sirf ek table pe lagata hai, aur merge hone se pehle ye nahi pata chalta ki page ki
+boundary kahan padegi. Isliye har source se **`skip + limit`** rows leti hain — union
+ke pehle `skip + limit` rows usse poore mil jaate hain, isliye slice sahi hota hai.
+
+Iska matlab: `TIMELINE_MAX_WINDOW` (200) se gehri page pe har source se itni rows
+nahin aati, aur list page ke end se chhoti ho sakti hai. Ye deliberate hai — bina
+cap ke ek deep page paanch unbounded query ban jayegi.
+
+`totalRecord` har source ke alag `count()` ka sum hai, isliye wo merged window se
+zyada hota hai. Ye bhi expected hai: count accurate hai, list window ke andar hai.
+
+---
+
+### Job Retry & Dead Letter Rules
+
+**Retry.** Every job carries `attempts` and an exponential `backoff`, applied per
+job at enqueue time rather than as the Queue's `defaultJobOptions` — `getQueue()`
+is synchronous everywhere and reading settings is not. Both numbers come from
+settings first, falling back to `QUEUE_POLICY` in `src/config/queue.config.ts`:
+
+| Setting | Default | Kya |
+| --- | --- | --- |
+| `queue.maxAttempts` | `3` | Total attempts, not retries after the first |
+| `queue.backoffDelayMs` | `3000` | First backoff; exponential from there |
+| `queue.maxReplays` | `3` | Manual replays one dead row is allowed |
+
+`queue.maxAttempts` is clamped to at least 1 — a zero there would silently mean
+"run once, never retry".
+
+**Dead letter queue.** When BullMQ spends the last attempt, the worker's `failed`
+hook writes a `FailedJob` row. The check is `attemptsMade >= job.opts.attempts`,
+not `attemptsMade > 0`, so the row appears only once the retry is actually spent
+— recording on the first transient failure would defeat the retry entirely.
+
+The row is keyed `@@unique([queue, jobId])`, so a job that fails, is replayed and
+fails again updates one row instead of accumulating one per attempt, and a
+resolved row reopens to `PENDING` when its job comes back.
+
+| Situation | Result |
+| --- | --- |
+| Failure with attempts left | Logged only; BullMQ retries it |
+| Last attempt failed | `FailedJob` written, status `PENDING` |
+| `retryFailedJob/:id` | Re-queued under `replay-{jobId}-{n}`, `replayCount` incremented |
+| Replay beyond `queue.maxReplays` | 409 `FAILED_JOB_REPLAY_LIMIT` |
+| Queue or Redis down at replay time | 503 `FAILED_JOB_QUEUE_UNAVAILABLE`, row untouched |
+| `resolveFailedJob/:id` | Status `RESOLVED` with the acting admin, no replay |
+| Replay or resolve on a non-`PENDING` row | 409 `FAILED_JOB_ALREADY_RESOLVED` |
+| The write itself fails | Logged; the worker keeps running |
+
+Two properties come from storing the row in Postgres instead of a Bull queue: a
+failure survives a Redis flush, and an admin can query it over HTTP.
+
+**The replay gets its own queue id** (`replay-{jobId}-{n}`). Reusing the original
+would collide with the retained failed job, and the original row has to stay put
+as the record of what went wrong.
+
+`prune-failed-jobs` runs nightly (`CRON.PRUNE_FAILED_JOBS`): a `PENDING` row
+untouched for `DLQ.STALE_PENDING_DAYS` (30) becomes `ABANDONED`, and anything
+`RESOLVED` or `ABANDONED` older than `DLQ.RESOLVED_RETENTION_DAYS` (30) is
+deleted. An unreplayed failure that old has almost always been fixed by then,
+and keeping it forever only hides the live ones.
+
+---
+
 ## Folder Structure
 
 Module layout **domain-grouped** hai — ek module ke andar multiple routers
@@ -2483,7 +2594,7 @@ projectname-api/
 |   |-- schema.prisma
 |   |-- migrations/
 |   |   |-- migration_lock.toml
-|   |   `-- 20260101000000_init/   # poori schema ek hi folder me (98 models)
+|   |   `-- 20260101000000_init/   # poori schema ek hi folder me (110 models)
 |   `-- seed.ts
 |-- src/
 |   |-- constants/        # roles, permissions, statuses, http, countries, tracking
@@ -2522,7 +2633,7 @@ projectname-api/
 |   |-- utils/            # AppError, asyncHandler, ApiResponse, defaults,
 |   |                     # serialize, pagination, crypto, geo, deviceParser,
 |   |                     # slug, dates, calculations, validate
-|   |-- jobs/             # bullmq workers + cron
+|   |-- jobs/             # bullmq workers + cron + deadletter.service.ts
 |   |-- templates/        # default email HTML (DB row ki fallback)
 |   |-- routes/           # /api/v1 aggregator
 |   |-- docs/             # swagger spec
@@ -2634,6 +2745,7 @@ aur `outDir: ./dist` set karta hai, isliye entry `dist/server.js` banta hai aur
 - `Currency` / `Country` / `State` / `City`
 - `ApiKey` / `WebhookEndpoint` / `WebhookLog`
 - `BulkJob` / `ReportSchedule`
+- **`FailedJob`** (queue, jobName, jobId, payload, error, replayCount, status) — the dead letter queue; unique on `(queue, jobId)`
 - **`SystemSetting`** (key, value Json, category, isPublic)
 - **`RolePermission`** (role, permission)
 - **`EmailTemplate`**, **`SmsTemplate`**, **`NotificationTemplate`**
@@ -2673,14 +2785,18 @@ live Express router, whereas a hand-written list drifts.
     GET            /admin/getAuditLogs
     GET            /admin/getCronJobs
     GET            /admin/getDashboardStats
+    GET            /admin/getFailedJobs
     GET            /admin/getPermissions
     GET            /admin/getSystemHealth
+    PATCH          /admin/resolveFailedJob/{id}
     PATCH          /admin/toggleSubAdminStatus/{id}
     PATCH          /admin/updatePermissions/{id}
     PATCH          /admin/updateSubAdmin/{id}
     POST           /admin/clearCache
     POST           /admin/createSubAdmin
+    POST           /admin/retryFailedJob/{id}
     POST           /admin/triggerJob
+    DELETE         /admin/deleteFailedJob/{id}
 /analytics
     GET            /analytics/export
     GET            /analytics/getAbandonedCarts
@@ -3187,12 +3303,15 @@ live Express router, whereas a hand-written list drifts.
     DELETE         /users/deleteAccount
     DELETE         /users/deleteAddress/{id}
     DELETE         /users/deleteUser/{id}
+    DELETE         /users/removeNote/{id}/{noteId}
     GET            /users/getActivity/{id}
     GET            /users/getAddresses
     GET            /users/getAll
     GET            /users/getById/{id}
+    GET            /users/getNotes/{id}
     GET            /users/getOrders/{id}
     GET            /users/getProfile
+    GET            /users/getTimeline/{id}
     PATCH          /users/setDefaultAddress/{id}
     PATCH          /users/toggleStatus/{id}
     PATCH          /users/updateAddress/{id}
@@ -3200,6 +3319,7 @@ live Express router, whereas a hand-written list drifts.
     PATCH          /users/updateProfile
     PATCH          /users/updateUser/{id}
     POST           /users/addAddress
+    POST           /users/addNote/{id}
     POST           /users/impersonate/{id}
 /vendors
     GET            /vendors/getAll
@@ -3266,9 +3386,12 @@ Jin gaps ka kaam poora ho chuka hai, unhe is table se hata diya gaya hai — unk
 naya behaviour ab [Catalog & Order Rules](#catalog--order-rules),
 [Password](#password--srcconfigpasswordconfigts),
 [Account Security Rules](#account-security-rules),
-[Cart Rules](#cart-rules) and
-[Payment Rules](#payment-rules) mai documented hai. Jo row
-ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
+[Cart Rules](#cart-rules),
+[Payment Rules](#payment-rules),
+[Percentage Rules](#percentage-rules),
+[Customer Timeline Rules](#customer-timeline-rules) and
+[Job Retry & Dead Letter Rules](#job-retry--dead-letter-rules) mai documented hai.
+Jo row ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 ### 1. Auth & Security
 
@@ -3284,8 +3407,6 @@ ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 | **Saved Payment Methods** | 🔴 | Har baar card/UPI dobara daalna padta hai. | Tokenized card/UPI save, 1-click pay. | Conversion rate 20-30% badhta hai. |
 | **Customer Preferences** | 🟡 | Language/currency partial. | Notification channel prefs, timezone, digest frequency. | Personalization ke liye. |
 | **Customer Segments** | 🔴 | Koi segment/tag nahi. | VIP, wholesale, blocked, new, repeat tags. | Targeted marketing ke liye. |
-| **Customer Notes** | 🔴 | Admin customer pe note nahi likh sakta. | Internal notes with author + timestamp. | Support team coordination. |
-| **Customer Timeline** | 🔴 | Orders, returns, tickets alag-alag. | Unified timeline (orders + returns + tickets + chats + logins). | Support agent ko full context milta hai. |
 | **Customer Merge** | 🔴 | Duplicate accounts merge nahi. | Merge API with conflict resolution. | Duplicate accounts se data mess. |
 | **Customer Export** | 🟡 | Reports me hai, per-customer nahi. | Single customer ka full data export (JSON/CSV). | DPDP right to access. |
 | **DPDP Data Export** | 🔴 | Customer apna data download nahi kar sakta. | Self-service data export endpoint. | DPDP legal requirement. |
@@ -3643,9 +3764,6 @@ ab bhi yahan hai, uska kaam adhoora hai ya bilkul nahi hua.
 
 | Feature | Type | Abhi Kya Hai | Kya Missing | Kyun Zaroori |
 | --- | --- | --- | --- | --- |
-| **Dead Letter Queue** | 🔴 | Koi DLQ nahi. | Failed job DLQ. | Reliability. |
-| **Job Retry Policy** | 🔴 | Koi retry nahi. | Configurable retry. | Reliability. |
-| **Job Priority** | 🔴 | Koi priority nahi. | Priority queues. | UX. |
 | **Job Dashboard (Bull Board)** | 🔴 | Koi dashboard nahi. | Bull Board UI. | Ops. |
 | **Job Scheduling UI** | 🔴 | Koi UI nahi. | Schedule management. | Ops. |
 | **Job Metrics** | 🔴 | Koi metrics nahi. | Prometheus metrics. | Monitoring. |

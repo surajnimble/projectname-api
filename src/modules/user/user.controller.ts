@@ -19,6 +19,11 @@ import {
   serializeOrderSummaryList,
   serializeImpersonation,
 } from './user.serializer';
+import {
+  serializeCustomerNote,
+  serializeCustomerNoteList,
+  serializeTimelineList,
+} from '../../utils/serialize';
 
 const userId = (req: Request): string => req.auth!.userId;
 const adminOnly = requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN);
@@ -92,6 +97,101 @@ export const setDefaultAddress = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: SUCCESS.ADDRESS.DEFAULT_SET,
     result: serializeAddress(address),
+  });
+});
+
+/**
+ * @openapi
+ * /users/addNote/:id:
+ *   post:
+ *     tags: [Users]
+ *     summary: Add an internal note about a customer
+ *     description: Admin only. Never exposed to the customer.
+ *     responses:
+ *       200: { description: Note added }
+ *       400: { description: Note is required }
+ *       404: { description: Customer not found }
+ */
+export const addCustomerNote = asyncHandler(async (req, res) => {
+  const note = await service.addCustomerNote(req.params.id, userId(req), req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.USER.NOTE_ADDED,
+    result: serializeCustomerNote(note),
+  });
+});
+
+/**
+ * @openapi
+ * /users/getNotes/:id:
+ *   get:
+ *     tags: [Users]
+ *     summary: List internal notes for a customer
+ *     description: Admin only.
+ *     responses:
+ *       200: { description: Note list, newest first }
+ *       404: { description: Customer not found }
+ */
+export const getCustomerNotes = asyncHandler(async (req, res) => {
+  const notes = await service.listCustomerNotes(req.params.id);
+  return ApiResponse.success(res, {
+    message: SUCCESS.USER.NOTES_FETCHED,
+    result: serializeCustomerNoteList(notes),
+  });
+});
+
+/**
+ * @openapi
+ * /users/removeNote/:id/:noteId:
+ *   delete:
+ *     tags: [Users]
+ *     summary: Remove an internal note from a customer
+ *     description: Admin only.
+ *     responses:
+ *       200: { description: Note removed }
+ *       404: { description: Customer or note not found }
+ */
+export const removeCustomerNote = asyncHandler(async (req, res) => {
+  await service.deleteCustomerNote(req.params.id, req.params.noteId, userId(req), req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.USER.NOTE_REMOVED,
+    result: { isRemoved: true },
+  });
+});
+
+/**
+ * @openapi
+ * /users/getActivity/:id:
+ *   get:
+ *     tags: [Users]
+ *     summary: Merge one customer's orders, returns, tickets, chats and logins
+ *     description: >
+ *       One ordered stream so a support agent does not have to open five screens.
+ *       Supports `?type=ORDER|RETURN|TICKET|CHAT|LOGIN`, `?from=`, `?to=`.
+ *     responses:
+ *       200: { description: Paginated timeline, newest first }
+ *       404: { description: Customer not found }
+ */
+export const getTimeline = asyncHandler(async (req, res) => {
+  const { rows, total, page, limit } = await service.getUserTimeline(req.params.id, req.query);
+
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.USER.TIMELINE_FETCHED,
+    result: {
+      filterData: {
+        type: D.str(req.query.type as string),
+        from: D.str(req.query.from as string),
+        to: D.str(req.query.to as string),
+      },
+      ...serializeTimelineList(rows),
+    },
+    totalRecord: total,
+    totalPage: Math.ceil(total / limit),
+    currentPage: page,
+    limit,
+    hasNext: page * limit < total,
+    hasPrevious: page > 1,
+    nextPage: page * limit < total ? page + 1 : 0,
+    previousPage: page > 1 ? page - 1 : 0,
   });
 });
 

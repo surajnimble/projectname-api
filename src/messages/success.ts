@@ -32,6 +32,10 @@ export const SUCCESS = {
     DELETED: 'User deleted successfully.',
     STATUS_UPDATED: 'User status updated successfully.',
     AVATAR_UPDATED: 'Avatar updated successfully.',
+    NOTE_ADDED: 'Customer note added.',
+    NOTES_FETCHED: 'Customer notes fetched.',
+    NOTE_REMOVED: 'Customer note removed.',
+    TIMELINE_FETCHED: 'Customer timeline fetched successfully.',
   },
   ADDRESS: {
     ADDED: 'Address added successfully.',
@@ -380,6 +384,10 @@ export const SUCCESS = {
     CACHE_CLEARED: 'Cache cleared successfully.',
     CRON_JOBS_FETCHED: 'Cron jobs fetched successfully.',
     JOB_TRIGGERED: 'Job triggered successfully.',
+    FAILED_JOBS_FETCHED: 'Failed jobs fetched successfully.',
+    FAILED_JOB_RETRIED: 'Failed job queued for retry.',
+    FAILED_JOB_RESOLVED: 'Failed job marked resolved.',
+    FAILED_JOB_DELETED: 'Failed job deleted.',
   },
   ANALYTICS: {
     OVERVIEW_FETCHED: 'Analytics overview fetched.',

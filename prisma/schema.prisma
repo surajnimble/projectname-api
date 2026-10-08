@@ -355,6 +355,8 @@ model User {
   couponUsages            CouponUsage[]
   orderNotes              OrderNote[]
   ticketNotes             TicketNote[]
+  customerNotes           CustomerNote[]
+  customerNotesAuthored   CustomerNote[]            @relation("CustomerNoteAuthor")
   loyaltyTier             String                    @default("")
   referredById            String?
   referralsMade           Referral[]                @relation("ReferrerReferrals")
@@ -1092,11 +1094,11 @@ model OrderItem {
   giftWrapNote  String  @default("")
   deliveryNote  String  @default("")
 
-  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  subOrder    SubOrder?       @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
-  product     Product         @relation(fields: [productId], references: [id])
-  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  returnItems ReturnItem[]
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  subOrder      SubOrder?       @relation(fields: [subOrderId], references: [id], onDelete: SetNull)
+  product       Product         @relation(fields: [productId], references: [id])
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  returnItems   ReturnItem[]
   exchangeItems ExchangeItem[]
 
   @@index([orderId])
@@ -1194,17 +1196,17 @@ model Payment {
 /// order, and the envelope contract requires `status` before `message` before
 /// `result`.
 model IdempotencyKey {
-  id             String    @id @default(cuid())
+  id             String   @id @default(cuid())
   key            String
-  scope          String    @default("")
-  userId         String    @default("")
-  requestHash    String    @default("")
+  scope          String   @default("")
+  userId         String   @default("")
+  requestHash    String   @default("")
   responseStatus Int?
   responseBody   String?
-  state          String    @default("IN_PROGRESS")
+  state          String   @default("IN_PROGRESS")
   expiresAt      DateTime
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1300,37 +1302,37 @@ model ReturnReason {
 }
 
 model ReturnRequest {
-  id            String       @id @default(cuid())
-  returnNumber  String       @unique
-  orderId       String
-  subOrderId    String?
-  vendorId      String?
-  userId        String
-  reasonId      String?
-  reasonText    String       @default("")
-  type          ReturnType   @default(REFUND)
-  status        ReturnStatus @default(REQUESTED)
-  images        String[]     @default([])
-  comment       String       @default("")
-  pickupAddress Json         @default("{}")
-  pickupOtp     String       @default("")
-  refundAmount  Float        @default(0.0)
-  refundMode    String       @default("ORIGINAL")
-  rejectReason  String       @default("")
-  requestedAt   DateTime     @default(now())
-  pickedUpAt    DateTime?
-  receivedAt    DateTime?
-  refundedAt    DateTime?
-  exchangeShippedAt DateTime?
+  id                  String       @id @default(cuid())
+  returnNumber        String       @unique
+  orderId             String
+  subOrderId          String?
+  vendorId            String?
+  userId              String
+  reasonId            String?
+  reasonText          String       @default("")
+  type                ReturnType   @default(REFUND)
+  status              ReturnStatus @default(REQUESTED)
+  images              String[]     @default([])
+  comment             String       @default("")
+  pickupAddress       Json         @default("{}")
+  pickupOtp           String       @default("")
+  refundAmount        Float        @default(0.0)
+  refundMode          String       @default("ORIGINAL")
+  rejectReason        String       @default("")
+  requestedAt         DateTime     @default(now())
+  pickedUpAt          DateTime?
+  receivedAt          DateTime?
+  refundedAt          DateTime?
+  exchangeShippedAt   DateTime?
   exchangeDeliveredAt DateTime?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
-  order  Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  vendor VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reason ReturnReason?  @relation(fields: [reasonId], references: [id], onDelete: SetNull)
-  items  ReturnItem[]
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendor        VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason        ReturnReason?  @relation(fields: [reasonId], references: [id], onDelete: SetNull)
+  items         ReturnItem[]
   exchangeItems ExchangeItem[]
 
   @@index([orderId])
@@ -1356,25 +1358,25 @@ model ReturnItem {
 }
 
 model ExchangeItem {
-  id              String  @id @default(cuid())
+  id              String    @id @default(cuid())
   returnRequestId String
   productId       String
   variantId       String?
-  qty             Int     @default(1)
-  status          String  @default("PENDING") // PENDING, SHIPPED, DELIVERED, CANCELLED
+  qty             Int       @default(1)
+  status          String    @default("PENDING") // PENDING, SHIPPED, DELIVERED, CANCELLED
   shippedAt       DateTime?
   deliveredAt     DateTime?
 
-  returnRequest ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
-  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  returnRequest ReturnRequest   @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  product       Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderItem     OrderItem?    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem     OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
-  userId        String
-  orderId       String
-  orderItemId   String?
+  userId      String
+  orderId     String
+  orderItemId String?
 
   @@index([returnRequestId])
   @@index([productId])
@@ -1525,7 +1527,7 @@ model FlashSaleItem {
   saleStock   Int     @default(0)
   soldCount   Int     @default(0)
   isSoldOut   Boolean @default(false)
-  createdById String  @default("")
+  createdById String?
 
   flashSale FlashSale @relation(fields: [flashSaleId], references: [id], onDelete: Cascade)
   product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1852,6 +1854,20 @@ model TicketNote {
 
   @@index([ticketId, createdAt])
   @@index([userId])
+}
+
+model CustomerNote {
+  id          String   @id @default(cuid())
+  userId      String
+  createdById String?
+  note        String
+  createdAt   DateTime @default(now())
+
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdBy User? @relation("CustomerNoteAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([createdById])
 }
 
 //  CONTENT
@@ -2329,6 +2345,29 @@ model BulkJob {
   @@index([status])
   @@index([vendorId])
   @@index([createdAt])
+}
+
+model FailedJob {
+  id           String    @id @default(cuid())
+  queue        String
+  jobName      String
+  jobId        String
+  payload      Json      @default("{}")
+  error        String    @default("")
+  attemptsMade Int       @default(0)
+  replayCount  Int       @default(0)
+  status       String    @default("PENDING")
+  lastErrorAt  DateTime  @default(now())
+  replayedAt   DateTime?
+  resolvedAt   DateTime?
+  resolvedBy   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([queue, jobId])
+  @@index([status, createdAt])
+  @@index([queue])
+  @@index([jobName])
 }
 
 model ReportSchedule {
