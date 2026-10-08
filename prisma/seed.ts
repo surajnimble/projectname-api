@@ -103,7 +103,36 @@ const uniqueSlug = async (
   return `${root}-${Date.now()}`;
 };
 
+const ensureSystemSettingTable = async (): Promise<void> => {
+  try {
+    await prisma.systemSetting.findFirst({ where: { key: 'site.name' } });
+  } catch {
+    await prisma.$executeRaw`
+      CREATE TABLE "SystemSetting" (
+        "id"         TEXT NOT NULL,
+        "key"        TEXT NOT NULL UNIQUE,
+        "value"      JSON NOT NULL,
+        "category"   TEXT,
+        "isPublic"   BOOLEAN NOT NULL DEFAULT false,
+        "updatedBy"  TEXT,
+        "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"  TIMESTAMP(3) NOT NULL,
+
+        CONSTRAINT "SystemSetting_pkey" PRIMARY KEY ("id")
+      );
+
+      CREATE UNIQUE INDEX "SystemSetting_key_key" ON "SystemSetting"("key");
+
+      CREATE INDEX "SystemSetting_category_idx" ON "SystemSetting"("category");
+
+      CREATE INDEX "SystemSetting_isPublic_idx" ON "SystemSetting"("isPublic");
+    `;
+  }
+};
+
 const seedSettings = async (): Promise<number> => {
+  await ensureSystemSettingTable();
+
   for (const setting of SETTINGS) {
     await prisma.systemSetting.upsert({
       where: { key: setting.key },
