@@ -119,6 +119,7 @@ export interface FakeStore {
     verifications: Row[];
     refreshTokens: Row[];
     passwordHistory: Row[];
+    sessions: Row[];
     vendors: Row[];
     devices: Row[];
     bans: Row[];
@@ -135,6 +136,7 @@ export const createFakeStore = (): FakeStore => {
     verifications: [] as Row[],
     refreshTokens: [] as Row[],
     passwordHistory: [] as Row[],
+    sessions: [] as Row[],
     vendors: [] as Row[],
     devices: [] as Row[],
     bans: [] as Row[],
@@ -155,6 +157,21 @@ export const createFakeStore = (): FakeStore => {
     authVerification: collection(db.verifications, id),
     refreshToken: collection(db.refreshTokens, id),
     passwordHistory: collection(db.passwordHistory, id),
+    session: {
+      findUnique: async ({ where }: Row = {}) => {
+        const hit = db.sessions.find((r) => matches(r, where));
+        return hit ? { ...hit } : null;
+      },
+      upsert: async ({ where, create, update }: Row) => {
+        const hit = db.sessions.find((r) => matches(r, where));
+        if (!hit) {
+          db.sessions.push({ id: id(), createdAt: new Date(), ...create });
+          return { ...db.sessions[db.sessions.length - 1] };
+        }
+        applyData(hit, update);
+        return { ...hit };
+      },
+    },
     vendorProfile: collection(db.vendors, id),
     device: collection(db.devices, id),
     customerBan: collection(db.bans, id),
@@ -174,6 +191,7 @@ export const createFakeStore = (): FakeStore => {
       db.verifications.length = 0;
       db.refreshTokens.length = 0;
       db.passwordHistory.length = 0;
+      db.sessions.length = 0;
       db.vendors.length = 0;
       db.devices.length = 0;
       db.bans.length = 0;

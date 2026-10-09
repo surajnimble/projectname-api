@@ -224,7 +224,7 @@ export const rejectReview = moderateReviewStatus('REJECTED', SUCCESS.REVIEW.REJE
  */
 export const listQuestions = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
-  const role = req.auth!.role;
+  const role = req.auth?.role;
 
   const { rows, total } = await service.listQuestions(
     { ...(req.query as any), skip, take },
