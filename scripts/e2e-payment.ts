@@ -98,15 +98,15 @@ const main = async (): Promise<void> => {
   const { prisma } = await import('../src/services/prisma.service');
   const { setSetting } = await import('../src/services/settings.service');
 
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('payment.cod.extraCharge', 0, 'payment', undefined, false);
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
-  await setSetting('tax.inclusive', false, 'tax', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('paymentCodExtraCharge', 0, 'payment', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
+  await setSetting('taxInclusive', false, 'tax', undefined, false);
 
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('payment.token.applicableAbove', 2000, 'payment', undefined, false);
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('paymentTokenApplicableAbove', 2000, 'payment', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
 
   const customer = await register('cu', 'CUSTOMER');
   const other = await register('x', 'CUSTOMER');
@@ -259,12 +259,12 @@ const main = async (): Promise<void> => {
     `status=${codTwice.status} msg=${codTwice.body?.message}`,
   );
 
-  await setSetting('payment.token.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.token.mode', 'fixed', 'payment', undefined, false);
-  await setSetting('payment.token.fixedAmount', 200, 'payment', undefined, false);
-  await setSetting('payment.token.applicableAbove', 500, 'payment', undefined, false);
-  await setSetting('payment.token.minAmount', 10, 'payment', undefined, false);
-  await setSetting('payment.token.maxAmount', 100000, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentTokenMode', 'fixed', 'payment', undefined, false);
+  await setSetting('paymentTokenFixedAmount', 200, 'payment', undefined, false);
+  await setSetting('paymentTokenApplicableAbove', 500, 'payment', undefined, false);
+  await setSetting('paymentTokenMinAmount', 10, 'payment', undefined, false);
+  await setSetting('paymentTokenMaxAmount', 100000, 'payment', undefined, false);
 
   const tokenOrder = await place(2);
   record('token order placed', tokenOrder.status === 201, `status=${tokenOrder.status}`);
@@ -385,7 +385,7 @@ const main = async (): Promise<void> => {
     `status=${balanceTwice.status}`,
   );
 
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
 
   const refundInit = await admin.post(`/api/v1/payments/refund/${tokenPaymentId}`, {
     orderId: tokenOrder.id,
@@ -473,8 +473,8 @@ const main = async (): Promise<void> => {
     `status=${refundAsCustomer.status}`,
   );
 
-  await setSetting('wallet.enabled', true, 'wallet', undefined, false);
-  await setSetting('wallet.maxBalance', 100000, 'wallet', undefined, false);
+  await setSetting('walletEnabled', true, 'wallet', undefined, false);
+  await setSetting('walletMaxBalance', 100000, 'wallet', undefined, false);
 
   const before = await cu.get('/api/v1/wallet/getBalance');
   record('GET /wallet/getBalance -> 200', before.status === 200, `status=${before.status}`);
@@ -563,7 +563,7 @@ const main = async (): Promise<void> => {
     `status=${overdraw.status} msg=${overdraw.body?.message}`,
   );
 
-  await setSetting('wallet.maxBalance', 4000, 'wallet', undefined, false);
+  await setSetting('walletMaxBalance', 4000, 'wallet', undefined, false);
   const overCap = await admin.post('/api/v1/wallet/adminCredit', {
     userId: customer.userId,
     amount: 5000,
@@ -573,7 +573,7 @@ const main = async (): Promise<void> => {
     overCap.status === 422,
     `status=${overCap.status} msg=${overCap.body?.message}`,
   );
-  await setSetting('wallet.maxBalance', 100000, 'wallet', undefined, false);
+  await setSetting('walletMaxBalance', 100000, 'wallet', undefined, false);
 
   const adjustAsCustomer = await cu.post('/api/v1/wallet/adminCredit', {
     userId: customer.userId,
@@ -585,8 +585,8 @@ const main = async (): Promise<void> => {
     `status=${adjustAsCustomer.status}`,
   );
 
-  await setSetting('vendor.payoutHoldDays', 0, 'vendor', undefined, false);
-  await setSetting('vendor.minPayoutAmount', 100, 'vendor', undefined, false);
+  await setSetting('vendorPayoutHoldDays', 0, 'vendor', undefined, false);
+  await setSetting('vendorMinPayoutAmount', 100, 'vendor', undefined, false);
 
   const deliveredOrder = await place(1);
   await admin.patch(`/api/v1/orders/updateStatus/${deliveredOrder.id}`, { status: 'SHIPPED' });
@@ -809,11 +809,11 @@ const main = async (): Promise<void> => {
     released?.status,
   );
 
-  await setSetting('return.enabled', true, 'return', undefined, false);
-  await setSetting('return.windowDays', 7, 'return', undefined, false);
-  await setSetting('return.reasonRequired', true, 'return', undefined, false);
-  await setSetting('return.imagesRequired', false, 'return', undefined, false);
-  await setSetting('refund.mode', 'ORIGINAL', 'return', undefined, false);
+  await setSetting('returnEnabled', true, 'return', undefined, false);
+  await setSetting('returnWindowDays', 7, 'return', undefined, false);
+  await setSetting('returnReasonRequired', true, 'return', undefined, false);
+  await setSetting('returnImagesRequired', false, 'return', undefined, false);
+  await setSetting('refundMode', 'ORIGINAL', 'return', undefined, false);
 
   const reason = await admin.post('/api/v1/returns/addReason', {
     title: `Damaged ${run}`,
@@ -1116,11 +1116,11 @@ const main = async (): Promise<void> => {
   await prisma.product.deleteMany({ where: { id: productId } });
   await prisma.returnReason.deleteMany({ where: { title: { contains: run } } });
 
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('shipping.freeAbove', 999, 'shipping', undefined, false);
-  await setSetting('vendor.payoutHoldDays', 3, 'vendor', undefined, false);
-  await setSetting('vendor.minPayoutAmount', 500, 'vendor', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('shippingFreeAbove', 999, 'shipping', undefined, false);
+  await setSetting('vendorPayoutHoldDays', 3, 'vendor', undefined, false);
+  await setSetting('vendorMinPayoutAmount', 500, 'vendor', undefined, false);
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

@@ -106,7 +106,7 @@ const main = async (): Promise<void> => {
   const { getSetting, setSetting, getFeatureFlags, toggleFeature, getMaintenanceStatus } =
     await import('../src/services/settings.service');
 
-  const before = await getSetting<string>('site.name', 'fallback');
+  const before = await getSetting<string>('siteName', 'fallback');
   record('reads a seeded setting from DB', before === 'ProjectName', before);
 
   await setSetting('__e2e__', { hello: 'world' }, 'general', undefined, false);
@@ -119,16 +119,28 @@ const main = async (): Promise<void> => {
   const flags = await getFeatureFlags();
   record(
     'feature flags load from DB',
-    typeof flags['feature.reviews'] === 'boolean' && flags['feature.reviews'] === true,
-    `reviews=${flags['feature.reviews']}`,
+    typeof flags['featureReviews'] === 'boolean' && flags['featureReviews'] === true,
+    `reviews=${flags['featureReviews']}`,
   );
 
-  await toggleFeature('feature.wallet', true);
+  await toggleFeature('featureWallet', true);
   const flagsAfter = await getFeatureFlags();
-  record('toggleFeature invalidates the cache', flagsAfter['feature.wallet'] === true);
-  await toggleFeature('feature.wallet', false);
+  record('toggleFeature invalidates the cache', flagsAfter['featureWallet'] === true);
+  await toggleFeature('featureWallet', false);
 
-  await setSetting('maintenance.enabled', true, 'system', undefined, false);
+  const adminEmail = (process.env.SUPER_ADMIN_EMAIL || 'superadmin@projectname.com').toLowerCase();
+  const adminPassword = process.env.SUPER_ADMIN_PASSWORD || 'SuperSecret@123';
+  const adminLogin = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: adminEmail, password: adminPassword });
+  const adminToken = adminLogin.body?.result?.accessToken ?? '';
+  record(
+    'super admin signs in before maintenance',
+    adminToken.length > 0,
+    `status=${adminLogin.status}`,
+  );
+
+  await setSetting('maintenanceEnabled', true, 'system', undefined, false);
   const maintenance = await getMaintenanceStatus();
   record('maintenance mode reads ON from DB', maintenance.enabled === true);
 
@@ -151,9 +163,35 @@ const main = async (): Promise<void> => {
     `status=${healthDuring.status}`,
   );
 
-  await setSetting('maintenance.enabled', false, 'system', undefined, false);
+  const blockedForSuperAdmin = await request(app)
+    .get('/api/v1/auth/getMe')
+    .set('Authorization', `Bearer ${adminToken}`);
+  record(
+    'a super admin token opens no business route while maintenance is on',
+    blockedForSuperAdmin.status === 503,
+    `status=${blockedForSuperAdmin.status}`,
+  );
+
+  const refreshDuring = await request(app).post('/api/v1/auth/refreshToken').send({});
+  record(
+    'maintenance allows refreshToken so a session can be renewed',
+    refreshDuring.status !== 503,
+    `status=${refreshDuring.status}`,
+  );
+
+  const toggleDuring = await request(app)
+    .patch('/api/v1/settings/updateMaintenance')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ enabled: false, allowedIps: [] });
+  record(
+    'a super admin can switch maintenance off from the API -> 200',
+    toggleDuring.status === 200,
+    `status=${toggleDuring.status} msg=${toggleDuring.body?.message}`,
+  );
+
   const restored = await request(app).get('/api/v1/health');
   record('maintenance off restores traffic', restored.status === 200);
+  record('the toggle really cleared the setting', (await getMaintenanceStatus()).enabled === false);
 
   const failed = checks.filter((c) => !c.passed);
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);

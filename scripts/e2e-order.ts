@@ -102,19 +102,19 @@ const main = async (): Promise<void> => {
   const { prisma } = await import('../src/services/prisma.service');
   const { setSetting } = await import('../src/services/settings.service');
 
-  await setSetting('shipping.enabled', true, 'shipping', undefined, false);
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('shipping.perKgCharge', 0, 'shipping', undefined, false);
-  await setSetting('payment.cod.extraCharge', 0, 'payment', undefined, false);
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.cod.maxAmount', 20000, 'payment', undefined, false);
-  await setSetting('tax.inclusive', false, 'tax', undefined, false);
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
-  await setSetting('order.maxItems', 50, 'order', undefined, false);
-  await setSetting('order.cancelWindowMin', 60, 'order', undefined, false);
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
+  await setSetting('shippingEnabled', true, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('shippingPerKgCharge', 0, 'shipping', undefined, false);
+  await setSetting('paymentCodExtraCharge', 0, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentCodMaxAmount', 20000, 'payment', undefined, false);
+  await setSetting('taxInclusive', false, 'tax', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
+  await setSetting('orderMaxItems', 50, 'order', undefined, false);
+  await setSetting('orderCancelWindowMin', 60, 'order', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
 
   const customer = await register('cu', 'CUSTOMER');
   const other = await register('x', 'CUSTOMER');
@@ -761,7 +761,7 @@ const main = async (): Promise<void> => {
   });
   record('coupon usage is recorded', D_num(used?.usedCount) === 1, `usedCount=${used?.usedCount}`);
 
-  await setSetting('order.minAmount', 100000, 'order', undefined, false);
+  await setSetting('orderMinAmount', 100000, 'order', undefined, false);
   await cu.post('/api/v1/cart/addItem', { productId: pA2.id, qty: 1 });
   const tooSmall = await cu.post('/api/v1/orders/placeOrder', { addressId, paymentMethod: 'COD' });
   record(
@@ -769,14 +769,14 @@ const main = async (): Promise<void> => {
     tooSmall.status === 422 && String(tooSmall.body?.message).includes('MIN_AMOUNT'),
     `status=${tooSmall.status} msg=${tooSmall.body?.message}`,
   );
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
 
-  await setSetting('payment.token.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.token.mode', 'percent', 'payment', undefined, false);
-  await setSetting('payment.token.percent', 20, 'payment', undefined, false);
-  await setSetting('payment.token.applicableAbove', 600, 'payment', undefined, false);
-  await setSetting('payment.token.minAmount', 10, 'payment', undefined, false);
-  await setSetting('payment.token.maxAmount', 100000, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentTokenMode', 'percent', 'payment', undefined, false);
+  await setSetting('paymentTokenPercent', 20, 'payment', undefined, false);
+  await setSetting('paymentTokenApplicableAbove', 600, 'payment', undefined, false);
+  await setSetting('paymentTokenMinAmount', 10, 'payment', undefined, false);
+  await setSetting('paymentTokenMaxAmount', 100000, 'payment', undefined, false);
 
   await cu.del('/api/v1/cart/clearCart');
   await cu.post('/api/v1/cart/addItem', { productId: pA2.id, qty: 2 });
@@ -821,9 +821,9 @@ const main = async (): Promise<void> => {
     `status=${smallOrder.status} required=${smallOrder.body?.result?.tokenRequired}`,
   );
 
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
 
-  await setSetting('wallet.enabled', true, 'wallet', undefined, false);
+  await setSetting('walletEnabled', true, 'wallet', undefined, false);
   await cu.post('/api/v1/cart/addItem', { productId: pA2.id, qty: 2 });
   await prisma.walletTransaction.create({
     data: {
@@ -876,9 +876,9 @@ const main = async (): Promise<void> => {
   });
   record('cancelling refunds the wallet', refundTx?.amount === 200, `refund=${refundTx?.amount}`);
 
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
 
-  await setSetting('payment.cod.enabled', false, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', false, 'payment', undefined, false);
   await cu.post('/api/v1/cart/addItem', { productId: pA2.id, qty: 1 });
   const codOff = await cu.post('/api/v1/orders/placeOrder', { addressId, paymentMethod: 'COD' });
   record(
@@ -886,7 +886,7 @@ const main = async (): Promise<void> => {
     codOff.status === 422 && String(codOff.body?.message).includes('disabled'),
     `status=${codOff.status} msg=${codOff.body?.message}`,
   );
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
 
   await cu.del('/api/v1/cart/clearCart');
   const reordered = await cu.post(`/api/v1/orders/reorder/${walletOrder.body?.result?.orderId}`);
@@ -1075,11 +1075,11 @@ const main = async (): Promise<void> => {
   await prisma.product.deleteMany({ where: { id: { in: [pA1.id, pA2.id, pB1.id, scarce.id] } } });
   await prisma.coupon.deleteMany({ where: { code: { startsWith: `OR${run}` } } });
   await prisma.deliveryBoy.delete({ where: { id: boy.id } }).catch(() => undefined);
-  await setSetting('order.minAmount', 100, 'order', undefined, false);
-  await setSetting('order.cancelWindowMin', 30, 'order', undefined, false);
-  await setSetting('shipping.freeAbove', 999, 'shipping', undefined, false);
-  await setSetting('payment.token.applicableAbove', 2000, 'payment', undefined, false);
-  await setSetting('payment.token.percent', 20, 'payment', undefined, false);
+  await setSetting('orderMinAmount', 100, 'order', undefined, false);
+  await setSetting('orderCancelWindowMin', 30, 'order', undefined, false);
+  await setSetting('shippingFreeAbove', 999, 'shipping', undefined, false);
+  await setSetting('paymentTokenApplicableAbove', 2000, 'payment', undefined, false);
+  await setSetting('paymentTokenPercent', 20, 'payment', undefined, false);
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

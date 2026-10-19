@@ -24,7 +24,7 @@ The canonical reference for what the API does: its features, business rules, beh
 ### A1. Platform and infrastructure
 
 - **API versioning** — everything lives under `/api/v1/...`, so future breaking changes can ship as a new version.
-- **RBAC middleware** — roles `SUPER_ADMIN`, `SUB_ADMIN`, `VENDOR`, `CUSTOMER`, `DELIVERY_BOY` protect routes. The `VENDOR` role is assigned through `/auth/register` with `type=VENDOR`. Role → permission mapping lives in the `RolePermission` table.
+- **RBAC middleware** — roles `SUPER_ADMIN`, `SUB_ADMIN`, `VENDOR`, `CUSTOMER`, `DELIVERY_BOY` protect routes. The `VENDOR` role is assigned through `/auth/register` with `type=VENDOR`. Role → permission mapping lives in the `RolePermission` table. A role with **no rows** in that table falls back to its shipped defaults (`DEFAULT_ROLE_PERMISSIONS`); once it has rows, those rows are the whole truth, so a permission a super admin removes in the panel really stops being granted. `SUPER_ADMIN` holds the literal `*` and is never filtered. Any route that should be permission-gated carries `requirePermission(PERMISSION.X)` after `requireRole(...)` — see [B12](#b12-role-permissions).
 - **Multi-tenancy scoping** — a `vendorId` filter on every vendor query (Prisma `$extends`), so a vendor only ever sees their own data.
 - **Rate limiting** — Redis-backed store, so counters do not reset on server restart.
 - **CORS whitelist** — admin, vendor and store domains only; no wildcard `*`. Sockets use a separate whitelist (`SOCKET_CORS_ORIGINS`).
@@ -166,7 +166,7 @@ Step 2 only checks the code — no account is created and no session is issued. 
 
 **Delivery.** Brevo (HTTP API) takes priority over SMTP when both are set; MSG91 delivers SMS when `OTP_SMS_ENABLED=true`. With no provider configured `sendOtp` still answers 200 and the code goes to the log (`npm run doctor` fails on this). Provider setup is in the README.
 
-**Password history.** `security.passwordHistoryCount` (default `3`) is how many previous hashes are kept per user in `PasswordHistory`. `POST /auth/changePassword` and `POST /auth/resetPassword` both push the outgoing hash into that table and refuse a new password that matches the live hash or any retained one — 422 `PASSWORD_REUSED`. A count of `0` turns the check off. The trim runs in the same transaction as the write, so the retained set is a ceiling, not a backlog.
+**Password history.** `securityPasswordHistoryCount` (default `3`) is how many previous hashes are kept per user in `PasswordHistory`. `POST /auth/changePassword` and `POST /auth/resetPassword` both push the outgoing hash into that table and refuse a new password that matches the live hash or any retained one — 422 `PASSWORD_REUSED`. A count of `0` turns the check off. The trim runs in the same transaction as the write, so the retained set is a ceiling, not a backlog.
 
 **Consent / terms acceptance.** The `UserConsent` table logs when a user accepts `TERMS`, `PRIVACY` or `MARKETING`. `POST /auth/acceptConsent` writes a row with type, version, IP and user-agent; `GET /auth/getMyConsents` returns every accepted consent. A unique constraint on `(userId, type, version)` prevents duplicate accepts. This is the DPDP audit trail.
 
@@ -174,22 +174,22 @@ Step 2 only checks the code — no account is created and no session is issued. 
 
 ### B2. Account security
 
-**Password expiry.** `User.passwordChangedAt` is stamped at registration and on every successful `changePassword` / `resetPassword`. When `security.passwordExpiryDays` is greater than `0`, a password older than that blocks `POST /auth/login` with 403 `PASSWORD_EXPIRED`. The default `0` means passwords never expire. OTP login is unaffected, since there is no password to expire.
+**Password expiry.** `User.passwordChangedAt` is stamped at registration and on every successful `changePassword` / `resetPassword`. When `securityPasswordExpiryDays` is greater than `0`, a password older than that blocks `POST /auth/login` with 403 `PASSWORD_EXPIRED`. The default `0` means passwords never expire. OTP login is unaffected, since there is no password to expire.
 
-**Concurrent session limit.** `security.maxActiveSessions` (`0` = unlimited) is enforced inside `issueTokens` on every sign-in. Once a user is at the cap, the oldest sessions by `lastSeenAt` are closed and their refresh tokens revoked; the session that just signed in is always kept. The login response returns `revokedSessionCount` so the client can say how many devices were signed out.
+**Concurrent session limit.** `securityMaxActiveSessions` (`0` = unlimited) is enforced inside `issueTokens` on every sign-in. Once a user is at the cap, the oldest sessions by `lastSeenAt` are closed and their refresh tokens revoked; the session that just signed in is always kept. The login response returns `revokedSessionCount` so the client can say how many devices were signed out.
 
 **Contact change.** Changing the sign-in email or phone is a two-step flow, and the code always goes to the contact being *claimed*, never the current one. `POST /auth/changeEmail/sendOtp` sends it (rate limited by `PASSWORD.CONTACT_CHANGE_COOLDOWN_MIN` per target address), `POST /auth/changeEmail/verifyOtp` returns a single-use `verificationToken`, and `POST /auth/changeEmail` / `POST /auth/changePhone` need both. On success the new contact is marked verified and **every** refresh token is revoked, so a takeover cannot ride along on an existing session. The account is notified of the swap afterwards.
 
-**Deletion recovery window.** `DELETE /users/deleteAccount` does not destroy anything outright: it sets `deletedAt`, releases the email and phone, and stamps `purgeAfter` at `security.accountPurgeDays` (default `30`). The restore token is emailed at that moment and stored only as a hash, so `POST /auth/restoreAccount` matches on `deletionTokenHash` — the released contacts cannot identify the row. The `purge-deleted-accounts` cron deletes accounts whose window has closed, and restore returns 410 `ACCOUNT_PURGE_WINDOW` once it has.
+**Deletion recovery window.** `DELETE /users/deleteAccount` does not destroy anything outright: it sets `deletedAt`, releases the email and phone, and stamps `purgeAfter` at `securityAccountPurgeDays` (default `30`). The restore token is emailed at that moment and stored only as a hash, so `POST /auth/restoreAccount` matches on `deletionTokenHash` — the released contacts cannot identify the row. The `purge-deleted-accounts` cron deletes accounts whose window has closed, and restore returns 410 `ACCOUNT_PURGE_WINDOW` once it has.
 
-**Sign-in alerts.** A login from a device the account has not used before raises an in-app `ALERT` notification with the IP and platform, controlled by `security.loginAlerts` and `security.newDeviceAlerts`. The first-known device is recorded at that moment, so the alert fires once per device rather than once per login. `User.lastLoginIp` tracks the previous IP for location comparison.
+**Sign-in alerts.** A login from a device the account has not used before raises an in-app `ALERT` notification with the IP and platform, controlled by `securityLoginAlerts` and `securityNewDeviceAlerts`. The first-known device is recorded at that moment, so the alert fires once per device rather than once per login. `User.lastLoginIp` tracks the previous IP for location comparison.
 
 **Login notifications.** Every successful sign-in sends the customer an in-app notification plus an email with the device, IP, geo location and whether the device is new.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `security.loginNotifyEnabled` | `true` | master switch |
-| `security.loginAlerts` | `true` | send the email |
+| `securityLoginNotifyEnabled` | `true` | master switch |
+| `securityLoginAlerts` | `true` | send the email |
 
 This extends the existing new-device alert path rather than replacing it: the result of `flagNewDevice` goes into `data.isNewDevice` and is not recomputed. `notifyLogin` is called from one place for every path — password, OTP, 2FA, social. `rotateRefreshToken` deliberately does not call it, because token rotation is not a sign-in. The notification is advisory: the whole body is wrapped in try/catch, a failure is logged, and the login never breaks. `loginNotifyEnabled` is part of `getSecurityConfig()`, so it costs no extra settings round-trip.
 
@@ -200,7 +200,7 @@ This extends the existing new-device alert path rather than replacing it: the re
 | Field | Meaning |
 | --- | --- |
 | `reason` | why the customer was blocked; visible to the customer in the DPDP export |
-| `expiresAt` | `null` = permanent; set from `durationDays`, clamped to `security.banMaxDays` |
+| `expiresAt` | `null` = permanent; set from `durationDays`, clamped to `securityBanMaxDays` |
 | `revokedAt` | set when an admin lifts the ban with `unbanCustomer` |
 | `revokeReason` | the reason given for the unban |
 
@@ -225,16 +225,16 @@ This extends the existing new-device alert path rather than replacing it: the re
 
 The `source` column *is* the rule. Automatic members have `source: RULE` and manual ones `source: MANUAL`, so a refresh never touches a manual assignment. For the same reason `addSegmentMembers` / `removeSegmentMembers` on an automatic segment answer 403 `CUSTOMER_SEGMENT_KIND_LOCKED` — the admin's work would be overwritten overnight.
 
-- **Refresh is a full recompute, not a diff.** Every customer's orders come back in one grouped query, the qualifying kinds are derived, then the `RULE` rows are replaced. It is a batch loop, not a per-customer loop: `customer.segment.batchSize` (500) customers per pass, by `id` cursor.
+- **Refresh is a full recompute, not a diff.** Every customer's orders come back in one grouped query, the qualifying kinds are derived, then the `RULE` rows are replaced. It is a batch loop, not a per-customer loop: `customerSegmentBatchSize` (500) customers per pass, by `id` cursor.
 - **The segment row is created before its members.** `ensureAutoSegments()` creates any missing kind on every run — if an admin deletes the VIP segment it comes back empty, and the rule does not go silent.
 - **Definitions** (`evaluateSegmentKinds`, `src/utils/segments.ts`):
 
 | Kind | Rule |
 | --- | --- |
 | `NEW` | `orderCount === 0` |
-| `REPEAT` | `deliveredOrderCount >= customer.segment.repeatOrders` (2) |
-| `VIP` | `totalSpent >= customer.segment.vipSpend` (10000) |
-| `WHOLESALE` | `deliveredOrderCount >= customer.segment.wholesaleOrders` (10) |
+| `REPEAT` | `deliveredOrderCount >= customerSegmentRepeatOrders` (2) |
+| `VIP` | `totalSpent >= customerSegmentVipSpend` (10000) |
+| `WHOLESALE` | `deliveredOrderCount >= customerSegmentWholesaleOrders` (10) |
 | `BLOCKED` | has an active ban |
 
 `REPEAT` and `WHOLESALE` count **delivered** orders, not placed ones — otherwise a single cancelled order would make a repeat buyer. Kinds are a list, not a flag: one customer can be both VIP and REPEAT.
@@ -262,7 +262,7 @@ The union is not done in SQL. Prisma applies `skip`/`take` to a single table and
 
 **Non-returnable items.** `Product.isNonReturnable` is read from the **live product**, not from a copy on the order line, so a seller who changes the policy after a purchase still governs what may be sent back. `POST /returns/createRequest` answers 422 `NON_RETURNABLE` when any requested line belongs to such a product.
 
-**Review edit window.** `review.editWindowDays` (default `7`) bounds `PATCH /reviews/updateReview/:id`; past it the call is 422 `EDIT_WINDOW_PASSED`. `0` disables the window.
+**Review edit window.** `reviewEditWindowDays` (default `7`) bounds `PATCH /reviews/updateReview/:id`; past it the call is 422 `EDIT_WINDOW_PASSED`. `0` disables the window.
 
 **Order tags.** An order carries at most `WARRANTY.MAX_TAGS_PER_ORDER` labels. Labels are upper-cased and unique per order, so re-posting an existing one updates its colour instead of failing. All three tag routes are admin-only and accept an order id *or* an order number in the `:id` segment.
 
@@ -272,7 +272,7 @@ The union is not done in SQL. Prisma applies `skip`/`take` to a single table and
 
 **Token payment / advance.** The customer pays a small token amount (fixed or a percentage of the order) to place the order, and pays the balance on delivery or within N days. Controlled by the `payment.token.*` settings ([Part C](#c3-systemsetting-defaults)).
 
-1. Cart value ≥ `payment.token.applicableAbove` → a token is required.
+1. Cart value ≥ `paymentTokenApplicableAbove` → a token is required.
 2. Token amount = `mode === "percent"` ? `total * percent / 100` : `fixedAmount`, clamped between `minAmount` and `maxAmount`, and never above the order total.
 3. The customer pays the token through one of `allowedMethods` → the order becomes `CONFIRMED` (until then it is `PENDING_TOKEN`).
 4. The remaining balance is paid at delivery or within `balanceDueDays`.
@@ -315,11 +315,11 @@ The response of a token order is shown in [Part F](#token-order-response).
 
 ### B5. Cart
 
-**Gift wrap.** `CartItem.isGiftWrap` is per line, and the charge is `cart.giftWrapCharge` (default `49`) counted once per wrapped line — not per unit, so three units of one wrapped product still cost one wrap. It lands as `giftWrapAmount` on both the cart totals and `Order`, and `placeOrder` recomputes it from the lines it is actually fulfilling, so a line dropped for stock does not leave the customer paying for its wrap. Turning the flag off clears the note rather than leaving it orphaned. `cart.giftWrapNoteMaxLength` bounds the note.
+**Gift wrap.** `CartItem.isGiftWrap` is per line, and the charge is `cartGiftWrapCharge` (default `49`) counted once per wrapped line — not per unit, so three units of one wrapped product still cost one wrap. It lands as `giftWrapAmount` on both the cart totals and `Order`, and `placeOrder` recomputes it from the lines it is actually fulfilling, so a line dropped for stock does not leave the customer paying for its wrap. Turning the flag off clears the note rather than leaving it orphaned. `cartGiftWrapNoteMaxLength` bounds the note.
 
 **Per-item delivery note.** `CartItem.deliveryNote` is distinct from `Address.deliveryInstructions`: the address note applies to the whole delivery, this one to a single line. Both survive onto `OrderItem`, so the packing slip and the order detail show the line-level note next to the item it belongs to.
 
-**Save for later.** `SavedCartItem` is a separate table rather than a flag on `CartItem`. That is deliberate — nothing that totals, checks out, counts against `cart.maxItems` or holds stock can see a saved line, which a flag could not guarantee. Saving *moves* the line out of the cart rather than copying it. `POST /cart/savedForLater/:id/moveToCart` takes an optional `qty`; a partial move leaves the remainder saved, and the saved row goes only when the quantity reaches zero.
+**Save for later.** `SavedCartItem` is a separate table rather than a flag on `CartItem`. That is deliberate — nothing that totals, checks out, counts against `cartMaxItems` or holds stock can see a saved line, which a flag could not guarantee. Saving *moves* the line out of the cart rather than copying it. `POST /cart/savedForLater/:id/moveToCart` takes an optional `qty`; a partial move leaves the remainder saved, and the saved row goes only when the quantity reaches zero.
 
 **Price drop alerts.** `PriceWatch` stores `targetPrice` plus the `lastSeenPrice` the last scan saw. The `price-drop-scan` cron compares the two and notifies only when the price has actually fallen *and* is at or below target — so an already-cheap watch stays quiet instead of re-notifying on every pass. The target must be below the current price at creation. `POST /priceWatches/watch` takes a variant id, in which case the variant price is watched; `0` means "any drop".
 
@@ -348,7 +348,7 @@ Three details that are easy to get wrong:
 
 `cleanup-expired` sweeps rows past `expiresAt` (`IDEMPOTENCY.RETENTION_HOURS`, default 24).
 
-**Wallet and loyalty.** All wallet changes run in a Prisma transaction, a balance can never go negative, and a redemption is linked to an order. Behaviour is gated by `wallet.enabled`, `loyalty.enabled`, `referral.enabled` and `giftCard.enabled`.
+**Wallet and loyalty.** All wallet changes run in a Prisma transaction, a balance can never go negative, and a redemption is linked to an order. Behaviour is gated by `walletEnabled`, `loyaltyEnabled`, `referralEnabled` and `giftCardEnabled`.
 
 ### B7. Vendors
 
@@ -356,13 +356,13 @@ Three details that are easy to get wrong:
 
 | Item | Rule |
 | --- | --- |
-| Products | `vendor.storeProductLimit` (12), `ACTIVE` only, newest first |
+| Products | `vendorStoreProductLimit` (12), `ACTIVE` only, newest first |
 | Announcements | only `ACTIVE` with `startsAt <= now <= endsAt`, pinned first |
 | Vacation | `vacationData.isAcceptingOrders` = `!isOnVacation` |
 
 **Approval.** With `vendor.autoApprove = true` a vendor becomes `APPROVED` the moment they register; with `false` (the default) an admin approves through `PATCH /vendors/approveVendor/:id`. Until then the vendor cannot create products (403 `VENDOR_NOT_APPROVED`).
 
-**Vacation mode blocks order placement.** `updateVacation` sets the flag; `placeOrder` calls `assertVendorAcceptingOrders(vendorIds)` for the vendors whose flag is already true and throws 422 `VENDOR_ON_VACATION`. The check runs **before** the stock transaction, otherwise a refusal would leave a partial write behind. `until` must be in the future and is clamped to `vendor.vacationMaxDays` — clamped, not rejected.
+**Vacation mode blocks order placement.** `updateVacation` sets the flag; `placeOrder` calls `assertVendorAcceptingOrders(vendorIds)` for the vendors whose flag is already true and throws 422 `VENDOR_ON_VACATION`. The check runs **before** the stock transaction, otherwise a refusal would leave a partial write behind. `until` must be in the future and is clamped to `vendorVacationMaxDays` — clamped, not rejected.
 
 **The vendor blocklist reuses `UserBlock`, not a new model.** The blocker is the vendor's `userId`, so the existing chat `assertNotBlocked` applies as is — there is no duplicate mechanism. `placeOrder` runs the same check: if any owner `userId` of the cart's vendors has a blocking row, the order is 403 `USER_BLOCKED`. The vendor-side message uses `ERROR.CHAT.USER_BLOCKED` ("You have blocked this user"), which does not match the direction — a `BLOCKED_BY_USER` key would be more accurate, but the existing key is reused.
 
@@ -405,11 +405,11 @@ Two helpers in `src/utils/calculations.ts`:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `queue.maxAttempts` | `3` | total attempts, not retries after the first |
-| `queue.backoffDelayMs` | `3000` | first backoff; exponential from there |
-| `queue.maxReplays` | `3` | manual replays one dead row is allowed |
+| `queueMaxAttempts` | `3` | total attempts, not retries after the first |
+| `queueBackoffDelayMs` | `3000` | first backoff; exponential from there |
+| `queueMaxReplays` | `3` | manual replays one dead row is allowed |
 
-`queue.maxAttempts` is clamped to at least 1 — a zero would silently mean "run once, never retry".
+`queueMaxAttempts` is clamped to at least 1 — a zero would silently mean "run once, never retry".
 
 **Dead letter queue.** When BullMQ spends the last attempt, the worker's `failed` hook writes a `FailedJob` row. The check is `attemptsMade >= job.opts.attempts`, not `attemptsMade > 0`, so the row appears only once the retry is actually spent — recording on the first transient failure would defeat the retry. The row is keyed `@@unique([queue, jobId])`: a job that fails, is replayed and fails again updates one row instead of accumulating one per attempt, and a resolved row reopens to `PENDING` when its job comes back.
 
@@ -418,7 +418,7 @@ Two helpers in `src/utils/calculations.ts`:
 | Failure with attempts left | logged only; BullMQ retries it |
 | Last attempt failed | `FailedJob` written, status `PENDING` |
 | `retryFailedJob/:id` | re-queued under `replay-{jobId}-{n}`, `replayCount` incremented |
-| Replay beyond `queue.maxReplays` | 409 `FAILED_JOB_REPLAY_LIMIT` |
+| Replay beyond `queueMaxReplays` | 409 `FAILED_JOB_REPLAY_LIMIT` |
 | Queue or Redis down at replay time | 503 `FAILED_JOB_QUEUE_UNAVAILABLE`, row untouched |
 | `resolveFailedJob/:id` | status `RESOLVED` with the acting admin, no replay |
 | Replay or resolve on a non-`PENDING` row | 409 `FAILED_JOB_ALREADY_RESOLVED` |
@@ -535,9 +535,18 @@ export const encryptionMiddleware = (req, res, next) => {
 ### B11. Realtime, maintenance and tracking behaviour
 
 - **Realtime.** Sockets live on the `/ws` namespace (events in [C1](#c1-static-config-files)). The JWT is verified at the socket handshake; messages are delivered by room, never broadcast to every client; chat messages are persisted to the DB.
-- **Maintenance mode.** With `maintenance.enabled = true` every route answers `503 { status: false, message: "Maintenance", result: {} }` except `/health`, `/docs` and `/admin/*` for SUPER_ADMIN.
+- **Maintenance mode.** With `maintenanceEnabled = true` every route answers `503 { status: false, message: "Maintenance", result: {} }` except `/health`, `/docs` and `/admin/*` for SUPER_ADMIN. The mode is always reversible — see [Maintenance mode](#maintenance-mode-1).
 - **Tracking.** Every event carries `sessionId` and `deviceId`. Geo comes from `geoip-lite` and respects `X-Forwarded-For`; bots are filtered with `ua-parser-js` (`isBot` flag) and counted separately. Realtime counts come from Redis counters and rollups from a BullMQ nightly cron — never heavy synchronous DB writes per event. Raw events expire by TTL (`ANALYTICS.RETENTION_DAYS`). Exports stream (pagination or cursor).
-- **Settings-driven behaviour.** Anything an admin can change at runtime (`loyalty.enabled`, `referral.enabled`, `giftCard.enabled`, `vendor.autoApprove`, `payment.*`, `shipping.*` …) is read at call time through `getSetting()` — see [Part C](#c3-systemsetting-defaults) for every key and default.
+- **Settings-driven behaviour.** Anything an admin can change at runtime (`loyaltyEnabled`, `referralEnabled`, `giftCardEnabled`, `vendorAutoApprove`, `payment*`, `shipping*` …) is read at call time through `getSetting()` — see [Part C](#c3-systemsetting-defaults) for every key and default.
+
+### B12. Role permissions
+
+- **A role is the floor, not the answer.** `requireRole(SUPER_ADMIN, SUB_ADMIN)` says who may enter the area; `requirePermission(PERMISSION.X)` says what they may do inside it. A sub-admin who is not granted a permission gets `403 PERMISSION_NOT_GRANTED`, never a silently reduced response.
+- **The database wins.** `RolePermission` rows, once any exist for a role, replace the shipped `DEFAULT_ROLE_PERMISSIONS` wholesale. Merging rows over the defaults would make a revoke impossible — the code default would keep handing the permission back.
+- **`SUPER_ADMIN` is never filtered.** The seed gives it the literal `*` row, which resolves to every permission in `PERMISSION_VALUES`; it also short-circuits `requirePermission` outright.
+- **A change takes effect immediately.** Both `PATCH /admin/updatePermissions/:role` and the internal writer drop the `perms:<role>` Redis key, so a revoke is not served from cache for the rest of the TTL.
+- **Dashboard counters are filtered per area** (`GET /admin/getDashboardStats`). `totalUsers` follows `user:list`, `totalOrders` `order:list`, `revenue30d` `report:view`, `pendingRefunds` `payment:list`, `openTickets` `ticket:list`, `pendingReturns` `return:list`, `totalProducts` `product:view:all`, `totalVendors` `vendor:list`, `pendingVendors` `vendor:approve`. A counter the caller may not see is **omitted**, never sent as `0` — a zero would read as "nothing pending" and drive the wrong decision.
+- **Every role-guarded route in `shipping.routes.ts` also carries `requirePermission`** — 34 of 34, across `/admin/*`, `/settings/*`, `/audit/*` and `/deliveryBoys/*`. A script asserts this (`role-guarded routes: 34 | without requirePermission: 0`) so a new admin route cannot land with the role guard alone. A route that is not permission-gated is open to any role that passes `requireRole`.
 
 ---
 
@@ -796,311 +805,313 @@ export const ENCRYPTION = {
 - An admin changes a setting from the Settings page → `PATCH /settings/updateSetting` → DB update → Redis invalidated.
 - **Public** settings (`isPublic: true`) are what clients fetch from `GET /settings/getPublicSettings` — site name, logo, currency, feature flags. Clients must not hardcode them.
 - **Seeding never overwrites an admin's tuning.** Re-running the seed only refreshes a row's `category`; `value` and `isPublic` are left as they are, and every write is an `upsert`.
-- `site.supportPhones` is always an array (`[]` or 3–4 numbers), never a string.
-- `payment.token.*` settings control the token/advance flow: fixed or percent mode, min/max clamp, `applicableAbove`.
-- `vendor.autoApprove`: `true` approves a vendor at registration, `false` leaves approval to an admin.
+- `siteSupportPhones` is always an array (`[]` or 3–4 numbers), never a string.
+- `paymentToken*` settings control the token/advance flow: fixed or percent mode, min/max clamp, `paymentTokenApplicableAbove`.
+- `vendorAutoApprove`: `true` approves a vendor at registration, `false` leaves approval to an admin.
 
 ### C3. SystemSetting defaults
 
 "Public" marks the keys returned by `getPublicSettings`; `—` means the seed does not specify it. Amounts are in INR.
 
+A key is a flat camelCase string — `siteName`, `paymentTokenEnabled`, `maintenanceMessage`. The namespace is a prefix inside the name, not a separator, so `getPublicSettings` returns one flat object the client reads with `result.siteName` and a dynamic flag loop matches on `feature*` without splitting anything. The same string must appear in `SETTING_KEY` (`src/config/setting.config.ts`), in `SETTINGS` (`src/config/setting-defaults.ts`) and in the table below; a key is renamed in all three or none.
+
 #### General / Site
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `site.name` | `"ProjectName"` | yes |
-| `site.logo` | `""` | yes |
-| `site.supportEmail` | `"support@projectname.com"` | yes |
-| `site.supportPhones` | `[]` (JSON array — 3 to 4 numbers) | yes |
-| `site.favicon` | `""` | yes |
-| `site.tagline` | `""` | yes |
-| `site.addressLine` | `""` | yes |
-| `site.socialLinks` | `{}` (object: `{facebook,instagram,twitter,youtube}`) | yes |
-| `site.maintenanceImage` | `""` | yes |
+| `siteName` | `"ProjectName"` | yes |
+| `siteLogo` | `""` | yes |
+| `siteSupportEmail` | `"support@projectname.com"` | yes |
+| `siteSupportPhones` | `[]` (JSON array — 3 to 4 numbers) | yes |
+| `siteFavicon` | `""` | yes |
+| `siteTagline` | `""` | yes |
+| `siteAddressLine` | `""` | yes |
+| `siteSocialLinks` | `{}` (object: `{facebook,instagram,twitter,youtube}`) | yes |
+| `siteMaintenanceImage` | `""` | yes |
 
 #### Locale / Timezone / Currency
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `currency.code` | `"INR"` | yes |
-| `currency.symbol` | `"₹"` | yes |
-| `currency.decimals` | `2` | yes |
-| `locale.default` | `"en"` | yes |
-| `locale.supported` | `["en", "hi"]` (JSON array) | yes |
-| `timezone.default` | `"Asia/Kolkata"` | yes |
-| `date.format` | `"DD-MM-YYYY"` | yes |
-| `time.format` | `"hh:mm A"` | yes |
+| `currencyCode` | `"INR"` | yes |
+| `currencySymbol` | `"₹"` | yes |
+| `currencyDecimals` | `2` | yes |
+| `localeDefault` | `"en"` | yes |
+| `localeSupported` | `["en", "hi"]` (JSON array) | yes |
+| `timezoneDefault` | `"Asia/Kolkata"` | yes |
+| `dateFormat` | `"DD-MM-YYYY"` | yes |
+| `timeFormat` | `"hh:mm A"` | yes |
 
 #### Business / Commission
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `commission.default` | `10` (percent) | no |
-| `commission.minPercent` | `0` | no |
-| `commission.maxPercent` | `50` | no |
-| `tax.defaultGstPercent` | `18` | yes |
-| `tax.inclusive` | `false` | yes |
+| `commissionDefault` | `10` (percent) | no |
+| `commissionMinPercent` | `0` | no |
+| `commissionMaxPercent` | `50` | no |
+| `taxDefaultGstPercent` | `18` | yes |
+| `taxInclusive` | `false` | yes |
 
 #### Order
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `order.minAmount` | `100` (INR) | yes |
-| `order.maxItems` | `50` | yes |
-| `order.cancelWindowMin` | `30` | yes |
-| `order.autoCancelUnpaidMin` | `1440` (24h) | no |
-| `order.allowGuestCheckout` | `false` | yes |
-| `order.requirePhoneVerify` | `true` | yes |
-| `order.maxPerCustomerPerDay` | `20` | no |
-| `order.showVendorSplit` | `true` | yes |
+| `orderMinAmount` | `100` (INR) | yes |
+| `orderMaxItems` | `50` | yes |
+| `orderCancelWindowMin` | `30` | yes |
+| `orderAutoCancelUnpaidMin` | `1440` (24h) | no |
+| `orderAllowGuestCheckout` | `false` | yes |
+| `orderRequirePhoneVerify` | `true` | yes |
+| `orderMaxPerCustomerPerDay` | `20` | no |
+| `orderShowVendorSplit` | `true` | yes |
 
 #### Payment — COD / UPI / Bank
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `payment.cod.enabled` | `true` | yes |
-| `payment.upi.enabled` | `true` | yes |
-| `payment.bank.enabled` | `true` | yes |
-| `payment.upi.id` | `"projectname@upi"` | yes |
-| `payment.bank.holderName` | `"ProjectName Pvt Ltd"` | yes |
-| `payment.bank.accountNo` | `"000000000000"` | yes |
-| `payment.bank.ifsc` | `"HDFC0000000"` | yes |
-| `payment.cod.maxAmount` | `20000` | yes |
-| `payment.cod.enabledAbove` | `0` | yes |
-| `payment.cod.extraCharge` | `0` (INR) | yes |
-| `payment.razorpay.enabled` | `false` | no |
-| `payment.razorpay.keyId` | `""` | no |
-| `payment.razorpay.webhookSecret` | `""` | no |
+| `paymentCodEnabled` | `true` | yes |
+| `paymentUpiEnabled` | `true` | yes |
+| `paymentBankEnabled` | `true` | yes |
+| `paymentUpiId` | `"projectname@upi"` | yes |
+| `paymentBankHolderName` | `"ProjectName Pvt Ltd"` | yes |
+| `paymentBankAccountNo` | `"000000000000"` | yes |
+| `paymentBankIfsc` | `"HDFC0000000"` | yes |
+| `paymentCodMaxAmount` | `20000` | yes |
+| `paymentCodEnabledAbove` | `0` | yes |
+| `paymentCodExtraCharge` | `0` (INR) | yes |
+| `paymentRazorpayEnabled` | `false` | no |
+| `paymentRazorpayKeyId` | `""` | no |
+| `paymentRazorpayWebhookSecret` | `""` | no |
 
 #### Payment — Token / Advance
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `payment.token.enabled` | `false` | yes |
-| `payment.token.mode` | `"percent"` (`"percent"` \| `"fixed"`) | yes |
-| `payment.token.percent` | `20` | yes |
-| `payment.token.fixedAmount` | `100` (INR) | yes |
-| `payment.token.minAmount` | `50` (INR) | yes |
-| `payment.token.maxAmount` | `5000` (INR) | yes |
-| `payment.token.applicableAbove` | `2000` | yes |
-| `payment.token.allowedMethods` | `["UPI", "CARD", "NETBANKING"]` | yes |
-| `payment.token.refundable` | `true` | yes |
-| `payment.token.refundPercent` | `100` | yes |
-| `payment.token.cancelWindowMin` | `60` | yes |
-| `payment.token.balanceDueDays` | `7` | yes |
-| `payment.token.balanceReminderHours` | `[24, 48, 72]` | no |
-| `payment.token.forfeitOnNoPay` | `true` | no |
-| `payment.token.autoCancelAfterDue` | `true` | no |
+| `paymentTokenEnabled` | `false` | yes |
+| `paymentTokenMode` | `"percent"` (`"percent"` \| `"fixed"`) | yes |
+| `paymentTokenPercent` | `20` | yes |
+| `paymentTokenFixedAmount` | `100` (INR) | yes |
+| `paymentTokenMinAmount` | `50` (INR) | yes |
+| `paymentTokenMaxAmount` | `5000` (INR) | yes |
+| `paymentTokenApplicableAbove` | `2000` | yes |
+| `paymentTokenAllowedMethods` | `["UPI", "CARD", "NETBANKING"]` | yes |
+| `paymentTokenRefundable` | `true` | yes |
+| `paymentTokenRefundPercent` | `100` | yes |
+| `paymentTokenCancelWindowMin` | `60` | yes |
+| `paymentTokenBalanceDueDays` | `7` | yes |
+| `paymentTokenBalanceReminderHours` | `[24, 48, 72]` | no |
+| `paymentTokenForfeitOnNoPay` | `true` | no |
+| `paymentTokenAutoCancelAfterDue` | `true` | no |
 
 #### Shipping / Delivery
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `shipping.enabled` | `true` | yes |
-| `shipping.defaultCharge` | `49` (INR) | yes |
-| `shipping.freeAbove` | `999` (INR) | yes |
-| `shipping.estimatedDays` | `5` | yes |
-| `shipping.perKgCharge` | `0` (INR, 0 = off) | yes |
-| `shipping.maxDistanceKm` | `0` (0 = unlimited) | yes |
-| `shipping.serviceablePincodes` | `[]` | yes |
+| `shippingEnabled` | `true` | yes |
+| `shippingDefaultCharge` | `49` (INR) | yes |
+| `shippingFreeAbove` | `999` (INR) | yes |
+| `shippingEstimatedDays` | `5` | yes |
+| `shippingPerKgCharge` | `0` (INR, 0 = off) | yes |
+| `shippingMaxDistanceKm` | `0` (0 = unlimited) | yes |
+| `shippingServiceablePincodes` | `[]` | yes |
 
 #### Return / Refund
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `return.enabled` | `true` | yes |
-| `return.windowDays` | `7` | yes |
-| `return.reasonRequired` | `true` | yes |
-| `return.imagesRequired` | `true` | yes |
-| `return.maxQtyPerOrder` | `0` | no |
-| `review.editWindowDays` | `7` | yes |
-| `refund.processingDays` | `5` | yes |
-| `refund.mode` | `"original"` | yes |
+| `returnEnabled` | `true` | yes |
+| `returnWindowDays` | `7` | yes |
+| `returnReasonRequired` | `true` | yes |
+| `returnImagesRequired` | `true` | yes |
+| `returnMaxQtyPerOrder` | `0` | no |
+| `reviewEditWindowDays` | `7` | yes |
+| `refundProcessingDays` | `5` | yes |
+| `refundMode` | `"original"` | yes |
 
 #### Wallet / Loyalty
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `wallet.enabled` | `false` | yes |
-| `wallet.maxBalance` | `50000` (INR) | yes |
-| `wallet.minRedeem` | `100` (INR) | yes |
-| `wallet.expiryDays` | `365` | yes |
-| `loyalty.enabled` | `false` | yes |
-| `loyalty.pointsPerRupee` | `1` | yes |
-| `loyalty.pointValue` | `0.01` | yes |
-| `loyalty.minRedeemPoints` | `100` | yes |
+| `walletEnabled` | `false` | yes |
+| `walletMaxBalance` | `50000` (INR) | yes |
+| `walletMinRedeem` | `100` (INR) | yes |
+| `walletExpiryDays` | `365` | yes |
+| `loyaltyEnabled` | `false` | yes |
+| `loyaltyPointsPerRupee` | `1` | yes |
+| `loyaltyPointValue` | `0.01` | yes |
+| `loyaltyMinRedeemPoints` | `100` | yes |
 
 #### Coupon
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `coupon.maxPerOrder` | `1` | yes |
-| `coupon.stackable` | `false` | yes |
-| `coupon.minOrderAmount` | `0` (INR) | yes |
-| `coupon.maxDiscount` | `0` (0 = unlimited) | yes |
+| `couponMaxPerOrder` | `1` | yes |
+| `couponStackable` | `false` | yes |
+| `couponMinOrderAmount` | `0` (INR) | yes |
+| `couponMaxDiscount` | `0` (0 = unlimited) | yes |
 
 #### Features
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `feature.reviews` | `true` | yes |
-| `feature.wishlist` | `true` | yes |
-| `feature.coupons` | `true` | yes |
-| `feature.chat` | `false` | yes |
-| `feature.multiVendor` | `true` | yes |
-| `feature.guestCheckout` | `false` | yes |
-| `feature.productCompare` | `false` | yes |
-| `feature.recentlyViewed` | `true` | yes |
-| `feature.liveTracking` | `false` | yes |
-| `feature.wallet` | `false` | yes |
-| `feature.loyalty` | `false` | yes |
-| `feature.referral` | `false` | yes |
-| `feature.giftCards` | `false` | yes |
-| `feature.chatSupport` | `false` | yes |
-| `feature.ticketSupport` | `true` | yes |
-| `feature.socialLogin` | `true` | yes |
-| `feature.twoFactor` | `false` | yes |
-| `feature.analytics` | `true` | yes |
-| `feature.tracking` | `true` | yes |
+| `featureReviews` | `true` | yes |
+| `featureWishlist` | `true` | yes |
+| `featureCoupons` | `true` | yes |
+| `featureChat` | `false` | yes |
+| `featureMultiVendor` | `true` | yes |
+| `featureGuestCheckout` | `false` | yes |
+| `featureProductCompare` | `false` | yes |
+| `featureRecentlyViewed` | `true` | yes |
+| `featureLiveTracking` | `false` | yes |
+| `featureWallet` | `false` | yes |
+| `featureLoyalty` | `false` | yes |
+| `featureReferral` | `false` | yes |
+| `featureGiftCards` | `false` | yes |
+| `featureChatSupport` | `false` | yes |
+| `featureTicketSupport` | `true` | yes |
+| `featureSocialLogin` | `true` | yes |
+| `featureTwoFactor` | `false` | yes |
+| `featureAnalytics` | `true` | yes |
+| `featureTracking` | `true` | yes |
 
 #### Catalog
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `catalog.productsPerPage` | `20` | yes |
-| `catalog.showOutOfStock` | `true` | yes |
-| `catalog.allowBackorder` | `false` | yes |
-| `catalog.defaultSort` | `"-createdAt"` | yes |
-| `catalog.maxImagesPerProduct` | `10` | no |
+| `catalogProductsPerPage` | `20` | yes |
+| `catalogShowOutOfStock` | `true` | yes |
+| `catalogAllowBackorder` | `false` | yes |
+| `catalogDefaultSort` | `"-createdAt"` | yes |
+| `catalogMaxImagesPerProduct` | `10` | no |
 
 #### Cart
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `cart.maxItems` | `50` | yes |
-| `cart.holdMinutes` | `30` | no |
-| `cart.persistAcrossDevices` | `true` | yes |
-| `cart.giftWrapCharge` | `49` (INR, once per wrapped line) | — |
-| `cart.giftWrapNoteMaxLength` | not specified | — |
+| `cartMaxItems` | `50` | yes |
+| `cartHoldMinutes` | `30` | no |
+| `cartPersistAcrossDevices` | `true` | yes |
+| `cartGiftWrapCharge` | `49` (INR, once per wrapped line) | — |
+| `cartGiftWrapNoteMaxLength` | not specified | — |
 
 #### Vendor / Payout
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `vendor.autoApprove` | `false` | no |
-| `vendor.maxProducts` | `500` | no |
-| `vendor.minPayoutAmount` | `500` (INR) | no |
-| `vendor.payoutCycleDays` | `7` | no |
-| `vendor.payoutHoldDays` | `3` | no |
-| `vendor.commissionOverrideAllowed` | `true` | no |
-| `vendor.vacationMaxDays` | `90` | no |
-| `vendor.storeProductLimit` | `12` | yes |
+| `vendorAutoApprove` | `false` | no |
+| `vendorMaxProducts` | `500` | no |
+| `vendorMinPayoutAmount` | `500` (INR) | no |
+| `vendorPayoutCycleDays` | `7` | no |
+| `vendorPayoutHoldDays` | `3` | no |
+| `vendorCommissionOverrideAllowed` | `true` | no |
+| `vendorVacationMaxDays` | `90` | no |
+| `vendorStoreProductLimit` | `12` | yes |
 
 #### Notification
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `notification.email.enabled` | `true` | no |
-| `notification.sms.enabled` | `false` | no |
-| `notification.push.enabled` | `true` | no |
-| `notification.whatsapp.enabled` | `false` | no |
-| `notification.orderEvents` | `["CONFIRMED","SHIPPED","DELIVERED","CANCELLED"]` | no |
-| `notification.tokenBalanceReminder` | `true` | no |
+| `notificationEmailEnabled` | `true` | no |
+| `notificationSmsEnabled` | `false` | no |
+| `notificationPushEnabled` | `true` | no |
+| `notificationWhatsappEnabled` | `false` | no |
+| `notificationOrderEvents` | `["CONFIRMED","SHIPPED","DELIVERED","CANCELLED"]` | no |
+| `notificationTokenBalanceReminder` | `true` | no |
 
 #### Security
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `security.otpLoginEnabled` | `false` | no |
-| `security.twoFactorEnabled` | `false` | no |
-| `security.maxLoginAttempts` | `5` | no |
-| `security.lockoutMinutes` | `15` | no |
-| `security.passwordMinLength` | `8` | no |
-| `security.passwordHistoryCount` | `3` | no |
-| `security.requireEmailVerify` | `false` | no |
-| `security.requirePhoneVerify` | `true` | no |
-| `security.sessionDays` | `7` | no |
-| `security.loginNotifyEnabled` | `true` | — |
-| `security.banMaxDays` | `365` | — |
-| `security.passwordExpiryDays` | `0` (passwords never expire) | — |
-| `security.maxActiveSessions` | `0` (unlimited) | — |
-| `security.accountPurgeDays` | `30` | — |
-| `security.loginAlerts` | `true` | — |
-| `security.newDeviceAlerts` | not specified | — |
+| `securityOtpLoginEnabled` | `false` | no |
+| `securityTwoFactorEnabled` | `false` | no |
+| `securityMaxLoginAttempts` | `5` | no |
+| `securityLockoutMinutes` | `15` | no |
+| `securityPasswordMinLength` | `8` | no |
+| `securityPasswordHistoryCount` | `3` | no |
+| `securityRequireEmailVerify` | `false` | no |
+| `securityRequirePhoneVerify` | `true` | no |
+| `securitySessionDays` | `7` | no |
+| `securityLoginNotifyEnabled` | `true` | — |
+| `securityBanMaxDays` | `365` | — |
+| `securityPasswordExpiryDays` | `0` (passwords never expire) | — |
+| `securityMaxActiveSessions` | `0` (unlimited) | — |
+| `securityAccountPurgeDays` | `30` | — |
+| `securityLoginAlerts` | `true` | — |
+| `securityNewDeviceAlerts` | not specified | — |
 
 #### Customer
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `customer.segment.repeatOrders` | `2` | — |
-| `customer.segment.wholesaleOrders` | `10` | — |
-| `customer.segment.vipSpend` | `10000` | — |
-| `customer.segment.batchSize` | `500` | — |
+| `customerSegmentRepeatOrders` | `2` | — |
+| `customerSegmentWholesaleOrders` | `10` | — |
+| `customerSegmentVipSpend` | `10000` | — |
+| `customerSegmentBatchSize` | `500` | — |
 
 #### System / Maintenance
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `maintenance.enabled` | `false` | no |
-| `maintenance.message` | `"We'll be back soon."` | yes |
-| `maintenance.allowedIps` | `[]` | no |
-| `system.encryptionEnabled` | `false` | no |
-| `system.apiRateLimitPerMin` | `100` | no |
+| `maintenanceEnabled` | `false` | no |
+| `maintenanceMessage` | `"We'll be back soon."` | yes |
+| `maintenanceAllowedIps` | `[]` | no |
+| `systemEncryptionEnabled` | `false` | no |
+| `systemApiRateLimitPerMin` | `100` | no |
 
 #### App / Android / iOS
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `app.minAndroidVersion` | `"1.0.0"` | yes |
-| `app.forceUpdateAndroid` | `false` | yes |
-| `app.latestAndroidVersion` | `"1.0.0"` | yes |
-| `app.minIosVersion` | `"1.0.0"` | yes |
-| `app.forceUpdateIos` | `false` | yes |
-| `app.latestIosVersion` | `"1.0.0"` | yes |
-| `app.updateMessage` | `""` | yes |
+| `appMinAndroidVersion` | `"1.0.0"` | yes |
+| `appForceUpdateAndroid` | `false` | yes |
+| `appLatestAndroidVersion` | `"1.0.0"` | yes |
+| `appMinIosVersion` | `"1.0.0"` | yes |
+| `appForceUpdateIos` | `false` | yes |
+| `appLatestIosVersion` | `"1.0.0"` | yes |
+| `appUpdateMessage` | `""` | yes |
 
 #### Tracking & Analytics
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `tracking.enabled` | `true` | no |
-| `tracking.sessionTimeoutMin` | `30` | no |
-| `tracking.geoLookupEnabled` | `true` | no |
-| `tracking.botFilterEnabled` | `true` | no |
-| `tracking.rawRetentionDays` | `90` | no |
-| `analytics.realtimeWindowMin` | `5` | no |
-| `analytics.aggregationCron` | `"0 2 * * *"` | no |
-| `analytics.exportMaxRows` | `50000` | no |
+| `trackingEnabled` | `true` | no |
+| `trackingSessionTimeoutMin` | `30` | no |
+| `trackingGeoLookupEnabled` | `true` | no |
+| `trackingBotFilterEnabled` | `true` | no |
+| `trackingRawRetentionDays` | `90` | no |
+| `analyticsRealtimeWindowMin` | `5` | no |
+| `analyticsAggregationCron` | `"0 2 * * *"` | no |
+| `analyticsExportMaxRows` | `50000` | no |
 
 #### Referral / Gift Cards
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `referral.enabled` | `false` | yes |
-| `referral.referrerReward` | `100` (INR) | no |
-| `referral.refereeReward` | `50` (INR) | no |
-| `referral.expiryDays` | `90` | no |
-| `giftCard.enabled` | `false` | yes |
-| `giftCard.minAmount` | `100` | yes |
-| `giftCard.maxAmount` | `50000` | yes |
-| `giftCard.expiryDays` | `365` | yes |
+| `referralEnabled` | `false` | yes |
+| `referralReferrerReward` | `100` (INR) | no |
+| `referralRefereeReward` | `50` (INR) | no |
+| `referralExpiryDays` | `90` | no |
+| `giftCardEnabled` | `false` | yes |
+| `giftCardMinAmount` | `100` | yes |
+| `giftCardMaxAmount` | `50000` | yes |
+| `giftCardExpiryDays` | `365` | yes |
 
 #### Support / Chat
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `support.ticket.enabled` | `true` | yes |
-| `support.chat.enabled` | `false` | yes |
-| `support.chatAutoReply` | `true` | no |
-| `support.workingHours` | `{start: "10:00", end: "19:00"}` | yes |
+| `supportTicketEnabled` | `true` | yes |
+| `supportChatEnabled` | `false` | yes |
+| `supportChatAutoReply` | `true` | no |
+| `supportWorkingHours` | `{start: "10:00", end: "19:00"}` | yes |
 
 #### Queue
 
 | Key | Default | Public |
 | --- | --- | --- |
-| `queue.maxAttempts` | `3` (clamped to at least 1) | — |
-| `queue.backoffDelayMs` | `3000` | — |
-| `queue.maxReplays` | `3` | — |
+| `queueMaxAttempts` | `3` (clamped to at least 1) | — |
+| `queueBackoffDelayMs` | `3000` | — |
+| `queueMaxReplays` | `3` | — |
 
 ---
 
@@ -1120,7 +1131,7 @@ What the API returns in the cases a client will hit. Every error uses the standa
 | Suspended user signs in | reject | 403 `ACCOUNT_SUSPENDED` |
 | Unverified account signs in | reject | 403 `ACCOUNT_UNVERIFIED` |
 | Banned customer signs in | reject, days remaining in the message | 403 `ACCOUNT_BANNED` |
-| Password older than `security.passwordExpiryDays` | block password login | 403 `PASSWORD_EXPIRED` |
+| Password older than `securityPasswordExpiryDays` | block password login | 403 `PASSWORD_EXPIRED` |
 | New password matches a retained hash | reject | 422 `PASSWORD_REUSED` |
 | Register `type` invalid | Zod reject | 400 `INVALID_REGISTER_TYPE` |
 | Vendor register without `shopName` | Zod reject | 400 `VENDOR_DETAILS_REQUIRED` |
@@ -1251,8 +1262,17 @@ What the API returns in the cases a client will hit. Every error uses the standa
 
 | Case | Behaviour |
 | --- | --- |
-| `maintenance.enabled = true` | 503 except `/health`, `/docs`, `/admin/*` for SUPER_ADMIN |
+| `maintenanceEnabled = true` | 503 except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/refreshToken`, and `/admin/*` + `/settings/updateMaintenance` for SUPER_ADMIN |
 | Response | `503 { status: false, message: "Maintenance", result: {} }` |
+| Request from an IP in `maintenanceAllowedIps` | served normally — the way to test the site while the public is held back |
+
+**Leaving maintenance mode.** The switch that turns it off is itself behind the 503 it turns on, so three escape hatches exist and all three are exercised by `e2e-encryption.ts`:
+
+1. **`PATCH /settings/updateMaintenance` with `{ "enabled": false }`** — reachable during maintenance for a SUPER_ADMIN, because `MAINTENANCE_ADMIN_PATHS` (`src/config/app.config.ts`) carries `/admin` and `/settings/updateMaintenance`. A token opens nothing else: business routes stay 503 for a super admin too.
+2. **`POST /auth/refreshToken`** — open to everyone while maintenance is on, because a token reaches no data while every business route is 503. An admin whose access token expired mid-maintenance can therefore mint a new one and use hatch 1. `/auth/login` stays closed; a session issued before maintenance started is enough.
+3. **`npm run maintenance:off`** — writes `maintenanceEnabled = false` straight to the database and drops the Redis cache. Needs no server, no token and no session, so it still works when the session cannot be renewed (rotated JWT secret, revoked refresh token, half-applied deploy).
+
+Hatch 3 keeps the message and `maintenanceAllowedIps` as they are; only the flag is cleared.
 
 ### Encryption
 
@@ -2036,7 +2056,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 
 | Method | Path | Auth | Role | Purpose |
 | --- | --- | --- | --- | --- |
-| DELETE | `/users/deleteAccount` | Required | Any | Soft-delete self — recoverable for `security.accountPurgeDays` |
+| DELETE | `/users/deleteAccount` | Required | Any | Soft-delete self — recoverable for `securityAccountPurgeDays` |
 | DELETE | `/users/deleteAddress/{id}` | Required | CUSTOMER | Delete address |
 | DELETE | `/users/deleteUser/{id}` | Required | SUPER_ADMIN | Hard delete |
 | DELETE | `/users/deleteSegment/{id}` | Required | ADMIN | Delete segment |
@@ -2351,7 +2371,7 @@ x-fcm-token: fcm_registration_token
 }
 ```
 
-`email` or `phone` — either works. This endpoint takes only a password; there is no `otp` or `type` field (use OTP login for that). If `twoFactorRequired` is `true`, the tokens are empty and a `twoFactorToken` is returned, which goes to `POST /auth/verify2FA`. `revokedSessionCount` reports how many older sessions the `security.maxActiveSessions` cap closed; it is `0` by default (see [B2](#b2-account-security)).
+`email` or `phone` — either works. This endpoint takes only a password; there is no `otp` or `type` field (use OTP login for that). If `twoFactorRequired` is `true`, the tokens are empty and a `twoFactorToken` is returned, which goes to `POST /auth/verify2FA`. `revokedSessionCount` reports how many older sessions the `securityMaxActiveSessions` cap closed; it is `0` by default (see [B2](#b2-account-security)).
 
 ### Login — OTP
 

@@ -114,6 +114,8 @@ export type Permission = (typeof PERMISSION)[keyof typeof PERMISSION];
 
 export const PERMISSION_VALUES = Object.values(PERMISSION) as Permission[];
 
+export const ALL_PERMISSIONS = '*';
+
 export const PERMISSION_GROUPS: Record<string, Permission[]> = {
   DASHBOARD: [PERMISSION.DASHBOARD_VIEW],
   SYSTEM: [
@@ -234,6 +236,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
   SUB_ADMIN: [
     PERMISSION.DASHBOARD_VIEW,
     PERMISSION.SETTINGS_VIEW,
+    PERMISSION.FEATURE_TOGGLE,
+    PERMISSION.SYSTEM_HEALTH_VIEW,
     PERMISSION.USER_LIST,
     PERMISSION.USER_VIEW,
     PERMISSION.USER_SUSPEND,

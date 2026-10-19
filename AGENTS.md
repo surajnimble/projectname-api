@@ -375,7 +375,7 @@ vendorData: p?.vendor ? { vendorId: D.str(p.vendor.id) } : {},
 
 The database (Prisma level) may hold `null`; the serializer scrubs it.
 
-**Don't** send `"phone": null`, `"price": null`, `"rating": null`, `"isActive": null`, `"items": null`, `"userData": null`, `"site.logo": null`, or `"site.supportPhones": null`.
+**Don't** send `"phone": null`, `"price": null`, `"rating": null`, `"isActive": null`, `"items": null`, `"userData": null`, `"siteLogo": null`, or `"siteSupportPhones": null`.
 
 **Don't** skip the `D.*` helper and write `?? ''` inline — inconsistent across modules.
 
@@ -460,7 +460,7 @@ Rule: **no hardcoded string, message or number anywhere.** Everything comes from
 throw new AppError(ERROR.PRODUCT.NOT_FOUND, 404, 'NOT_FOUND');
 ```
 
-Runtime-togglable behaviour (`loyalty.enabled`, `vendor.autoApprove`, `payment.cod.enabled`) is read at call time via `getSetting()`. The static config values and every `SystemSetting` default are listed in Part C of `FEATURES.md`; excerpts of the constants and message files are in the appendices below.
+Runtime-togglable behaviour (`loyaltyEnabled`, `vendorAutoApprove`, `paymentCodEnabled`) is read at call time via `getSetting()`. The static config values and every `SystemSetting` default are listed in Part C of `FEATURES.md`; excerpts of the constants and message files are in the appendices below.
 
 **Dynamic settings model**
 
@@ -873,6 +873,9 @@ The top of a file gets a 2–4 line doc block saying what the file is for. Every
 - Keep the password hash out of serializers entirely — never select it.
 - Let the env schema refuse `OTP_STATIC_CODE` in production.
 - Key an OTP to the identifier it was sent to.
+- Put `requirePermission(PERMISSION.X)` on a route a sub-admin can reach, so what a super admin grants in the admin panel is what the sub-admin can actually do. `requireRole` alone is not enough — it answers *who*, never *what*.
+
+**Role guard and permission guard are different questions.** `requireRole(SUB_ADMIN)` says the sub-admin may enter the area; `requirePermission` decides what happens inside it. A new `/admin/*` route that a sub-admin can reach needs both — the role guard on its own opens the route to every sub-admin in the system.
 
 **Don't:**
 
@@ -933,7 +936,7 @@ Device facts travel as **request headers**, never as a body object. The tracking
 
 `appVersionGuard` closes the API to an app build older than the configured minimum.
 
-- Policy is read per platform from `SystemSetting` at call time: `app.minAndroidVersion` / `app.forceUpdateAndroid`, `app.minIosVersion` / `app.forceUpdateIos`. `app.latestAndroidVersion` / `app.latestIosVersion` / `app.updateMessage` are what the client reads from `/settings/getPublicSettings`.
+- Policy is read per platform from `SystemSetting` at call time: `appMinAndroidVersion` / `appForceUpdateAndroid`, `appMinIosVersion` / `appForceUpdateIos`. `appLatestAndroidVersion` / `appLatestIosVersion` / `appUpdateMessage` are what the client reads from `/settings/getPublicSettings`.
 - Only `ANDROID` and `IOS` are gated. `WEB`, `OTHER` and any request without `x-app-version` always pass — a browser cannot act on an upgrade prompt, so gating it would lock users out.
 - `APP_VERSION_ALLOW_PATHS` (`/health`, `/version`, `/docs`, `/settings/getPublicSettings`) stays reachable; otherwise the client could never learn which build to install.
 - Response is `426 UPGRADE_REQUIRED`, code `APP_UPDATE_REQUIRED`, `result: {}` — the version to install is read from public settings, not smuggled into an error body.
@@ -964,7 +967,7 @@ Device facts travel as **request headers**, never as a body object. The tracking
 - Give every config file (app, pagination, jwt, password, otp, rateLimit, upload, tracking, analytics, socket, pdf) hard-coded defaults.
 - Seed every `SystemSetting` key with its default and an `isPublic` flag.
 - Use `upsert` in the seed so existing values are never overridden.
-- Keep `site.supportPhones` an array (`[]` or 3–4 numbers) — never a string.
+- Keep `siteSupportPhones` an array (`[]` or 3–4 numbers) — never a string.
 
 **Don't** use `create` in the seed — use `upsert` (idempotent). **Don't** hard-code public keys in the admin panel — respect the `isPublic` flag.
 
@@ -1063,6 +1066,8 @@ Prisma errors are already mapped in `src/middlewares/error.ts`: `P2002` (unique)
 | 500 | Server error | `INTERNAL_ERROR` |
 | 503 | Maintenance | `MAINTENANCE` |
 
+**Maintenance must stay reversible.** The switch that turns it off is itself behind the 503 it turns on, so `MAINTENANCE_ADMIN_PATHS` (`src/config/app.config.ts`) has to carry every path an operator needs to leave — at minimum the toggle itself — and `npm run maintenance:off` has to work with no server, no token and no session. **Don't** add a gated feature behind maintenance without asking how it gets turned back off; **don't** close `/auth/refreshToken` during maintenance, or an expired admin session can no longer be renewed and the toggle becomes unreachable.
+
 ---
 
 ## 24. Pre-push checklist
@@ -1076,6 +1081,7 @@ Prisma errors are already mapped in `src/middlewares/error.ts`: `P2002` (unique)
 - [ ] Pagination numbers only on list endpoints, inside `result`, first.
 - [ ] No hardcoded strings or numbers — pulled from `constants/`, `messages/`, `config/`, or `SystemSetting`.
 - [ ] Routes guarded per route, not inside the controller.
+- [ ] A route a sub-admin can reach also carries `requirePermission`, and `RolePermission` rows are the source of truth rather than merged over `DEFAULT_ROLE_PERMISSIONS`.
 - [ ] Comments explain why, not what. No `//` runs. No narrative.
 - [ ] Zod schema uses `.strict()`.
 - [ ] Runtime-toggleable behaviour reads a setting at call time.

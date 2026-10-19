@@ -108,19 +108,19 @@ const main = async (): Promise<void> => {
   const { prisma } = await import('../src/services/prisma.service');
   const { setSetting } = await import('../src/services/settings.service');
 
-  await setSetting('shipping.enabled', true, 'shipping', undefined, false);
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('shipping.perKgCharge', 0, 'shipping', undefined, false);
-  await setSetting('payment.cod.extraCharge', 0, 'payment', undefined, false);
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.cod.maxAmount', 20_000, 'payment', undefined, false);
-  await setSetting('tax.inclusive', false, 'tax', undefined, false);
-  await setSetting('tax.defaultGstPercent', 18, 'tax', undefined, false);
-  await setSetting('cart.maxItems', 3, 'cart', undefined, false);
-  await setSetting('wallet.enabled', true, 'wallet', undefined, false);
-  await setSetting('wallet.maxBalance', 5000, 'wallet', undefined, false);
-  await setSetting('wallet.minRedeem', 100, 'wallet', undefined, false);
+  await setSetting('shippingEnabled', true, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('shippingPerKgCharge', 0, 'shipping', undefined, false);
+  await setSetting('paymentCodExtraCharge', 0, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentCodMaxAmount', 20_000, 'payment', undefined, false);
+  await setSetting('taxInclusive', false, 'tax', undefined, false);
+  await setSetting('taxDefaultGstPercent', 18, 'tax', undefined, false);
+  await setSetting('cartMaxItems', 3, 'cart', undefined, false);
+  await setSetting('walletEnabled', true, 'wallet', undefined, false);
+  await setSetting('walletMaxBalance', 5000, 'wallet', undefined, false);
+  await setSetting('walletMinRedeem', 100, 'wallet', undefined, false);
 
   const customer = await register('cu', 'CUSTOMER');
   const vendorA = await register('v1', 'VENDOR');
@@ -613,7 +613,7 @@ const main = async (): Promise<void> => {
   await cu.del('/api/v1/cart/removeCoupon');
   void vendorScoped;
 
-  await setSetting('tax.inclusive', true, 'tax', undefined, false);
+  await setSetting('taxInclusive', true, 'tax', undefined, false);
   const inclusive = await cu.get('/api/v1/cart/getCart');
 
   record(
@@ -626,7 +626,7 @@ const main = async (): Promise<void> => {
     Math.abs(inclusive.body?.result?.total - 3835.28) < 0.02,
     `total=${inclusive.body?.result?.total}`,
   );
-  await setSetting('tax.inclusive', false, 'tax', undefined, false);
+  await setSetting('taxInclusive', false, 'tax', undefined, false);
 
   const address = await cu.post('/api/v1/users/addAddress', {
     type: 'HOME',
@@ -712,25 +712,25 @@ const main = async (): Promise<void> => {
     `status=${badMethod.status}`,
   );
 
-  await setSetting('payment.cod.maxAmount', 100, 'payment', undefined, false);
+  await setSetting('paymentCodMaxAmount', 100, 'payment', undefined, false);
   const codOver = await cu.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   record(
     'COD above the ceiling -> 422',
     codOver.status === 422 && String(codOver.body?.message).includes('20000') === false,
     `status=${codOver.status} msg=${codOver.body?.message}`,
   );
-  await setSetting('payment.cod.maxAmount', 20_000, 'payment', undefined, false);
+  await setSetting('paymentCodMaxAmount', 20_000, 'payment', undefined, false);
 
-  await setSetting('payment.cod.enabled', false, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', false, 'payment', undefined, false);
   const codOff = await cu.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   record(
     'estimate with COD disabled -> 422 METHOD_DISABLED',
     codOff.status === 422 && String(codOff.body?.message).includes('disabled'),
     `status=${codOff.status} msg=${codOff.body?.message}`,
   );
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
 
-  await setSetting('payment.cod.extraCharge', 25, 'payment', undefined, false);
+  await setSetting('paymentCodExtraCharge', 25, 'payment', undefined, false);
   const codFee = await cu.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   const upiFee = await cu.post('/api/v1/cart/estimate', { paymentMethod: 'UPI' });
   record(
@@ -743,7 +743,7 @@ const main = async (): Promise<void> => {
     upiFee.body?.result?.shippingAmount === 50,
     `shippingAmount=${upiFee.body?.result?.shippingAmount}`,
   );
-  await setSetting('payment.cod.extraCharge', 0, 'payment', undefined, false);
+  await setSetting('paymentCodExtraCharge', 0, 'payment', undefined, false);
 
   const walletOff = await cu.post('/api/v1/cart/estimate', { useWalletBalance: true });
   record(
@@ -1102,9 +1102,9 @@ const main = async (): Promise<void> => {
   await prisma.product.deleteMany({
     where: { id: { in: [shirt.id, cap.id, scarce.id, variantProduct.id, soldOut.id, ghost.id] } },
   });
-  await setSetting('cart.maxItems', 50, 'cart', undefined, false);
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
-  await setSetting('shipping.freeAbove', 999, 'shipping', undefined, false);
+  await setSetting('cartMaxItems', 50, 'cart', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
+  await setSetting('shippingFreeAbove', 999, 'shipping', undefined, false);
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

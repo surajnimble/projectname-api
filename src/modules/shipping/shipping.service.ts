@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { ROLES, PAYMENT_STATUS } from '../../constants/roles';
+import { PERMISSION, Permission } from '../../constants/permissions';
 import { prisma } from '../../services/prisma.service';
 import { AppError } from '../../utils/AppError';
 import { D, money } from '../../utils/defaults';
@@ -7,6 +8,8 @@ import { ERROR } from '../../messages/error';
 import { ERROR_CODE, HTTP_STATUS } from '../../constants/http';
 import { generateAwb } from '../../utils/slug';
 import { writeActivityLog, writeAuditLog } from '../../services/audit.service';
+import { cacheDel } from '../../services/redis.service';
+import { REDIS_KEYS } from '../../config/tracking.config';
 import {
   getFeatureFlags,
   toggleFeature,
@@ -1131,8 +1134,21 @@ export const bulkUpdateSettings = async (
   return count;
 };
 
-export const getDashboard = async (): Promise<Record<string, any>> => {
+const DASHBOARD_PERMISSION: Record<string, Permission> = {
+  totalUsers: PERMISSION.USER_LIST,
+  totalVendors: PERMISSION.VENDOR_LIST,
+  pendingVendors: PERMISSION.VENDOR_APPROVE,
+  totalProducts: PERMISSION.PRODUCT_VIEW_ALL,
+  totalOrders: PERMISSION.ORDER_LIST,
+  revenue30d: PERMISSION.REPORT_VIEW,
+  openTickets: PERMISSION.TICKET_LIST,
+  pendingReturns: PERMISSION.RETURN_LIST,
+  pendingRefunds: PERMISSION.PAYMENT_LIST,
+};
+
+export const getDashboard = async (granted: string[] = []): Promise<Record<string, any>> => {
   const since = new Date(Date.now() - 30 * 86_400_000);
+  const allowed = (permission: Permission): boolean => granted.includes(permission);
 
   const [
     users,
@@ -1161,7 +1177,7 @@ export const getDashboard = async (): Promise<Record<string, any>> => {
     prisma.refund.count({ where: { status: 'PENDING' } }),
   ]);
 
-  return {
+  const all = {
     totalUsers: users,
     totalVendors: vendors,
     pendingVendors,
@@ -1172,6 +1188,10 @@ export const getDashboard = async (): Promise<Record<string, any>> => {
     pendingReturns,
     pendingRefunds: openRefunds,
   };
+
+  return Object.fromEntries(
+    Object.entries(all).filter(([field]) => allowed(DASHBOARD_PERMISSION[field])),
+  );
 };
 
 export const createSubAdmin = async (
@@ -1291,6 +1311,8 @@ export const setRolePermissions = async (
       });
     }
   });
+
+  await cacheDel(REDIS_KEYS.USER_PERMISSIONS(role));
 
   void writeAuditLog({
     req,
@@ -1629,7 +1651,7 @@ export const setMaintenanceMode = async (
     actorId,
     action: 'TOGGLE',
     entity: 'SystemSetting',
-    entityId: 'maintenance.enabled',
+    entityId: 'maintenanceEnabled',
     description: `Maintenance mode ${input.enabled ? 'enabled' : 'disabled'}`,
   });
 

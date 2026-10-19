@@ -261,6 +261,19 @@ npm run prisma:generate
 | `npm run prisma:diff` | Print SQL for the current schema |
 | `npx prisma migrate deploy` | Apply pending migrations |
 | `npm run seed` | Idempotent seed — settings, RBAC, SUPER_ADMIN, demo data |
+| `npm run maintenance:off` | Kill switch — clears `maintenanceEnabled` in the DB and the Redis cache, no login needed |
+
+### Maintenance mode
+
+`PATCH /api/v1/settings/updateMaintenance` turns it on and off. While it is on, every route answers `503` except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/refreshToken`, and — for a SUPER_ADMIN token — `/admin/*` and `/settings/updateMaintenance` itself.
+
+If nobody can reach the toggle (session expired and unrecoverable, rotated JWT secret, a deploy that broke half the app), run this from the machine holding the database:
+
+```powershell
+npm run maintenance:off
+```
+
+It writes `maintenanceEnabled = false` directly and drops the cached value, so the next request is served normally. The maintenance message and the allowed-IP list are left as they are.
 
 ### Database
 
@@ -551,7 +564,7 @@ npx tsx scripts/e2e-order.ts
 powershell -ExecutionPolicy Bypass -File scripts\run-e2e.ps1 -Script scripts/e2e-content.ts
 ```
 
-The suites share one database. `loyalty.enabled`, `referral.enabled` and `giftCard.enabled` gate the engagement module, so `e2e-engagement.ts` pins those settings at the start and restores them in its cleanup. If a suite is killed mid-run, the settings can be left flipped; the next run resets them.
+The suites share one database. `loyaltyEnabled`, `referralEnabled` and `giftCardEnabled` gate the engagement module, so `e2e-engagement.ts` pins those settings at the start and restores them in its cleanup. If a suite is killed mid-run, the settings can be left flipped; the next run resets them.
 
 If the database is reset by anything else, `SUPER_ADMIN` disappears and every staff route returns 401. `npm run seed` is idempotent and restores it.
 

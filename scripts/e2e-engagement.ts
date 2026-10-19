@@ -105,17 +105,17 @@ const api = (token: string) => ({
 });
 
 const FEATURE_KEYS = {
-  loyaltyEnabled: 'loyalty.enabled',
-  pointsPerRupee: 'loyalty.pointsPerRupee',
-  pointValue: 'loyalty.pointValue',
-  minRedeemPoints: 'loyalty.minRedeemPoints',
-  referralEnabled: 'referral.enabled',
-  referrerReward: 'referral.referrerReward',
-  refereeReward: 'referral.refereeReward',
-  expiryDays: 'referral.expiryDays',
-  giftCardEnabled: 'giftCard.enabled',
-  minAmount: 'giftCard.minAmount',
-  maxAmount: 'giftCard.maxAmount',
+  loyaltyEnabled: 'loyaltyEnabled',
+  pointsPerRupee: 'loyaltyPointsPerRupee',
+  pointValue: 'loyaltyPointValue',
+  minRedeemPoints: 'loyaltyMinRedeemPoints',
+  referralEnabled: 'referralEnabled',
+  referrerReward: 'referralReferrerReward',
+  refereeReward: 'referralRefereeReward',
+  expiryDays: 'referralExpiryDays',
+  giftCardEnabled: 'giftCardEnabled',
+  minAmount: 'giftCardMinAmount',
+  maxAmount: 'giftCardMaxAmount',
 };
 
 const main = async (): Promise<void> => {
@@ -164,17 +164,17 @@ const main = async (): Promise<void> => {
     );
   };
 
-  await turnOn(FEATURE_KEYS.loyaltyEnabled, true, 'loyalty.enabled');
-  await turnOn(FEATURE_KEYS.pointsPerRupee, 1, 'loyalty.pointsPerRupee');
-  await turnOn(FEATURE_KEYS.pointValue, 0.01, 'loyalty.pointValue');
-  await turnOn(FEATURE_KEYS.minRedeemPoints, 100, 'loyalty.minRedeemPoints');
-  await turnOn(FEATURE_KEYS.referralEnabled, true, 'referral.enabled');
-  await turnOn(FEATURE_KEYS.referrerReward, 75, 'referral.referrerReward');
-  await turnOn(FEATURE_KEYS.refereeReward, 50, 'referral.refereeReward');
-  await turnOn(FEATURE_KEYS.expiryDays, 30, 'referral.expiryDays');
-  await turnOn(FEATURE_KEYS.giftCardEnabled, true, 'giftCard.enabled');
-  await turnOn(FEATURE_KEYS.minAmount, 100, 'giftCard.minAmount');
-  await turnOn(FEATURE_KEYS.maxAmount, 50000, 'giftCard.maxAmount');
+  await turnOn(FEATURE_KEYS.loyaltyEnabled, true, 'loyaltyEnabled');
+  await turnOn(FEATURE_KEYS.pointsPerRupee, 1, 'loyaltyPointsPerRupee');
+  await turnOn(FEATURE_KEYS.pointValue, 0.01, 'loyaltyPointValue');
+  await turnOn(FEATURE_KEYS.minRedeemPoints, 100, 'loyaltyMinRedeemPoints');
+  await turnOn(FEATURE_KEYS.referralEnabled, true, 'referralEnabled');
+  await turnOn(FEATURE_KEYS.referrerReward, 75, 'referralReferrerReward');
+  await turnOn(FEATURE_KEYS.refereeReward, 50, 'referralRefereeReward');
+  await turnOn(FEATURE_KEYS.expiryDays, 30, 'referralExpiryDays');
+  await turnOn(FEATURE_KEYS.giftCardEnabled, true, 'giftCardEnabled');
+  await turnOn(FEATURE_KEYS.minAmount, 100, 'giftCardMinAmount');
+  await turnOn(FEATURE_KEYS.maxAmount, 50000, 'giftCardMaxAmount');
 
   const al = api(alice.token);
 

@@ -11,6 +11,8 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   SUB_ADMIN: [
     'dashboard:view',
     'settings:view',
+    'settings:feature:toggle',
+    'system:health:view',
     'user:list',
     'user:view',
     'user:suspend',

@@ -339,8 +339,8 @@ export const settingsBulkUpdate = asyncHandler(async (req, res) => {
  *     responses:
  *       200: { description: Dashboard summary }
  */
-export const dashboard = asyncHandler(async (_req, res) => {
-  const result = await service.getDashboard();
+export const dashboard = asyncHandler(async (req, res) => {
+  const result = await service.getDashboard(req.auth!.permissions ?? []);
   return ApiResponse.success(res, { message: SUCCESS.ADMIN.DASHBOARD_FETCHED, result });
 });
 

@@ -836,6 +836,66 @@ const main = async (): Promise<void> => {
     permissions: seededSubPerms,
   });
 
+  const superDash = await admin.get('/api/v1/admin/getDashboardStats');
+  record(
+    'a super admin sees every dashboard counter',
+    superDash.status === 200 &&
+      typeof superDash.body?.result?.revenue30d === 'number' &&
+      typeof superDash.body?.result?.totalUsers === 'number',
+    `status=${superDash.status} keys=${Object.keys(superDash.body?.result ?? {}).join(',')}`,
+  );
+
+  await admin.patch('/api/v1/admin/updatePermissions/SUB_ADMIN', {
+    permissions: ['dashboard:view', 'order:list'],
+  });
+
+  const subDash = await api(subToken).get('/api/v1/admin/getDashboardStats');
+  record(
+    'a sub-admin holding dashboard:view gets 200',
+    subDash.status === 200,
+    `status=${subDash.status} msg=${subDash.body?.message}`,
+  );
+  record(
+    'the sub-admin sees only the counters their permissions cover',
+    subDash.body?.result?.totalOrders !== undefined &&
+      subDash.body?.result?.revenue30d === undefined &&
+      subDash.body?.result?.totalUsers === undefined &&
+      subDash.body?.result?.openTickets === undefined,
+    JSON.stringify(subDash.body?.result),
+  );
+  record(
+    'the dashboard carries no nulls for a sub-admin',
+    findNull(subDash.body?.result) === null,
+    findNull(subDash.body?.result) ?? 'clean',
+  );
+
+  await admin.patch('/api/v1/admin/updatePermissions/SUB_ADMIN', {
+    permissions: ['order:list'],
+  });
+
+  const subDashNoView = await api(subToken).get('/api/v1/admin/getDashboardStats');
+  record(
+    'revoking dashboard:view blocks the dashboard -> 403',
+    subDashNoView.status === 403,
+    `status=${subDashNoView.status} msg=${subDashNoView.body?.message}`,
+  );
+  record(
+    'the revoked permission takes effect immediately, not after the cache TTL',
+    subDashNoView.status === 403,
+    `status=${subDashNoView.status}`,
+  );
+
+  await admin.patch(`/api/v1/admin/updatePermissions/SUB_ADMIN`, {
+    permissions: seededSubPerms,
+  });
+
+  const subDashRestored = await api(subToken).get('/api/v1/admin/getDashboardStats');
+  record(
+    'granting dashboard:back opens it again -> 200',
+    subDashRestored.status === 200,
+    `status=${subDashRestored.status}`,
+  );
+
   const badRole = await admin.patch('/api/v1/admin/updatePermissions/NOT_A_ROLE', {
     permissions: ['order:list'],
   });

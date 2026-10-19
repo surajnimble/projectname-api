@@ -66,7 +66,7 @@ router.patch(
  *     summary: Turn own shop vacation mode on or off
  *     description: >
  *       `:id` must equal the caller's own vendorId. `until` must be in the future and
- *       is capped at `vendor.vacationMaxDays` days; turning vacation off clears the end
+ *       is capped at `vendorVacationMaxDays` days; turning vacation off clears the end
  *       date but keeps the message.
  *     security: [{ bearerAuth: [] }]
  *     parameters:
@@ -106,8 +106,8 @@ router.get('/getStats', authenticate, ...controller.guards.own, controller.getSt
  *     tags: [Vendors]
  *     summary: Request a payout
  *     description: >
- *       Amount must be at least `vendor.minPayoutAmount` and no more than the earnings
- *       that have cleared `vendor.payoutHoldDays`. 422 on minimum, availability or
+ *       Amount must be at least `vendorMinPayoutAmount` and no more than the earnings
+ *       that have cleared `vendorPayoutHoldDays`. 422 on minimum, availability or
  *       pending-order violations.
  *     security: [{ bearerAuth: [] }]
  */
@@ -365,7 +365,7 @@ router.get(
  *     summary: Public store page for a shop
  *     description: >
  *       Carries the live announcements and the newest active products, capped at
- *       `vendor.storeProductLimit`. `?limit=` may narrow that further. A shop that is
+ *       `vendorStoreProductLimit`. `?limit=` may narrow that further. A shop that is
  *       not approved returns 403.
  *     parameters:
  *       - { name: slug, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 140 }, example: ravi-electronics }
@@ -449,7 +449,7 @@ router.get(
  *   patch:
  *     tags: [Vendors]
  *     summary: Approve a vendor (admin)
- *     description: Optional `commissionRate`, clamped to commission.minPercent/maxPercent.
+ *     description: Optional `commissionRate`, clamped to commissionMinPercent/commissionMaxPercent.
  *     security: [{ bearerAuth: [] }]
  */
 router.patch(

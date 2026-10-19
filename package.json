@@ -26,6 +26,7 @@
     "env:check": "tsx scripts/env-sync.ts --check",
     "comments:check": "tsx scripts/comment-audit.ts",
     "comments:fix": "tsx scripts/comment-normalise.ts --write",
+    "maintenance:off": "tsx scripts/maintenance-off.ts",
     "e2e": "tsx scripts/e2e-smoke.ts",
     "e2e:encryption": "tsx scripts/e2e-encryption.ts",
     "e2e:all": "npm run db:restart && npm run e2e && npm run db:restart && npm run e2e:encryption",

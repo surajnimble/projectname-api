@@ -488,7 +488,7 @@ const runAuthDeepWorkflow = async () => {
     .send({ restoreToken: 'x'.repeat(24) });
   record('AUTH: bogus restore token rejected', [400, 410].includes(restore.status));
 
-  await setSetting('security.twoFactorEnabled', true, 'security', undefined, false);
+  await setSetting('securityTwoFactorEnabled', true, 'security', undefined, false);
   const tf = await register('tf', 'CUSTOMER');
   const tfAuth = api(tf.token);
   const enable = await tfAuth.post('/api/v1/auth/enable2FA', {});
@@ -528,7 +528,7 @@ const runAuthDeepWorkflow = async () => {
   record('AUTH: 2FA disabled', disable.status === 200 && disable.body?.result?.isEnabled === false);
   const disableAgain = await tfAuth.post('/api/v1/auth/disable2FA', { otp: generateTotp(secret) });
   record('AUTH: disable2FA when off rejected', disableAgain.status === 400);
-  await setSetting('security.twoFactorEnabled', false, 'security', undefined, false);
+  await setSetting('securityTwoFactorEnabled', false, 'security', undefined, false);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2011,7 +2011,7 @@ const runSettingsWorkflow = async (
     `shipping=${shippingBefore}`,
   );
 
-  await setSetting('shipping.defaultCharge', 100, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 100, 'shipping', undefined, false);
 
   const afterShipping = await customer.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   const shippingAfter = afterShipping.body?.result?.shippingAmount ?? 0;
@@ -2021,7 +2021,7 @@ const runSettingsWorkflow = async (
     `shipping=${shippingAfter}`,
   );
 
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
 
   const restoredShipping = await customer.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   const shippingRestored = restoredShipping.body?.result?.shippingAmount ?? 0;
@@ -2031,17 +2031,17 @@ const runSettingsWorkflow = async (
     `shipping=${shippingRestored}`,
   );
 
-  await setSetting('payment.cod.enabled', false, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', false, 'payment', undefined, false);
 
   const codOff = await customer.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   record('SETTINGS: COD disabled blocks estimate', codOff.status === 422);
 
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
 
   const codOn = await customer.post('/api/v1/cart/estimate', { paymentMethod: 'COD' });
   record('SETTINGS: COD re-enabled allows estimate', codOn.status === 200);
 
-  await setSetting('order.minAmount', 5000, 'order', undefined, false);
+  await setSetting('orderMinAmount', 5000, 'order', undefined, false);
 
   const address = await customer.post('/api/v1/users/addAddress', {
     type: 'HOME',
@@ -2061,7 +2061,7 @@ const runSettingsWorkflow = async (
   });
   record('SETTINGS: order below min amount blocked', minOrder.status === 422);
 
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
 
   const orderOk = await customer.post('/api/v1/orders/placeOrder', {
     addressId: address.body?.result?.addressId,
@@ -2614,7 +2614,7 @@ const runOrderLifecycleWorkflow = async (
     record('LIFECYCLE: refund without reason rejected', noReason.status === 400);
   }
 
-  await setSetting('wallet.enabled', true, 'wallet', undefined, false);
+  await setSetting('walletEnabled', true, 'wallet', undefined, false);
 
   const { prisma } = await import('../src/services/prisma.service');
   const me = await customer.get('/api/v1/users/getProfile');
@@ -2676,7 +2676,7 @@ const runOrderLifecycleWorkflow = async (
   const txns = await customer.get('/api/v1/wallet/getTransactions?type=DEBIT');
   record('WALLET: debit transactions listed', txns.status === 200);
 
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
   const disabledAdd = await customer.post('/api/v1/wallet/addMoney', { amount: 500 });
   record('WALLET: disabled wallet rejects add', disabledAdd.status === 422);
   const disabledCredit = await admin.post('/api/v1/wallet/adminCredit', {
@@ -2738,10 +2738,10 @@ const runEngagementWorkflow = async (
   log('ENGAGEMENT WORKFLOW');
   log('='.repeat(80));
 
-  await setSetting('wallet.enabled', true, 'wallet', undefined, false);
-  await setSetting('loyalty.enabled', true, 'loyalty', undefined, false);
-  await setSetting('referral.enabled', true, 'referral', undefined, false);
-  await setSetting('giftCard.enabled', true, 'giftCard', undefined, false);
+  await setSetting('walletEnabled', true, 'wallet', undefined, false);
+  await setSetting('loyaltyEnabled', true, 'loyalty', undefined, false);
+  await setSetting('referralEnabled', true, 'referral', undefined, false);
+  await setSetting('giftCardEnabled', true, 'giftCard', undefined, false);
 
   const points = await customer.get('/api/v1/loyalty/getPoints');
   record('LOYALTY: points summary returned', points.status === 200);
@@ -2897,9 +2897,9 @@ const runEngagementWorkflow = async (
   const delSale = await admin.del(`/api/v1/flashSales/delete/${saleId}`);
   record('FLASHSALE: sale deleted', delSale.status === 200);
 
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
-  await setSetting('referral.enabled', false, 'referral', undefined, false);
-  await setSetting('giftCard.enabled', false, 'giftCard', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
+  await setSetting('referralEnabled', false, 'referral', undefined, false);
+  await setSetting('giftCardEnabled', false, 'giftCard', undefined, false);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3658,11 +3658,11 @@ const runSettingsApiWorkflow = async (adminToken: string, customerToken: string)
   record('SETTINGS_API: feature flags public', flags.status === 200);
 
   const toggle = await admin.patch('/api/v1/settings/toggleFeature', {
-    key: 'feature.chat',
+    key: 'featureChat',
     enabled: false,
   });
   record('SETTINGS_API: feature toggled off', toggle.status === 200);
-  await admin.patch('/api/v1/settings/toggleFeature', { key: 'feature.chat', enabled: true });
+  await admin.patch('/api/v1/settings/toggleFeature', { key: 'featureChat', enabled: true });
 
   const maintenance = await request(app).get('/api/v1/settings/getMaintenance');
   record('SETTINGS_API: maintenance status public', maintenance.status === 200);
@@ -3684,7 +3684,7 @@ const runSettingsApiWorkflow = async (adminToken: string, customerToken: string)
   });
   record('SETTINGS_API: even admin API blocked during maintenance', maintOffViaApi.status === 503);
 
-  await setSetting('maintenance.enabled', false, 'maintenance', undefined, false);
+  await setSetting('maintenanceEnabled', false, 'maintenance', undefined, false);
   const afterMaint = await customer.get('/api/v1/users/getProfile');
   record('SETTINGS_API: API recovers after maintenance off', afterMaint.status === 200);
 
@@ -3700,13 +3700,13 @@ const runSettingsApiWorkflow = async (adminToken: string, customerToken: string)
     reset.status === 200 && D_num(reset.body?.result?.resetCount) >= 1,
   );
 
-  await setSetting('shipping.enabled', true, 'shipping', undefined, false);
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
+  await setSetting('shippingEnabled', true, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4236,13 +4236,13 @@ const main = async (): Promise<void> => {
 
   log('Setting up test environment...');
 
-  await setSetting('shipping.enabled', true, 'shipping', undefined, false);
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('payment.cod.enabled', true, 'payment', undefined, false);
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('wallet.enabled', false, 'wallet', undefined, false);
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
+  await setSetting('shippingEnabled', true, 'shipping', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('paymentCodEnabled', true, 'payment', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('walletEnabled', false, 'wallet', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
 
   const adminLogin = await request(app)
     .post('/api/v1/auth/login')
@@ -4425,7 +4425,7 @@ const main = async (): Promise<void> => {
     prisma.returnReason.deleteMany({ where: { title: { contains: run } } }),
   );
 
-  await setSetting('shipping.freeAbove', 999, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 999, 'shipping', undefined, false);
 
   const passed = checks.filter((c) => c.passed).length;
   const failed = checks.filter((c) => !c.passed);

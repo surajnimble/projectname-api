@@ -99,12 +99,12 @@ const main = async (): Promise<void> => {
   const { prisma } = await import('../src/services/prisma.service');
   const { setSetting } = await import('../src/services/settings.service');
 
-  await setSetting('shipping.defaultCharge', 50, 'shipping', undefined, false);
-  await setSetting('shipping.freeAbove', 0, 'shipping', undefined, false);
-  await setSetting('order.minAmount', 0, 'order', undefined, false);
-  await setSetting('payment.token.enabled', false, 'payment', undefined, false);
-  await setSetting('coupon.minOrderAmount', 0, 'coupon', undefined, false);
-  await setSetting('coupon.maxDiscount', 0, 'coupon', undefined, false);
+  await setSetting('shippingDefaultCharge', 50, 'shipping', undefined, false);
+  await setSetting('shippingFreeAbove', 0, 'shipping', undefined, false);
+  await setSetting('orderMinAmount', 0, 'order', undefined, false);
+  await setSetting('paymentTokenEnabled', false, 'payment', undefined, false);
+  await setSetting('couponMinOrderAmount', 0, 'coupon', undefined, false);
+  await setSetting('couponMaxDiscount', 0, 'coupon', undefined, false);
 
   const customer = await register('cu', 'CUSTOMER');
   const other = await register('x', 'CUSTOMER');

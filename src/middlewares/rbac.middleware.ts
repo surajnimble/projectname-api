@@ -1,13 +1,30 @@
 import type { RequestHandler } from 'express';
 import { prisma } from '../services/prisma.service';
-import { cacheGet, cacheSet } from '../services/redis.service';
+import { cacheDel, cacheGet, cacheSet } from '../services/redis.service';
 import { REDIS_KEYS, CACHE_TTL } from '../config/tracking.config';
-import { DEFAULT_ROLE_PERMISSIONS, Permission, PERMISSION } from '../constants/permissions';
+import {
+  ALL_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSIONS,
+  PERMISSION_VALUES,
+  Permission,
+  PERMISSION,
+} from '../constants/permissions';
 import { ROLES } from '../constants/roles';
 import { ApiResponse } from '../utils/ApiResponse';
 import { ERROR } from '../messages/error';
 import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
 import { asyncHandler } from '../utils/asyncHandler';
+
+const resolveRolePermissions = (
+  rows: { permission: string; isAllowed: boolean }[],
+  defaults: Permission[],
+): Permission[] => {
+  if (rows.some((row) => row.permission === ALL_PERMISSIONS)) return [...PERMISSION_VALUES];
+  if (rows.length === 0) return defaults;
+  return [
+    ...new Set(rows.filter((row) => row.isAllowed).map((row) => row.permission as Permission)),
+  ];
+};
 
 export const getRolePermissions = async (role: string): Promise<Permission[]> => {
   const cacheKey = REDIS_KEYS.USER_PERMISSIONS(role);
@@ -18,17 +35,10 @@ export const getRolePermissions = async (role: string): Promise<Permission[]> =>
 
   try {
     const rows = await prisma.rolePermission.findMany({ where: { role: role as any } });
-    const merged = rows.length
-      ? [
-          ...new Set([
-            ...defaults,
-            ...rows.filter((r) => r.isAllowed).map((r) => r.permission as Permission),
-          ]),
-        ]
-      : defaults;
+    const resolved = resolveRolePermissions(rows, defaults);
 
-    await cacheSet(cacheKey, merged, CACHE_TTL.PERMISSIONS_SEC);
-    return merged;
+    await cacheSet(cacheKey, resolved, CACHE_TTL.PERMISSIONS_SEC);
+    return resolved;
   } catch {
     return defaults;
   }
@@ -38,6 +48,7 @@ export const setRolePermissions = async (
   role: string,
   permissions: { permission: string; isAllowed: boolean }[],
 ): Promise<number> => {
+  const cacheKey = REDIS_KEYS.USER_PERMISSIONS(role);
   await prisma.$transaction(
     permissions.map((p) =>
       prisma.rolePermission.upsert({
@@ -47,11 +58,8 @@ export const setRolePermissions = async (
       }),
     ),
   );
-  await cacheSet(
-    REDIS_KEYS.USER_PERMISSIONS(role),
-    await getRolePermissions(role),
-    CACHE_TTL.PERMISSIONS_SEC,
-  );
+  await cacheDel(cacheKey);
+  await cacheSet(cacheKey, await getRolePermissions(role), CACHE_TTL.PERMISSIONS_SEC);
   return permissions.length;
 };
 

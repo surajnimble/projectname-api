@@ -175,7 +175,7 @@ router.patch(
  *     tags: [Products]
  *     summary: Upload product images (multipart/form-data)
  *     description: >
- *       Field `files`, up to `catalog.maxImagesPerProduct` in total, JPEG/PNG/WebP
+ *       Field `files`, up to `catalogMaxImagesPerProduct` in total, JPEG/PNG/WebP
  *       up to 5MB each. Exceeding the limit returns 400 IMAGE_LIMIT_EXCEEDED.
  *     security: [{ bearerAuth: [] }]
  */

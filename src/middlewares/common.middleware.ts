@@ -4,6 +4,7 @@ import { ERROR } from '../messages/error';
 import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
 import { getPaymentMethodsConfig } from '../services/settings.service';
 import { isFeatureEnabled } from '../services/settings.service';
+import { SETTING_KEY } from '../config/setting.config';
 import { PAYMENT_METHOD } from '../constants/roles';
 import { asyncHandler } from '../utils/asyncHandler';
 
@@ -36,7 +37,7 @@ export const requirePaymentMethod = (method: keyof typeof PAYMENT_METHOD): Reque
       BANK: config.bank.enabled,
       CARD: true,
       NETBANKING: true,
-      WALLET: await isFeatureEnabled('feature.wallet', false),
+      WALLET: await isFeatureEnabled(SETTING_KEY.FEATURE_WALLET, false),
       RAZORPAY: false,
       STRIPE: false,
     } as Record<string, boolean>;

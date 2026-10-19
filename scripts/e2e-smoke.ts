@@ -97,7 +97,7 @@ const main = async (): Promise<void> => {
   record('register returns vendorData.vendorId', Boolean(vendorId), String(vendorId));
   record('vendor role assigned', role === 'VENDOR', String(role));
   record(
-    'vendor.autoApprove=false leaves status PENDING',
+    'vendorAutoApprove=false leaves status PENDING',
     vendorStatus === 'PENDING',
     String(vendorStatus),
   );

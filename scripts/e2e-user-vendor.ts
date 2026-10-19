@@ -416,7 +416,7 @@ const main = async (): Promise<void> => {
   record('GET /vendors/getProfile -> 200', vProfile.status === 200, `status=${vProfile.status}`);
   record('vendor profile envelope is strict', assertEnvelope(vProfile.body, true));
   record(
-    'vendor starts PENDING (vendor.autoApprove=false)',
+    'vendor starts PENDING (vendorAutoApprove=false)',
     vProfile.body?.result?.status === 'PENDING',
     vProfile.body?.result?.status,
   );
@@ -558,7 +558,7 @@ const main = async (): Promise<void> => {
     .set('Authorization', `Bearer ${vendor.token}`)
     .send({ amount: 100, method: 'BANK' });
   record(
-    'payout below vendor.minPayoutAmount -> 422',
+    'payout below vendorMinPayoutAmount -> 422',
     payoutTooSmall.status === 422 &&
       String(payoutTooSmall.body?.message).includes('PAYOUT_MIN_AMOUNT'),
     `status=${payoutTooSmall.status} msg=${payoutTooSmall.body?.message}`,
