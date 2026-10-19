@@ -242,7 +242,7 @@ export const SERVER_SCHEMA: Record<string, any> = {
               twoFactorRequired: { type: 'boolean' },
               userData: { type: 'object' },
               vendorData: { type: 'object' },
-              rolesList: { type: 'array', items: { type: 'string' } },
+              role: { type: 'string', example: 'CUSTOMER' },
             },
           },
         },
@@ -250,17 +250,6 @@ export const SERVER_SCHEMA: Record<string, any> = {
     ],
   },
 
-  DeviceData: {
-    type: 'object',
-    properties: {
-      deviceId: { type: 'string' },
-      platform: { type: 'string', enum: ['ANDROID', 'IOS', 'WEB'] },
-      appVersion: { type: 'string' },
-      model: { type: 'string' },
-      locale: { type: 'string' },
-      timezone: { type: 'string' },
-    },
-  },
   PaginationQuery: {
     type: 'object',
     parameters: [
@@ -290,7 +279,7 @@ export const SERVER_SCHEMA: Record<string, any> = {
       isActive: { type: 'boolean' },
       isEmailVerified: { type: 'boolean' },
       isPhoneVerified: { type: 'boolean' },
-      rolesList: { type: 'array', items: { type: 'string' } },
+      role: { type: 'string', example: 'CUSTOMER' },
     },
   },
   AddressData: {

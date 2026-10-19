@@ -16,8 +16,6 @@ export const serializeAuthUser = (u: any): Record<string, any> => ({
   isTwoFactorEnabled: D.bool(u?.twoFactorEnabled),
   lastLoginAt: D.date(u?.lastLoginAt),
   createdAt: D.date(u?.createdAt),
-
-  rolesList: u?.role ? [D.str(u.role)] : [],
 });
 
 export const serializeVendorLite = (v: any): Record<string, any> => ({
@@ -37,8 +35,8 @@ export const serializeSession = (
     accessToken: D.str(tokens?.accessToken),
     expiresIn: D.num(tokens?.expiresIn ?? ACCESS_TOKEN_TTL_SEC),
     twoFactorRequired: D.bool(options.twoFactorRequired),
+    role: D.str(user?.role),
     userData: serializeAuthUser(user),
-    rolesList: user?.role ? [D.str(user.role)] : [],
   };
 
   if (user?.vendorProfile) {

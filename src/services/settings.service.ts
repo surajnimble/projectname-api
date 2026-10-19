@@ -2,6 +2,7 @@ import { prisma } from './prisma.service';
 import { cacheGet, cacheSet, cacheDel, cacheDelByPattern, getRedis } from './redis.service';
 import { REDIS_KEYS, CACHE_TTL } from '../config/tracking.config';
 import { SETTING_KEY, SETTING_CATEGORY, SettingCategory } from '../config/setting.config';
+import { PLATFORM } from '../constants/roles';
 import { DLQ, QUEUE_POLICY } from '../config/queue.config';
 import { VACATION_MAX_DAYS } from '../constants/segments';
 import { logger } from './logger.service';
@@ -235,6 +236,54 @@ export const getMaintenanceStatus = async (): Promise<{
     enabled: Boolean(enabled),
     message: String(message || "We'll be back soon."),
     allowedIps: Array.isArray(allowedIps) ? allowedIps : [],
+  };
+};
+
+/**
+ * Android and iOS are versioned independently, so the force-update decision is
+ * read per platform. `OTHER` and `WEB` resolve to the same permissive policy as
+ * an unconfigured platform: a browser updates itself and must never be locked
+ * out of the API by a rule written for a mobile build.
+ */
+export const getAppUpdatePolicy = async (
+  platform: string,
+): Promise<{
+  forceUpdate: boolean;
+  minVersion: string;
+  latestVersion: string;
+  message: string;
+}> => {
+  const permissive = { forceUpdate: false, minVersion: '', latestVersion: '', message: '' };
+  const normalised = String(platform ?? '').toUpperCase();
+  if (normalised !== PLATFORM.ANDROID && normalised !== PLATFORM.IOS) return permissive;
+
+  const [forceUpdate, minVersion, latestVersion, message] = await Promise.all([
+    getSetting<boolean>(
+      normalised === PLATFORM.ANDROID
+        ? SETTING_KEY.APP_FORCE_UPDATE_ANDROID
+        : SETTING_KEY.APP_FORCE_UPDATE_IOS,
+      false,
+    ),
+    getSetting<string>(
+      normalised === PLATFORM.ANDROID
+        ? SETTING_KEY.APP_MIN_ANDROID_VERSION
+        : SETTING_KEY.APP_MIN_IOS_VERSION,
+      '',
+    ),
+    getSetting<string>(
+      normalised === PLATFORM.ANDROID
+        ? SETTING_KEY.APP_LATEST_ANDROID_VERSION
+        : SETTING_KEY.APP_LATEST_IOS_VERSION,
+      '',
+    ),
+    getSetting<string>(SETTING_KEY.APP_UPDATE_MESSAGE, ''),
+  ]);
+
+  return {
+    forceUpdate: Boolean(forceUpdate),
+    minVersion: String(minVersion ?? ''),
+    latestVersion: String(latestVersion ?? ''),
+    message: String(message ?? ''),
   };
 };
 

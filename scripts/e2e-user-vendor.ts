@@ -95,8 +95,8 @@ const main = async (): Promise<void> => {
   record('bootstrap SUPER_ADMIN token', Boolean(adminToken), adminLogin.body?.message);
   record(
     'seeded admin really is SUPER_ADMIN',
-    adminLogin.body?.result?.rolesList?.[0] === 'SUPER_ADMIN',
-    JSON.stringify(adminLogin.body?.result?.rolesList ?? []),
+    adminLogin.body?.result?.role === 'SUPER_ADMIN',
+    String(adminLogin.body?.result?.role ?? ''),
   );
 
   const profile = await request(app)
@@ -110,7 +110,7 @@ const main = async (): Promise<void> => {
     profile.body?.result?.userData?.userId === customer.userId,
     profile.body?.result?.userData?.userId,
   );
-  record('profile includes rolesList', Array.isArray(profile.body?.result?.rolesList));
+  record('profile includes role', typeof profile.body?.result?.role === 'string');
   record('profile has no null values', JSON.stringify(profile.body).includes('null') === false);
 
   const noAuthProfile = await request(app).get('/api/v1/users/getProfile');

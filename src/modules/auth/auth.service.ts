@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+﻿import bcrypt from 'bcrypt';
 import QRCode from 'qrcode';
 import { prisma } from '../../services/prisma.service';
 import { logger } from '../../services/logger.service';
@@ -90,8 +90,8 @@ const flagNewDevice = async (userId: string, device: DeviceContext): Promise<boo
         userId,
         platform: (device.platform ?? 'WEB') as any,
         ip: D.str(device.ip),
-        appVersion: D.str(device.appVersion),
         lastSeenAt: new Date(),
+        ...deviceFacts(device, true),
       },
     })
     .catch(() => undefined);
@@ -217,7 +217,7 @@ export const registerCustomer = async (
   });
 
   const tokens = await issueTokens(user.id, device);
-  await linkDeviceToUser(user.id, device);
+  await linkDeviceToUser(user.id, device, { withFcmToken: true });
 
   void writeActivityLog({
     req,
@@ -299,7 +299,7 @@ export const registerVendor = async (
   });
 
   const tokens = await issueTokens(user.id, device);
-  await linkDeviceToUser(user.id, device);
+  await linkDeviceToUser(user.id, device, { withFcmToken: true });
 
   void writeAuditLog({
     req,
@@ -517,8 +517,29 @@ export const revokeAllTokens = async (userId: string, exceptId?: string): Promis
   return result.count;
 };
 
-export const linkDeviceToUser = async (userId: string, device: DeviceContext): Promise<void> => {
+/**
+ * Device facts arrive as headers, so a client that is not the app â€” a browser,
+ * curl, Postman â€” sends none of them. Every field is therefore written only
+ * when it is non-empty: a request without an FCM token must not blank the token
+ * a previous app sign-in stored against the same device.
+ */
+const deviceFacts = (device: DeviceContext, withFcmToken: boolean): Record<string, string> => ({
+  ...(D.str(device.appVersion) ? { appVersion: D.str(device.appVersion) } : {}),
+  ...(D.str(device.model) ? { model: D.str(device.model) } : {}),
+  ...(D.str(device.locale) ? { locale: D.str(device.locale) } : {}),
+  ...(D.str(device.timezone) ? { timezone: D.str(device.timezone) } : {}),
+  ...(withFcmToken && D.str(device.fcmToken) ? { fcmToken: D.str(device.fcmToken) } : {}),
+});
+
+export const linkDeviceToUser = async (
+  userId: string,
+  device: DeviceContext,
+  options: { withFcmToken?: boolean } = {},
+): Promise<void> => {
   if (!device.deviceId) return;
+
+  const facts = deviceFacts(device, options.withFcmToken === true);
+
   try {
     await prisma.device.upsert({
       where: { deviceId: device.deviceId },
@@ -527,10 +548,10 @@ export const linkDeviceToUser = async (userId: string, device: DeviceContext): P
         userId,
         platform: (device.platform ?? 'WEB') as any,
         ip: D.str(device.ip),
-        appVersion: D.str(device.appVersion),
         lastSeenAt: new Date(),
+        ...facts,
       },
-      update: { userId, lastSeenAt: new Date(), ip: D.str(device.ip) },
+      update: { userId, lastSeenAt: new Date(), ip: D.str(device.ip), ...facts },
     });
   } catch (err) {
     logger.error({ err: (err as Error)?.message }, '[auth] device link failed');
@@ -660,7 +681,7 @@ export const loginWithPassword = async (
   });
 
   const tokens = await issueTokens(user.id, device);
-  await linkDeviceToUser(user.id, device);
+  await linkDeviceToUser(user.id, device, { withFcmToken: true });
   await cacheDel(REDIS_KEYS.LOGIN_ATTEMPTS(identifier));
 
   const revokedSessionCount = await enforceSessionLimit(user.id, sessionKeyFor(user.id, device));
@@ -750,7 +771,7 @@ export const completeTwoFactorLogin = async (
   const isNewDevice = await flagNewDevice(user.id, device);
 
   const tokens = await issueTokens(user.id, device);
-  await linkDeviceToUser(user.id, device);
+  await linkDeviceToUser(user.id, device, { withFcmToken: true });
 
   void notifyLogin(user, device, { method: 'twoFactor', isNewDevice });
 
@@ -897,7 +918,7 @@ export const sendOtp = async (
   } else {
     logger.warn(
       { identifier, type },
-      '[otp] phone number but OTP_SMS_ENABLED=false — code was not delivered',
+      '[otp] phone number but OTP_SMS_ENABLED=false â€” code was not delivered',
     );
   }
 
@@ -989,7 +1010,7 @@ export const verifyLoginOtp = async (
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
   const tokens = await issueTokens(user.id, device);
-  await linkDeviceToUser(user.id, device);
+  await linkDeviceToUser(user.id, device, { withFcmToken: true });
 
   void notifyLogin(user, device, { method: 'otp', isNewDevice }, req);
 
@@ -1074,7 +1095,10 @@ const requireRegistrationProof = async (
   verificationToken: string,
 ): Promise<{ email: boolean; phone: boolean }> => {
   if (!isOtpEnforceable()) {
-    logger.warn({ contacts }, '[auth] registering without OTP verification — OTP_REQUIRED is off');
+    logger.warn(
+      { contacts },
+      '[auth] registering without OTP verification â€” OTP_REQUIRED is off',
+    );
     return { email: false, phone: false };
   }
 
@@ -1681,7 +1705,7 @@ export const socialLogin = async (
     const isNewDevice = await flagNewDevice(user.id, device);
 
     const tokens = await issueTokens(user.id, device);
-    await linkDeviceToUser(user.id, device);
+    await linkDeviceToUser(user.id, device, { withFcmToken: true });
 
     void notifyLogin(user, device, { method: 'social', isNewDevice });
 
@@ -1740,7 +1764,7 @@ export const socialLogin = async (
   const isNewDevice = await flagNewDevice(userId, device);
 
   const tokens = await issueTokens(userId, device);
-  await linkDeviceToUser(userId, device);
+  await linkDeviceToUser(userId, device, { withFcmToken: true });
 
   void notifyLogin(user, device, { method: 'social', isNewDevice });
 

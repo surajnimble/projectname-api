@@ -2,8 +2,13 @@ import type { RequestHandler } from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
 import {
   parseUserAgent,
+  resolveAppVersion,
   resolveDeviceId,
+  resolveDeviceModel,
+  resolveFcmToken,
+  resolveLocale,
   resolvePlatform,
+  resolveTimezone,
   ParsedDevice,
 } from '../utils/deviceParser';
 import { lookupGeo, parseUtm, resolveIp } from '../utils/geo';
@@ -29,10 +34,14 @@ export const tracking: RequestHandler = asyncHandler(async (req, res, next) => {
     osVersion: parsed.osVersion,
     browser: parsed.browser,
     browserVersion: parsed.browserVersion,
-    model: parsed.model,
+    model: resolveDeviceModel(req) || parsed.model,
     manufacturer: parsed.manufacturer,
     isBot: parsed.isBot,
     userAgent,
+    appVersion: resolveAppVersion(req),
+    locale: resolveLocale(req),
+    timezone: resolveTimezone(req),
+    fcmToken: resolveFcmToken(req),
   };
 
   req.geo = ENV.GEO_LOOKUP_ENABLED ? lookupGeo(ip) : undefined;

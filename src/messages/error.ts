@@ -400,6 +400,9 @@ export const ERROR = {
   SEARCH: {
     TERM_REQUIRED: 'Search term is required.',
   },
+  APP: {
+    UPDATE_REQUIRED: 'Please update the app to the latest version to continue.',
+  },
   SYSTEM: {
     MAINTENANCE: 'Service under maintenance.',
     FEATURE_DISABLED: 'This feature is currently disabled.',

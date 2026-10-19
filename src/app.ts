@@ -13,6 +13,7 @@ import { requestId } from './middlewares/requestId.middleware';
 import { encryptionMiddleware } from './middlewares/encryption.middleware';
 import { tracking } from './middlewares/tracking.middleware';
 import { maintenanceMiddleware } from './middlewares/maintenance.middleware';
+import { appVersionGuard } from './middlewares/appVersion.middleware';
 import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
 import { globalRateLimit } from './middlewares/rateLimit.middleware';
 import { apiRoutes } from './routes';
@@ -41,6 +42,10 @@ const buildCorsOptions = (): CorsOptions => {
       'X-Device-Id',
       'X-Platform',
       'X-App-Version',
+      'X-Device-Model',
+      'X-Locale',
+      'X-Timezone',
+      'X-Fcm-Token',
       'X-Session-Id',
       'X-Api-Key',
       'X-Signature',
@@ -112,6 +117,7 @@ export const createApp = (): Application => {
   app.use(maintenanceMiddleware);
   app.use(globalRateLimit);
   app.use(tracking);
+  app.use(appVersionGuard);
 
   app.use(APP.API_PREFIX, apiRoutes);
 

@@ -91,15 +91,11 @@ const main = async (): Promise<void> => {
   const accessToken = register.body?.result?.accessToken;
   const vendorId = register.body?.result?.vendorData?.vendorId;
   const vendorStatus = register.body?.result?.vendorData?.status;
-  const roles = register.body?.result?.rolesList;
+  const role = register.body?.result?.role;
 
   record('register issues an access token', Boolean(accessToken));
   record('register returns vendorData.vendorId', Boolean(vendorId), String(vendorId));
-  record(
-    'vendor role assigned',
-    Array.isArray(roles) && roles[0] === 'VENDOR',
-    JSON.stringify(roles),
-  );
+  record('vendor role assigned', role === 'VENDOR', String(role));
   record(
     'vendor.autoApprove=false leaves status PENDING',
     vendorStatus === 'PENDING',

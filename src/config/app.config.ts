@@ -38,6 +38,10 @@ export const HEADER = {
   DEVICE_ID: 'x-device-id',
   PLATFORM: 'x-platform',
   APP_VERSION: 'x-app-version',
+  DEVICE_MODEL: 'x-device-model',
+  LOCALE: 'x-locale',
+  TIMEZONE: 'x-timezone',
+  FCM_TOKEN: 'x-fcm-token',
   ENCRYPTED: 'x-encrypted',
   SESSION_ID: 'x-session-id',
   API_KEY: 'x-api-key',
@@ -48,6 +52,32 @@ export const HEADER = {
 } as const;
 
 export const SKIP_ENCRYPTION_PATHS = ['/health', '/docs', '/docs.json', '/webhooks', '/track'];
+
+/**
+ * Header-supplied device facts are truncated to these lengths before they reach
+ * a column or a cache key, so an oversized value cannot push a row past its
+ * limit or split one device into two identities.
+ */
+export const DEVICE_HEADER_MAX = {
+  ID: 64,
+  APP_VERSION: 30,
+  MODEL: 80,
+  LOCALE: 20,
+  TIMEZONE: 60,
+  FCM_TOKEN: 400,
+} as const;
+
+/**
+ * A client that is too old to keep working still has to be able to discover
+ * which build to install, so the routes that serve that fact stay reachable
+ * while every other route is closed to it.
+ */
+export const APP_VERSION_ALLOW_PATHS = [
+  '/health',
+  '/version',
+  '/docs',
+  '/settings/getPublicSettings',
+] as const;
 
 /**
  * Retained keys outlive the window a client is expected to retry in, so a late

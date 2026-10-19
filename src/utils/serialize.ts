@@ -97,8 +97,6 @@ export const serializeUser = (u: any) => ({
         reviewCount: D.num(u._count.reviews),
       }
     : {},
-
-  rolesList: u?.role ? [D.str(u.role)] : [],
 });
 
 /**

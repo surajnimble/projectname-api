@@ -29,6 +29,10 @@ declare global {
         manufacturer: string;
         isBot: boolean;
         userAgent: string;
+        appVersion: string;
+        locale: string;
+        timezone: string;
+        fcmToken: string;
       };
       geo?: {
         country: string;

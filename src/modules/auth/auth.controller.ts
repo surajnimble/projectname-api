@@ -24,14 +24,24 @@ import {
   serializeContactChange,
 } from './auth.serializer';
 
-const deviceFrom = (req: Request, input?: any): DeviceContext =>
+/**
+ * Device identity arrives as headers rather than in the body, so the tracking
+ * middleware has already resolved and truncated every value by the time a
+ * controller runs. Reading `req.device` keeps the auth schemas free of a device
+ * object that every one of them would otherwise have to repeat.
+ */
+const deviceFrom = (req: Request): DeviceContext =>
   ({
     deviceId: req.deviceId ?? '',
-    platform: (input?.deviceData?.platform ?? req.device?.platform ?? 'WEB') as any,
+    platform: (req.device?.platform ?? 'WEB') as DeviceContext['platform'],
     ip: req.ip ?? '',
-    userAgent: req.headers['user-agent'] ?? '',
+    userAgent: req.device?.userAgent ?? req.headers['user-agent'] ?? '',
     sessionKey: req.sessionKey ?? '',
-    appVersion: input?.deviceData?.appVersion ?? '',
+    appVersion: req.device?.appVersion ?? '',
+    model: req.device?.model ?? '',
+    locale: req.device?.locale ?? '',
+    timezone: req.device?.timezone ?? '',
+    fcmToken: req.device?.fcmToken ?? '',
   }) as DeviceContext;
 
 const refreshFrom = (req: Request): string => {
@@ -67,7 +77,7 @@ export const register = asyncHandler(async (req, res) => {
     );
   }
 
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
 
   const result =
     type === REGISTER_TYPE.VENDOR
@@ -86,7 +96,7 @@ export const register = asyncHandler(async (req, res) => {
 });
 
 export const login = asyncHandler(async (req, res) => {
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
 
   const outcome = await authService.loginWithPassword(
     { email: req.body.email, phone: req.body.phone, password: req.body.password },
@@ -139,7 +149,7 @@ export const registrationVerifyOtp = asyncHandler(async (req, res) => {
 });
 
 export const loginVerifyOtp = asyncHandler(async (req, res) => {
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
   const outcome = await authService.verifyLoginOtp(req.body, device, req);
 
   setRefreshCookie(res, outcome.tokens.refreshToken);
@@ -160,7 +170,7 @@ export const refreshToken = asyncHandler(async (req, res) => {
     );
   }
 
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
   const result = await authService.rotateRefreshToken(token, device);
 
   setRefreshCookie(res, result.tokens.refreshToken);
@@ -201,6 +211,7 @@ export const getMe = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: SUCCESS.COMMON.FETCHED,
     result: {
+      role: D.str(user.role),
       userData: serializeAuthUser(user),
       vendorData: user.vendorProfile
         ? {
@@ -211,8 +222,7 @@ export const getMe = asyncHandler(async (req, res) => {
             commissionRate: user.vendorProfile.commissionRate,
           }
         : {},
-      rolesList: [String(user.role)],
-      socialProviderList: (user.socialAccounts ?? []).map((s: any) => String(s.provider)),
+      socialProviderList: (user.socialAccounts ?? []).map((s: any) => D.str(s?.provider)),
     },
   });
 });
@@ -380,7 +390,7 @@ export const disable2FA = asyncHandler(async (req, res) => {
 });
 
 export const verify2FA = asyncHandler(async (req, res) => {
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
   const identifier = req.body.identifier || req.body.email || req.body.phone;
 
   const outcome = await authService.verifyTwoFactor(identifier, req.body.otp, device);
@@ -393,7 +403,7 @@ export const verify2FA = asyncHandler(async (req, res) => {
 });
 
 export const socialLogin = asyncHandler(async (req, res) => {
-  const device = deviceFrom(req, req.body);
+  const device = deviceFrom(req);
   const result = await authService.socialLogin(req.body, device);
 
   setRefreshCookie(res, result.tokens.refreshToken);

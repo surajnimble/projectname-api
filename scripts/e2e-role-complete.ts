@@ -276,10 +276,11 @@ const runAuthDeepWorkflow = async () => {
 
   await request(app)
     .post('/api/v1/auth/login')
+    .set('x-device-id', `rc-au-${run}`)
+    .set('x-platform', 'WEB')
     .send({
       email: email('au'),
       password: 'Secret@123',
-      deviceData: { deviceId: `rc-au-${run}`, platform: 'WEB' },
     });
 
   const sessions = await auAuth.get('/api/v1/auth/sessions');

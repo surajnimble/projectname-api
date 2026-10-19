@@ -12,6 +12,7 @@ export const serializeAddressList = (rows: any[]) => ({
 });
 
 export const serializeProfile = (user: any, extra: Record<string, any> = {}) => ({
+  role: D.str(user?.role),
   userData: serializeUser(user),
   vendorData: user?.vendorProfile
     ? {
@@ -24,7 +25,6 @@ export const serializeProfile = (user: any, extra: Record<string, any> = {}) => 
     : {},
   addressList: D.arr(user?.addresses).map(serializeAddress),
   socialProviderList: D.arr(user?.socialAccounts).map((s: any) => D.str(s?.provider)),
-  rolesList: user?.role ? [D.str(user.role)] : [],
   ...extra,
 });
 

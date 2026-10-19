@@ -1125,7 +1125,7 @@ What the API returns in the cases a client will hit. Every error uses the standa
 | Register `type` invalid | Zod reject | 400 `INVALID_REGISTER_TYPE` |
 | Vendor register without `shopName` | Zod reject | 400 `VENDOR_DETAILS_REQUIRED` |
 | Vendor register, slug taken | auto-append `-2`, `-3` | 201 with the new slug |
-| Vendor register with `autoApprove = false` | User + VendorProfile created, status `PENDING` | 201, `rolesList: ["VENDOR"]` |
+| Vendor register with `autoApprove = false` | User + VendorProfile created, status `PENDING` | 201, `role: "VENDOR"` |
 | `sendOtp` `type` invalid | Zod reject | 400 `INVALID_OTP_TYPE` |
 | OTP wrong, expired or already used | reject | 401 `OTP_INVALID` |
 | OTP max attempts | block | 429 `OTP_MAX_ATTEMPTS` |
@@ -2234,6 +2234,7 @@ Content-Type: application/json
   "result": {
     "accessToken": "eyJhbGc...",
     "expiresIn": 900,
+    "role": "CUSTOMER",
     "userData": {
       "userId": "usr_1",
       "name": "Ravi Kumar",
@@ -2242,8 +2243,7 @@ Content-Type: application/json
       "isActive": true,
       "isEmailVerified": true,
       "isPhoneVerified": false
-    },
-    "rolesList": ["CUSTOMER"]
+    }
   }
 }
 ```
@@ -2289,6 +2289,7 @@ Content-Type: application/json
   "result": {
     "accessToken": "eyJhbGc...",
     "expiresIn": 900,
+    "role": "VENDOR",
     "userData": {
       "userId": "usr_1",
       "name": "Ravi Kumar",
@@ -2301,8 +2302,7 @@ Content-Type: application/json
       "shopName": "Ravi Store",
       "slug": "ravi-store",
       "status": "PENDING"
-    },
-    "rolesList": ["VENDOR"]
+    }
   }
 }
 ```
@@ -2311,11 +2311,18 @@ If `vendor.autoApprove = true`, `vendorData.status` is `"APPROVED"`. Otherwise t
 
 ### Login — password
 
-One call. The user sends email or phone plus password and the server issues the session directly.
+One call. The user sends email or phone plus password and the server issues the session directly. Device facts, including the FCM token, travel as headers — see AGENTS.md §16.
 
 ```
 POST /api/v1/auth/login
 Content-Type: application/json
+x-device-id: dev_uuid
+x-platform: ANDROID
+x-app-version: 1.4.2
+x-device-model: Pixel 7
+x-locale: en-IN
+x-timezone: Asia/Kolkata
+x-fcm-token: fcm_registration_token
 
 {
   "email": "ravi@example.com",
@@ -2333,11 +2340,12 @@ Content-Type: application/json
     "accessToken": "eyJhbGc...",
     "expiresIn": 900,
     "twoFactorRequired": false,
+    "role": "CUSTOMER",
     "userData": {
       "userId": "usr_1",
       "name": "Ravi Kumar",
       "email": "ravi@example.com",
-      "rolesList": ["CUSTOMER"]
+      "role": "CUSTOMER"
     }
   }
 }
@@ -2399,11 +2407,12 @@ Content-Type: application/json
     "accessToken": "eyJhbGc...",
     "expiresIn": 900,
     "twoFactorRequired": false,
+    "role": "CUSTOMER",
     "userData": {
       "userId": "usr_1",
       "name": "Ravi Kumar",
       "email": "ravi@example.com",
-      "rolesList": ["CUSTOMER"]
+      "role": "CUSTOMER"
     }
   }
 }
@@ -2589,9 +2598,18 @@ GET /api/v1/products/getById/unknown-id
 
 ### Track event (client → server)
 
+Device facts travel as request headers, not in the body — see AGENTS.md §16.
+
 ```
 POST /api/v1/track/event
 Content-Type: application/json
+x-device-id: dev_uuid
+x-platform: ANDROID
+x-app-version: 1.2.3
+x-device-model: Pixel 7
+x-locale: en-IN
+x-timezone: Asia/Kolkata
+x-fcm-token: fcm_registration_token
 
 {
   "eventName": "add_to_cart",
@@ -2600,22 +2618,7 @@ Content-Type: application/json
   "userId": "usr_1",
   "pageUrl": "/products/blue-shirt",
   "referrer": "https://google.com",
-  "timestamp": "2025-01-15T10:30:00.000Z",
-  "deviceData": {
-    "deviceId": "dev_uuid",
-    "platform": "ANDROID",
-    "os": "Android",
-    "osVersion": "13.0",
-    "browser": "",
-    "browserVersion": "",
-    "model": "Pixel 7",
-    "manufacturer": "Google",
-    "screenWidth": 1080,
-    "screenHeight": 2340,
-    "locale": "en-IN",
-    "timezone": "Asia/Kolkata",
-    "appVersion": "1.2.3"
-  }
+  "timestamp": "2025-01-15T10:30:00.000Z"
 }
 ```
 

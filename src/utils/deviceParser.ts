@@ -1,5 +1,5 @@
 import { UAParser } from 'ua-parser-js';
-import { HEADER } from '../config/app.config';
+import { HEADER, DEVICE_HEADER_MAX } from '../config/app.config';
 import { PLATFORM, Platform } from '../constants/roles';
 import { nanoid } from 'nanoid';
 
@@ -88,3 +88,33 @@ export const resolvePlatform = (req: any, parsed: ParsedDevice): Platform | 'OTH
   }
   return parsed.platform;
 };
+
+const readHeader = (req: any, name: string): string => {
+  const raw = req.headers?.[name];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === undefined || value === null ? '' : String(value).trim();
+};
+
+/**
+ * Device facts travel as headers so the same values sit on every request and
+ * the tracking middleware can persist them without each schema having to
+ * repeat the device object. An absent header is an empty string, never an
+ * error — a web client is not expected to send app-only headers.
+ */
+export const resolveDeviceHeader = (req: any, name: string, maxLength: number): string =>
+  readHeader(req, name).slice(0, maxLength);
+
+export const resolveAppVersion = (req: any): string =>
+  resolveDeviceHeader(req, HEADER.APP_VERSION, DEVICE_HEADER_MAX.APP_VERSION);
+
+export const resolveDeviceModel = (req: any): string =>
+  resolveDeviceHeader(req, HEADER.DEVICE_MODEL, DEVICE_HEADER_MAX.MODEL);
+
+export const resolveLocale = (req: any): string =>
+  resolveDeviceHeader(req, HEADER.LOCALE, DEVICE_HEADER_MAX.LOCALE);
+
+export const resolveTimezone = (req: any): string =>
+  resolveDeviceHeader(req, HEADER.TIMEZONE, DEVICE_HEADER_MAX.TIMEZONE);
+
+export const resolveFcmToken = (req: any): string =>
+  resolveDeviceHeader(req, HEADER.FCM_TOKEN, DEVICE_HEADER_MAX.FCM_TOKEN);

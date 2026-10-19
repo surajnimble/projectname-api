@@ -21,7 +21,8 @@ For what the system does — features, business rules, config defaults, edge cas
 13. [Comments](#13-comments)
 14. [Security](#14-security)
 15. [Encryption](#15-encryption)
-16. [Tracking and analytics](#16-tracking-and-analytics)
+16. [Device headers, tracking and analytics](#16-device-headers-tracking-and-analytics)
+16a. [Force update](#16a-force-update)
 17. [Chat, socket, wallet](#17-chat-socket-wallet)
 18. [Config defaults and seeding](#18-config-defaults-and-seeding)
 19. [Testing and hygiene](#19-testing-and-hygiene)
@@ -397,7 +398,7 @@ The database (Prisma level) may hold `null`; the serializer scrubs it.
   "isActive": true,
   "userData": { "email": "ravi@x.com" },
   "addressData": { "city": "Delhi" },
-  "rolesList": ["admin", "customer"],
+  "socialProviderList": ["GOOGLE"],
   "orderList": [{ "orderId": "o_1" }]
 }
 ```
@@ -407,7 +408,7 @@ Suffix contract the client depends on:
 | Suffix | Meaning | Example |
 | --- | --- | --- |
 | `xxxData` | nested object | `userData`, `orderData` |
-| `xxxList` | array | `productList`, `rolesList` |
+| `xxxList` | array | `productList`, `socialProviderList` |
 | no suffix | single value | `productId`, `price`, `isActive` |
 
 One line, one key — keep the JSON readable.
@@ -418,8 +419,8 @@ One line, one key — keep the JSON readable.
 
 ```json
 {
-  "rolesList": ["admin"],   // ❌ array before singles
-  "userId": "u_1",          // ❌ single after array
+  "socialProviderList": ["GOOGLE"],  // ❌ array before singles
+  "userId": "u_1",                 // ❌ single after array
   "phone": null             // ❌ null never allowed
 }
 ```
@@ -900,7 +901,19 @@ The top of a file gets a 2–4 line doc block saying what the file is for. Every
 
 ---
 
-## 16. Tracking and analytics
+## 16. Device headers, tracking and analytics
+
+Device facts travel as **request headers**, never as a body object. The tracking middleware resolves and truncates them once, before any route handler runs, so a value is the same on every endpoint and no schema has to repeat a device object.
+
+| Header | Field | Notes |
+| --- | --- | --- |
+| `x-device-id` | `deviceId` | Stable per install. When absent the server derives one from IP + UA, so a client that omits it still gets a stable device row. |
+| `x-platform` | `platform` | `ANDROID`, `IOS`, `WEB`, `OTHER`. Overrides the UA-parsed value when it is a valid enum member. |
+| `x-app-version` | `appVersion` | The force-update gate reads this. |
+| `x-device-model` | `model` | Falls back to the UA-parsed model. |
+| `x-locale` | `locale` | |
+| `x-timezone` | `timezone` | |
+| `x-fcm-token` | `fcmToken` | Persisted at sign-in only — see below. |
 
 **Do:**
 
@@ -909,8 +922,23 @@ The top of a file gets a 2–4 line doc block saying what the file is for. Every
 - Filter bots with `ua-parser-js` (`isBot` flag).
 - Use Redis counters for realtime; a BullMQ nightly job for rollups.
 - Stream exports (pagination or cursor).
+- Write `fcmToken` on `linkDeviceToUser` only from a sign-in call site (`{ withFcmToken: true }`), never from `rotateRefreshToken`.
+- Write a device field only when it is non-empty, so a browser that sends no `x-fcm-token` cannot blank the token the app stored on that device.
 
-**Don't** write a heavy synchronous DB row per event — use a queue or stream. **Don't** count bots as real users. **Don't** leave geo as `null` — send `{}`. **Don't** run repeated heavy SQL for a realtime dashboard. **Don't** keep raw events forever — set retention.
+**Don't** add a `deviceData` object to a request body — `.strict()` will reject it and the value is already in `req.device`. **Don't** write a heavy synchronous DB row per event — use a queue or stream. **Don't** count bots as real users. **Don't** leave geo as `null` — send `{}`. **Don't** run repeated heavy SQL for a realtime dashboard. **Don't** keep raw events forever — set retention.
+
+---
+
+## 16a. Force update
+
+`appVersionGuard` closes the API to an app build older than the configured minimum.
+
+- Policy is read per platform from `SystemSetting` at call time: `app.minAndroidVersion` / `app.forceUpdateAndroid`, `app.minIosVersion` / `app.forceUpdateIos`. `app.latestAndroidVersion` / `app.latestIosVersion` / `app.updateMessage` are what the client reads from `/settings/getPublicSettings`.
+- Only `ANDROID` and `IOS` are gated. `WEB`, `OTHER` and any request without `x-app-version` always pass — a browser cannot act on an upgrade prompt, so gating it would lock users out.
+- `APP_VERSION_ALLOW_PATHS` (`/health`, `/version`, `/docs`, `/settings/getPublicSettings`) stays reachable; otherwise the client could never learn which build to install.
+- Response is `426 UPGRADE_REQUIRED`, code `APP_UPDATE_REQUIRED`, `result: {}` — the version to install is read from public settings, not smuggled into an error body.
+
+**Don't** block `WEB`. **Don't** block a request that has no `x-app-version`. **Don't** put `latestVersion` inside the error `result`.
 
 ---
 
@@ -1030,6 +1058,7 @@ Prisma errors are already mapped in `src/middlewares/error.ts`: `P2002` (unique)
 | 413 | Payload too large | `PAYLOAD_TOO_LARGE` |
 | 415 | Wrong media type | `UNSUPPORTED_MEDIA_TYPE` |
 | 422 | Business rule violation | `OUT_OF_STOCK`, `COUPON_EXPIRED` |
+| 426 | App build is below the minimum | `APP_UPDATE_REQUIRED` |
 | 429 | Rate limited | `RATE_LIMITED` |
 | 500 | Server error | `INTERNAL_ERROR` |
 | 503 | Maintenance | `MAINTENANCE` |

@@ -1,12 +1,6 @@
 import { z } from 'zod';
 import { ERROR } from '../../messages/error';
-import {
-  REGISTER_TYPE,
-  OTP_TYPE,
-  OTP_CHANNEL,
-  SOCIAL_PROVIDER,
-  PLATFORM,
-} from '../../constants/roles';
+import { REGISTER_TYPE, OTP_TYPE, OTP_CHANNEL, SOCIAL_PROVIDER } from '../../constants/roles';
 import { PASSWORD, NAME, PHONE } from '../../config/password.config';
 import { OTP } from '../../config/otp.config';
 import { VERIFICATION } from '../../config/verification.config';
@@ -38,18 +32,6 @@ const password = z
   .regex(/[0-9]/, 'Password must contain at least one number.')
   .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character.');
 
-const deviceData = z
-  .object({
-    deviceId: z.string().trim().max(64).optional(),
-    platform: z.nativeEnum(PLATFORM).optional(),
-    appVersion: z.string().trim().max(30).optional(),
-    model: z.string().trim().max(80).optional(),
-    locale: z.string().trim().max(20).optional(),
-    timezone: z.string().trim().max(60).optional(),
-  })
-  .strict()
-  .optional();
-
 const verificationToken = z
   .string()
   .trim()
@@ -71,7 +53,6 @@ const registerUnion = z.discriminatedUnion('type', [
       phone,
       password,
       verificationToken,
-      deviceData,
     })
     .strict(),
   z
@@ -101,7 +82,6 @@ const registerUnion = z.discriminatedUnion('type', [
       bankAccountNo: z.string().trim().max(30).optional(),
       bankIfsc: z.string().trim().max(15).optional(),
       upiId: z.string().trim().max(100).optional(),
-      deviceData,
     })
     .strict(),
 ]);
@@ -135,7 +115,6 @@ export const loginSchema = z
     email: email.optional(),
     phone,
     password: z.string().min(1, VALIDATION.REQUIRED('password')),
-    deviceData,
   })
   .strict()
   .refine((v) => v.email || v.phone, {
@@ -189,7 +168,6 @@ export const verifyOtpSchema = z
     identifier: z.string().trim().min(3, VALIDATION.IDENTIFIER_REQUIRED),
     otp: registerOtp,
     channel: z.nativeEnum(OTP_CHANNEL).optional(),
-    deviceData,
   })
   .strict();
 
@@ -276,7 +254,6 @@ export const socialLoginSchema = z
     }),
     idToken: z.string().trim().min(10, VALIDATION.REQUIRED('idToken')),
     accessToken: z.string().trim().max(4000).optional(),
-    deviceData,
   })
   .strict();
 

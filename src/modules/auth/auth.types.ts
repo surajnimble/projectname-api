@@ -65,6 +65,10 @@ export interface DeviceContext {
   userAgent: string;
   sessionKey: string;
   appVersion?: string;
+  model?: string;
+  locale?: string;
+  timezone?: string;
+  fcmToken?: string;
 }
 
 export interface TokenPair {
