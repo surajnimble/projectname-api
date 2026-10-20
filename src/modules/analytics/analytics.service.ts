@@ -1925,7 +1925,7 @@ export const clearRecentSearches = async (userId: string): Promise<number> => {
 
 const requireStorage = (): void => {
   if (!isStorageConfigured) {
-    throw AppError.serviceUnavailable(ERROR.UPLOAD.UPLOAD_FAILED, ERROR_CODE.SERVICE_UNAVAILABLE);
+    throw AppError.internal(ERROR.UPLOAD.UPLOAD_FAILED, ERROR_CODE.NOT_CONFIGURED);
   }
 };
 

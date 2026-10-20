@@ -1646,9 +1646,9 @@ export const listRefundsByOrder = async (
 
 const requireGateway = (name: string, configured: boolean): void => {
   if (!configured) {
-    throw AppError.serviceUnavailable(
+    throw AppError.internal(
       `${name} is not configured for this environment.`,
-      ERROR_CODE.SERVICE_UNAVAILABLE,
+      ERROR_CODE.NOT_CONFIGURED,
     );
   }
 };

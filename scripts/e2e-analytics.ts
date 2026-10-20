@@ -771,11 +771,11 @@ const main = async (): Promise<void> => {
   const signed = await cu.get('/api/v1/uploads/getSignedUrl');
   record(
     'signed params either work or report storage is unconfigured',
-    signed.status === 200 || signed.status === 503,
+    signed.status === 200 || signed.status === 500,
     `status=${signed.status} msg=${signed.body?.message}`,
   );
   record(
-    'a 503 from signing is explicit, not silent',
+    'a 500 from signing is explicit, not silent',
     signed.status === 200 || String(signed.body?.message).toLowerCase().includes('upload failed'),
     signed.body?.message,
   );

@@ -48,8 +48,8 @@ export const uploadToCloudinary = async (
   if (!isCloudinaryConfigured) {
     throw new AppError(
       ERROR.UPLOAD.UPLOAD_FAILED,
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      ERROR_CODE.SERVICE_UNAVAILABLE,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      ERROR_CODE.NOT_CONFIGURED,
     );
   }
 
@@ -82,8 +82,8 @@ export const uploadToCloudinary = async (
     logger.error({ err: (err as Error)?.message }, '[cloudinary] upload failed');
     throw new AppError(
       ERROR.UPLOAD.UPLOAD_FAILED,
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      ERROR_CODE.SERVICE_UNAVAILABLE,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      ERROR_CODE.INTERNAL_ERROR,
     );
   } finally {
     try {
@@ -102,8 +102,8 @@ export const uploadBufferToCloudinary = async (
   if (!isCloudinaryConfigured) {
     throw new AppError(
       ERROR.UPLOAD.UPLOAD_FAILED,
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      ERROR_CODE.SERVICE_UNAVAILABLE,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      ERROR_CODE.NOT_CONFIGURED,
     );
   }
 
@@ -130,8 +130,8 @@ export const uploadBufferToCloudinary = async (
     logger.error({ err: (err as Error)?.message }, '[cloudinary] buffer upload failed');
     throw new AppError(
       ERROR.UPLOAD.UPLOAD_FAILED,
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
-      ERROR_CODE.SERVICE_UNAVAILABLE,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
+      ERROR_CODE.INTERNAL_ERROR,
     );
   }
 };

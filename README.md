@@ -443,7 +443,7 @@ The full inventory is `src/config/env.config.ts` — a Zod schema validated befo
 | `SUPER_ADMIN_PASSWORD` | `SuperSecret@123` | The default must never reach production |
 | `ENCRYPTION_ENABLED` | `false` | Transport encryption (see `FEATURES.md`, B10) |
 | `ENCRYPTION_KEY` | *(empty)* | Exactly 64 hex chars when encryption is enabled |
-| `CLOUDINARY_CLOUD_NAME` | *(empty)* | Empty = upload routes return 503 |
+| `CLOUDINARY_CLOUD_NAME` | *(empty)* | Empty = upload routes return 500 `NOT_CONFIGURED` |
 | `CLOUDINARY_API_KEY` | *(empty)* | Use the account-level **Root** key |
 | `CLOUDINARY_API_SECRET` | *(empty)* | |
 | `CLOUDINARY_FOLDER` | `projectname` | Top folder in the media library |
@@ -626,7 +626,7 @@ Folders default to `CLOUDINARY_FOLDER/<kind>`; an upload may override them with 
 | Vendor KYC | `projectname/kyc/<docType>` |
 | Generic / chat media | `projectname/<kind>` |
 
-Without the three `CLOUDINARY_*` variables the API starts fine but every upload route returns 503, and `GET /api/v1/uploads/getSignedUrl` reports `enabled: false`.
+Without the three `CLOUDINARY_*` variables the API starts fine but every upload route returns 500 `NOT_CONFIGURED`, and `GET /api/v1/uploads/getSignedUrl` reports `enabled: false`.
 
 ---
 

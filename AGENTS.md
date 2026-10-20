@@ -1063,8 +1063,8 @@ Prisma errors are already mapped in `src/middlewares/error.ts`: `P2002` (unique)
 | 422 | Business rule violation | `OUT_OF_STOCK`, `COUPON_EXPIRED` |
 | 426 | App build is below the minimum | `APP_UPDATE_REQUIRED` |
 | 429 | Rate limited | `RATE_LIMITED` |
-| 500 | Server error | `INTERNAL_ERROR` |
-| 503 | Maintenance | `MAINTENANCE` |
+| 500 | Server error, or a dependency that is not configured | `INTERNAL_ERROR`, `NOT_CONFIGURED`, `FAILED_JOB_QUEUE_UNAVAILABLE` |
+| 503 | Maintenance, and only maintenance | `MAINTENANCE` |
 
 **Maintenance must stay reversible.** The switch that turns it off is itself behind the 503 it turns on, so `MAINTENANCE_ADMIN_PATHS` (`src/config/app.config.ts`) has to carry every path an operator needs to leave — at minimum the toggle itself — and `npm run maintenance:off` has to work with no server, no token and no session. **Don't** add a gated feature behind maintenance without asking how it gets turned back off; **don't** close `/auth/refreshToken` during maintenance, or an expired admin session can no longer be renewed and the toggle becomes unreachable.
 

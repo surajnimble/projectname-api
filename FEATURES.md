@@ -419,7 +419,7 @@ Two helpers in `src/utils/calculations.ts`:
 | Last attempt failed | `FailedJob` written, status `PENDING` |
 | `retryFailedJob/:id` | re-queued under `replay-{jobId}-{n}`, `replayCount` incremented |
 | Replay beyond `queueMaxReplays` | 409 `FAILED_JOB_REPLAY_LIMIT` |
-| Queue or Redis down at replay time | 503 `FAILED_JOB_QUEUE_UNAVAILABLE`, row untouched |
+| Queue or Redis down at replay time | 500 `FAILED_JOB_QUEUE_UNAVAILABLE`, row untouched |
 | `resolveFailedJob/:id` | status `RESOLVED` with the acting admin, no replay |
 | Replay or resolve on a non-`PENDING` row | 409 `FAILED_JOB_ALREADY_RESOLVED` |
 | The write itself fails | logged; the worker keeps running |
@@ -1245,8 +1245,8 @@ What the API returns in the cases a client will hit. Every error uses the standa
 | Count over the maximum | 400 `TOO_MANY_FILES` |
 | Wrong MIME type | 415 `UNSUPPORTED_MEDIA_TYPE` |
 | Size exceeded | 413 `PAYLOAD_TOO_LARGE` |
-| Cloudinary down | 503 and a retry queue |
-| Cloudinary not configured | upload routes answer 503; `GET /uploads/getSignedUrl` reports `enabled: false` |
+| Cloudinary down | 500 and a retry queue |
+| Cloudinary not configured | upload routes answer 500 `NOT_CONFIGURED`; `GET /uploads/getSignedUrl` reports `enabled: false` |
 | Special characters in the filename | sanitised |
 
 ### Rate limit

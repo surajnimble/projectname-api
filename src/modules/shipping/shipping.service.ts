@@ -108,7 +108,7 @@ export const retryFailedJobRecord = async (
   if (!result.retried) {
     throw new AppError(
       ERROR.SYSTEM.QUEUE_UNAVAILABLE,
-      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR,
       ERROR_CODE.FAILED_JOB_QUEUE_UNAVAILABLE,
     );
   }

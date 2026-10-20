@@ -77,14 +77,7 @@ export class AppError extends Error {
     return new AppError(message, 415, ERROR_CODE.UNSUPPORTED_TYPE);
   }
 
-  static serviceUnavailable(
-    message: string = ERROR.SYSTEM.MAINTENANCE,
-    code: string = ERROR_CODE.MAINTENANCE,
-  ) {
-    return new AppError(message, 503, code);
-  }
-
-  static internal(message: string = ERROR.COMMON.SERVER_ERROR) {
-    return new AppError(message, 500, ERROR_CODE.INTERNAL_ERROR);
+  static internal(message: string = ERROR.COMMON.SERVER_ERROR, code?: string) {
+    return new AppError(message, 500, code ?? ERROR_CODE.INTERNAL_ERROR);
   }
 }

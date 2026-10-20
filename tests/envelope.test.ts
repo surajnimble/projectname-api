@@ -475,7 +475,7 @@ describe('AppError', () => {
     expect(AppError.conflict().statusCode).toBe(409);
     expect(AppError.payloadTooLarge().statusCode).toBe(413);
     expect(AppError.tooManyRequests().statusCode).toBe(429);
-    expect(AppError.serviceUnavailable().statusCode).toBe(503);
+    expect(AppError.internal().statusCode).toBe(500);
   });
 });
 

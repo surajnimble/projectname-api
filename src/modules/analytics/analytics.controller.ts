@@ -673,7 +673,7 @@ export const removeFile = asyncHandler(async (req, res) => {
  *     description: Lets a large file bypass the API entirely.
  *     responses:
  *       200: { description: Signature and upload parameters }
- *       503: { description: Storage not configured }
+ *       500: { description: Storage not configured }
  */
 export const getSignedUrl = asyncHandler(async (req, res) => {
   const result = await service.getSignedParams(
