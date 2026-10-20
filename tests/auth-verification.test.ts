@@ -47,6 +47,11 @@ vi.mock('../src/services/settings.service', () => ({
   }),
   getVendorAutoApprove: async () => false,
   getCommissionDefault: async () => 10,
+  getMaintenanceStatus: async () => ({
+    enabled: false,
+    message: "We'll be back soon.",
+    allowedIps: [],
+  }),
 }));
 
 vi.mock('../src/services/email.service', () => ({ sendOtpEmail: vi.fn(async () => undefined) }));

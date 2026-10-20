@@ -2,6 +2,7 @@
 import QRCode from 'qrcode';
 import { prisma } from '../../services/prisma.service';
 import { logger } from '../../services/logger.service';
+import { getMaintenanceStatus } from '../../services/settings.service';
 import {
   hashPassword,
   comparePassword,
@@ -416,6 +417,14 @@ export const issueTokens = async (userId: string, device: DeviceContext): Promis
   });
 
   if (!user) throw AppError.unauthorized(ERROR.AUTH.UNAUTHORIZED);
+
+  if (user.role !== ROLES.SUPER_ADMIN && (await getMaintenanceStatus()).enabled) {
+    throw new AppError(
+      ERROR.SYSTEM.MAINTENANCE,
+      HTTP_STATUS.SERVICE_UNAVAILABLE,
+      ERROR_CODE.MAINTENANCE,
+    );
+  }
 
   const sessionKey = sessionKeyFor(user.id, device);
   await recordSession(user.id, sessionKey, device);

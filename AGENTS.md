@@ -1066,7 +1066,7 @@ Prisma errors are already mapped in `src/middlewares/error.ts`: `P2002` (unique)
 | 500 | Server error, or a dependency that is not configured | `INTERNAL_ERROR`, `NOT_CONFIGURED`, `FAILED_JOB_QUEUE_UNAVAILABLE` |
 | 503 | Maintenance, and only maintenance | `MAINTENANCE` |
 
-**Maintenance must stay reversible.** The switch that turns it off is itself behind the 503 it turns on, so `MAINTENANCE_ADMIN_PATHS` (`src/config/app.config.ts`) has to carry every path an operator needs to leave — at minimum the toggle itself — and `npm run maintenance:off` has to work with no server, no token and no session. **Don't** add a gated feature behind maintenance without asking how it gets turned back off; **don't** close `/auth/refreshToken` during maintenance, or an expired admin session can no longer be renewed and the toggle becomes unreachable.
+**Maintenance must stay reversible.** A super admin is the one caller the mode never blocks: `isSuperAdminRequest` exempts their token from every route, `/auth/login` and `/auth/refreshToken` stay open so a session can always be established or renewed, and `issueTokens` refuses to mint a session for any other role while the mode is on. `npm run maintenance:off` still has to work with no server, no token and no session. **Don't** add a gated feature behind maintenance without asking how it gets turned back off; **don't** close `/auth/login` or `/auth/refreshToken` during maintenance, or the switch that turns it off becomes unreachable.
 
 ---
 

@@ -1262,14 +1262,14 @@ What the API returns in the cases a client will hit. Every error uses the standa
 
 | Case | Behaviour |
 | --- | --- |
-| `maintenanceEnabled = true` | 503 except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/refreshToken`, and `/admin/*` + `/settings/updateMaintenance` for SUPER_ADMIN |
+| `maintenanceEnabled = true` | 503 except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/login`, `/auth/refreshToken`, and every route for a SUPER_ADMIN token |
 | Response | `503 { status: false, message: "Maintenance", result: {} }` |
 | Request from an IP in `maintenanceAllowedIps` | served normally — the way to test the site while the public is held back |
 
 **Leaving maintenance mode.** The switch that turns it off is itself behind the 503 it turns on, so three escape hatches exist and all three are exercised by `e2e-encryption.ts`:
 
-1. **`PATCH /settings/updateMaintenance` with `{ "enabled": false }`** — reachable during maintenance for a SUPER_ADMIN, because `MAINTENANCE_ADMIN_PATHS` (`src/config/app.config.ts`) carries `/admin` and `/settings/updateMaintenance`. A token opens nothing else: business routes stay 503 for a super admin too.
-2. **`POST /auth/refreshToken`** — open to everyone while maintenance is on, because a token reaches no data while every business route is 503. An admin whose access token expired mid-maintenance can therefore mint a new one and use hatch 1. `/auth/login` stays closed; a session issued before maintenance started is enough.
+1. **`PATCH /settings/updateMaintenance` with `{ "enabled": false }`** — reachable for a SUPER_ADMIN on every route: `isSuperAdminRequest` (`src/middlewares/maintenance.middleware.ts`) exempts their token from the gate entirely, so the switch never sits behind the 503 it turns on.
+2. **`POST /auth/login` and `POST /auth/refreshToken`** — open while maintenance is on, so a super admin can always establish or renew a session. They mint nothing for anyone else: `issueTokens` (`src/modules/auth/auth.service.ts`) throws `503 MAINTENANCE` for every other role, so a customer, vendor or sub-admin signing in mid-maintenance has the session refused.
 3. **`npm run maintenance:off`** — writes `maintenanceEnabled = false` straight to the database and drops the Redis cache. Needs no server, no token and no session, so it still works when the session cannot be renewed (rotated JWT secret, revoked refresh token, half-applied deploy).
 
 Hatch 3 keeps the message and `maintenanceAllowedIps` as they are; only the flag is cleared.

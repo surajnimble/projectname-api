@@ -90,10 +90,11 @@ export const IDEMPOTENCY = {
   IN_PROGRESS_MAX_AGE_SEC: 120,
 } as const;
 /**
- * `/auth/refreshToken` stays open because a token by itself reaches no data —
- * every business route is still 503 — and an admin whose access token expired
- * has to be able to mint a new one, or the switch that turns maintenance off
- * would be behind a session that can no longer be renewed.
+ * `/auth/login` and `/auth/refreshToken` are session-minting paths and have to
+ * stay open, because a super admin must be able to sign in — or renew an
+ * expired session — and switch the mode off from the API. The gate that keeps
+ * everybody else out lives in `issueTokens`, which mints nothing but a super
+ * admin session while the mode is on.
  */
 export const MAINTENANCE_ALLOW_PATHS = [
   '/health',
@@ -101,14 +102,6 @@ export const MAINTENANCE_ALLOW_PATHS = [
   '/docs.json',
   '/version',
   '/settings/getMaintenance',
+  '/auth/login',
   '/auth/refreshToken',
 ] as const;
-
-/**
- * Reachable during maintenance only for a caller already holding a valid
- * SUPER_ADMIN access token. `/settings/updateMaintenance` has to be here
- * because the toggle lives under `/settings`: without this the switch that
- * turns maintenance off sits behind the very 503 it turns on, and the mode
- * could only be left by editing the database by hand.
- */
-export const MAINTENANCE_ADMIN_PATHS = ['/admin', '/settings/updateMaintenance'] as const;

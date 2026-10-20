@@ -265,7 +265,7 @@ npm run prisma:generate
 
 ### Maintenance mode
 
-`PATCH /api/v1/settings/updateMaintenance` turns it on and off. While it is on, every route answers `503` except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/refreshToken`, and — for a SUPER_ADMIN token — `/admin/*` and `/settings/updateMaintenance` itself.
+`PATCH /api/v1/settings/updateMaintenance` turns it on and off. While it is on, every route answers `503` except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/login` and `/auth/refreshToken`. A SUPER_ADMIN token is exempt on every route, and those two auth paths mint a session for nobody else — so a super admin always signs in and switches the mode off from the API, while everyone else is held back.
 
 If nobody can reach the toggle (session expired and unrecoverable, rotated JWT secret, a deploy that broke half the app), run this from the machine holding the database:
 

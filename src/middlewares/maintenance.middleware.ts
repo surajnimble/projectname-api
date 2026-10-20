@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import { getMaintenanceStatus } from '../services/settings.service';
-import { APP, MAINTENANCE_ADMIN_PATHS, MAINTENANCE_ALLOW_PATHS } from '../config/app.config';
+import { APP, MAINTENANCE_ALLOW_PATHS } from '../config/app.config';
 import { ApiResponse } from '../utils/ApiResponse';
 import { ERROR } from '../messages/error';
 import { ERROR_CODE, HTTP_STATUS } from '../constants/http';
@@ -15,7 +15,6 @@ const routePath = (path: string): string => {
 };
 
 const PUBLIC_PATHS = MAINTENANCE_ALLOW_PATHS.map(routePath);
-const ADMIN_PATHS = MAINTENANCE_ADMIN_PATHS.map(routePath);
 
 const matches = (path: string, allowed: string[]): boolean => {
   const target = routePath(path);
@@ -23,8 +22,6 @@ const matches = (path: string, allowed: string[]): boolean => {
 };
 
 const isPublicPath = (path: string): boolean => matches(path, PUBLIC_PATHS);
-
-const isAdminPath = (path: string): boolean => matches(path, ADMIN_PATHS);
 
 const isSuperAdminRequest = async (req: any): Promise<boolean> => {
   const token = extractToken(req);
@@ -55,7 +52,7 @@ export const maintenanceMiddleware: RequestHandler = async (req, res, next) => {
   const ip = (req.ip || '').replace('::ffff:', '');
   if (status.allowedIps.includes(ip)) return next();
 
-  if (isAdminPath(req.path) && (await isSuperAdminRequest(req))) return next();
+  if (await isSuperAdminRequest(req)) return next();
 
   return ApiResponse.error(res, {
     statusCode: HTTP_STATUS.SERVICE_UNAVAILABLE,

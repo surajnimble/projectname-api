@@ -163,13 +163,23 @@ const main = async (): Promise<void> => {
     `status=${healthDuring.status}`,
   );
 
-  const blockedForSuperAdmin = await request(app)
+  const openForSuperAdmin = await request(app)
     .get('/api/v1/auth/getMe')
     .set('Authorization', `Bearer ${adminToken}`);
   record(
-    'a super admin token opens no business route while maintenance is on',
-    blockedForSuperAdmin.status === 503,
-    `status=${blockedForSuperAdmin.status}`,
+    'a super admin token opens every route while maintenance is on',
+    openForSuperAdmin.status === 200,
+    `status=${openForSuperAdmin.status}`,
+  );
+
+  const customerLogin = await request(app).post('/api/v1/auth/login').send({
+    email: 'customer@projectname.com',
+    password: 'Demo@12345',
+  });
+  record(
+    'maintenance mints a session for nobody but a super admin',
+    customerLogin.status === 503,
+    `status=${customerLogin.status}`,
   );
 
   const refreshDuring = await request(app).post('/api/v1/auth/refreshToken').send({});
