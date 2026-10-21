@@ -659,7 +659,7 @@ export const OTP = {
 
 ```ts
 export const RATE_LIMIT = {
-  GLOBAL: { WINDOW_MS: 15 * 60_000, MAX: 1500 }, // 100 req/min — raise MAX
+  GLOBAL: { WINDOW_MS: 15 * 60_000, MAX: 3000 }, // 200 req/min — raise MAX
   AUTH_LOGIN: { WINDOW_MS: 15 * 60_000, MAX: 10 }, // 1 per 90s — raise MAX
   AUTH_REGISTER: { WINDOW_MS: 60 * 60_000, MAX: 5 }, // 1 per 12 min — raise MAX
   FORGOT_PASSWORD: { WINDOW_MS: 60 * 60_000, MAX: 3 }, // 1 per 20 min — raise MAX
