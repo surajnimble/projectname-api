@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "clean": "node -e \"const fs=require('fs');for(const p of ['dist','coverage','uploads/tmp','.eslintcache','*.tsbuildinfo'])fs.rmSync(p,{recursive:true,force:true});console.log('cleaned')\"",
     "build": "prisma generate && tsc -p tsconfig.build.json",
-    "start": "npm run build && npx prisma migrate deploy && npm run seed && node dist/server.js",
+    "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
