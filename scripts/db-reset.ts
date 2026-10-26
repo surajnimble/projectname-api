@@ -19,11 +19,16 @@ const assertSafe = (): void => {
     throw new Error('DATABASE_URL is empty — nothing to reset.');
   }
 
-  const remote = /@[^/]*\.(supabase|neon|planetscale|amazonaws\.com|azure|supabase\.com)/i.test(
-    url,
-  );
+  const remote =
+    /@[^/]*\.(supabase|neon|planetscale|render\.com|amazonaws\.com|azure|supabase\.com)/i.test(url);
   if (remote) {
     throw new Error(`Refusing to reset a remote host: ${url.replace(/:[^:@/]+@/, ':***@')}`);
+  }
+
+  if (/^postgresql?:\/\/[^@/]*@dpg-/i.test(url)) {
+    throw new Error(
+      `Refusing to reset Render's internal database: ${url.replace(/:[^:@/]+@/, ':***@')}`,
+    );
   }
 
   const isLocal = /@?(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])[:/]/i.test(url);

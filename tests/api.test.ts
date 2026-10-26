@@ -113,7 +113,7 @@ describe('public API surface', () => {
   it('serves docs.json with a usable base URL, prefix included', async () => {
     const res = await request(app)
       .get('/api/v1/docs.json')
-      .set('Host', 'projectname-api.example.workers.dev')
+      .set('Host', 'projectname-api.onrender.com')
       .set('X-Forwarded-Proto', 'https');
 
     const url: string = res.body.servers?.[0]?.url ?? '';

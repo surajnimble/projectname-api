@@ -31,7 +31,7 @@ The canonical reference for what the API does: its features, business rules, beh
 - **Central error handler** — `AppError` plus the `errorHandler` middleware produce one consistent JSON error shape.
 - **Async wrapper** — `asyncHandler(fn)` removes try/catch repetition in controllers.
 - **Request ID middleware** — `req.id` via `nanoid`, so every log line of one request can be traced; returned in the `X-Request-Id` header.
-- **Health route** — `/api/v1/health` for uptime probes (Cloudflare Containers). It never touches the database; `/health/db`, `/health/redis` and `/health/queue` check the layers.
+- **Health route** — `/api/v1/health` for uptime probes (Render). It never touches the database; `/health/db`, `/health/redis` and `/health/queue` check the layers.
 - **Graceful shutdown** — on SIGTERM: Prisma disconnect, Redis quit and Socket close, so no data is lost.
 - **BullMQ queues** — email, payout calculation, order status, analytics aggregation and notification blast run in the background so responses stay fast.
 - **Email templates** — reusable HTML templates (order confirmation, password reset); the files in `src/templates/` are the fallback when no DB template row exists.
@@ -41,7 +41,7 @@ The canonical reference for what the API does: its features, business rules, beh
 - **Audit logs** — the `AuditLog` table records which sub-admin did what; SUPER_ADMIN self-edits are also logged.
 - **DB indexes** — on email, slug, vendorId, status and createdAt.
 - **Seed script** — Super Admin, settings, permission matrix and demo data in one idempotent command.
-- **Migration in build** — `prisma migrate deploy` runs in the container entrypoint before the server starts, so the schema syncs automatically.
+- **Migration in build** — `prisma migrate deploy` runs in the Render build, so the schema syncs automatically.
 - **Env validation** — a Zod env schema stops the server early on a missing or invalid value.
 - **Swagger `/docs`** — auto-generated OpenAPI so frontend developers can read the contract.
 - **`.env.example`** — documents every env var; generated with `npm run env:sync`.
