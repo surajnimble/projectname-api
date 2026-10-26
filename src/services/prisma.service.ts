@@ -28,7 +28,7 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
-prisma.$on('error' as Parameters<typeof prisma>['$on'][0], (err: any) => {
+prisma.$on('error', (err: any) => {
   logger.error({ err: err?.message }, '[prisma] error');
 });
 
