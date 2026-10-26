@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1
 
 # The API is a long-running Express process with Socket.IO and BullMQ workers,
-# so it runs as a Cloudflare Container rather than a Worker. Cloudflare runs
 # linux/amd64 images; build this image for that platform.
 
 FROM node:22-bookworm-slim AS deps
@@ -46,11 +45,9 @@ COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/src ./src
 COPY scripts/seed-if-empty.ts ./scripts/seed-if-empty.ts
-COPY cloudflare/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN mkdir -p uploads/tmp \
-  && chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 5000
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["node", "dist/server.js"]

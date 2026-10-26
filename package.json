@@ -35,15 +35,15 @@
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "cf:typecheck": "tsc --noEmit -p cloudflare/tsconfig.json",
-    "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy",
-    "cf:tail": "wrangler tail",
+    
+    
+    
+    
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:live": "npm run e2e",
-    "verify": "npm run env:check && npm run typecheck && npm run cf:typecheck && npm run lint && npm run test",
+"verify":"npm run env:check && npm run typecheck && npm run lint && npm run test",
     "e2e:content": "tsx scripts/e2e-content.ts",
     "e2e:engagement": "tsx scripts/e2e-engagement.ts",
     "e2e:order": "tsx scripts/e2e-order.ts",
@@ -74,7 +74,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.3.7",
+    
     "@prisma/client": "^5.22.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.34.0",
@@ -114,7 +114,7 @@
     "stripe": "^17.5.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261026.1",
+    
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-socket": "^0.2.11",
     "@types/bcrypt": "^5.0.2",
@@ -146,10 +146,9 @@
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "wrangler": "^4.152.0"
-  },
+    "vitest": "^2.1.8"},
   "engines": {
     "node": ">=20.0.0"
   }
 }
+
