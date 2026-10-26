@@ -7,18 +7,7 @@ import { getSpec } from '../src/docs/swagger.routes';
 const OUT_DIR = process.argv[2] ?? join(process.env.USERPROFILE ?? '.', 'Desktop', 'postman');
 
 const COLLECTION_NAME = 'Startup Marketplace API';
-
-/**
- * The generated live environment follows PUBLIC_API_URL so the collection points
- * at the deployment it was generated for, not a hardcoded host.
- */
-const liveUrl = (): string => {
-  const configured = process.env.PUBLIC_API_URL?.trim();
-  const base = (configured || 'https://api.example.com').replace(/\/+$/, '');
-  return base.endsWith('/api/v1') ? base : `${base}/api/v1`;
-};
-
-const LIVE_URL = liveUrl();
+const LIVE_URL = 'https://startup-backend-m2uh.onrender.com/api/v1';
 const LOCAL_URL = 'http://localhost:5000/api/v1';
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;

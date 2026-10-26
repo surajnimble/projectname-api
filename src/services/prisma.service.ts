@@ -3,32 +3,17 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { logger } from './logger.service';
 import { OPS } from '../config/app.config';
 
-/**
- * Singleton pattern: cache the PrismaClient on the global object so that
- * serverless warm invocations reuse the same connection instead of creating
- * a new one on every request (which would exhaust the database connection pool).
- * In development the global is reassigned on hot-reload so schema changes
- * are picked up without stale connections.
- */
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+export const prisma = new PrismaClient({
+  log:
+    process.env.NODE_ENV === 'development'
+      ? [
+          { emit: 'event', level: 'warn' },
+          { emit: 'event', level: 'error' },
+        ]
+      : [{ emit: 'event', level: 'error' }],
+});
 
-export const prisma: PrismaClient =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log:
-      process.env.NODE_ENV === 'development'
-        ? [
-            { emit: 'event', level: 'warn' },
-            { emit: 'event', level: 'error' },
-          ]
-        : [{ emit: 'event', level: 'error' }],
-  });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
-
-prisma.$on('error', (err: any) => {
+prisma.$on('error' as any, (err: any) => {
   logger.error({ err: err?.message }, '[prisma] error');
 });
 

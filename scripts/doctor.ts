@@ -51,17 +51,16 @@ const checkDatabase = async (): Promise<void> => {
     /* keep placeholder */
   }
 
-  const privateHost =
-    /^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  const internal =
+    !/\.render\.com/.test(host) &&
+    /^\d+\.|\b[a-z0-9-]+\b$/.test(host) &&
+    !host.includes('render.com');
 
-  if (privateHost && ENV.NODE_ENV === 'production') {
+  if (internal && ENV.NODE_ENV === 'production') {
     say(
       'warn',
       'DATABASE_URL',
-      `points at a private host (${host}) — Cloudflare Containers need a publicly reachable database.`,
+      `looks like an internal Render hostname (${host}) — correct on Render, wrong locally.`,
     );
   } else {
     say('ok', 'DATABASE_URL', `${host} (masked)`);
