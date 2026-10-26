@@ -29,6 +29,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "api/**/*.ts",
     "prisma/**/*.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts",

@@ -28,6 +28,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Typecheck Worker and container
+        run: npm run cf:typecheck
+
       - name: Lint
         run: npm run lint
 

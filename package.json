@@ -30,16 +30,20 @@
     "e2e": "tsx scripts/e2e-smoke.ts",
     "e2e:encryption": "tsx scripts/e2e-encryption.ts",
     "e2e:all": "npm run db:restart && npm run e2e && npm run db:restart && npm run e2e:encryption",
-    "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\"",
-    "lint:fix": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\" --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"prisma/**/*.ts\" \"cloudflare/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    
+    
+    
+    
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:live": "npm run e2e",
-    "verify": "npm run env:check && npm run typecheck && npm run lint && npm run test",
+"verify":"npm run env:check && npm run typecheck && npm run lint && npm run test",
     "e2e:content": "tsx scripts/e2e-content.ts",
     "e2e:engagement": "tsx scripts/e2e-engagement.ts",
     "e2e:order": "tsx scripts/e2e-order.ts",
@@ -70,6 +74,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    
     "@prisma/client": "^5.22.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.34.0",
@@ -109,6 +114,7 @@
     "stripe": "^17.5.0"
   },
   "devDependencies": {
+    
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-socket": "^0.2.11",
     "@types/bcrypt": "^5.0.2",
@@ -140,9 +146,9 @@
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
-  },
+    "vitest": "^2.1.8"},
   "engines": {
     "node": ">=20.0.0"
   }
 }
+
