@@ -53,8 +53,8 @@ pglite-data/
 
 # ── Uploads ─────────────────────────────────────────────────────────────────
 # ⚠  THE MOST IMPORTANT ENTRY IN THIS FILE FOR A LIVE DEPLOY.
-#   Render's disk is ephemeral, so nothing here survives a restart anyway. More
-#   importantly this holds KYC documents and passport photos. If it is ever
+#   A container's disk is ephemeral, so nothing here survives a restart anyway.
+#   More importantly this holds KYC documents and passport photos. If it is ever
 #   committed, treat those as compromised.
 uploads/
 tmp/
@@ -68,6 +68,8 @@ temp/
 .idea/
 *.swp
 *.swo
+.wrangler/
+.dev.vars
 
 
 # ── OS ──────────────────────────────────────────────────────────────────────
@@ -109,8 +111,8 @@ id_ed25519
 #  Then, before the first public push, do all of this — a secret cannot be
 #  un-leaked by deleting it in a later commit:
 #
-#    1. Rotate the database password on Render (Credential Rotation). Anyone who
-#       cloned the private repo has it.
+#    1. Rotate the database password at your database provider (for example
+#       Supabase). Anyone who cloned the private repo has it.
 #    2. Rotate both JWT secrets. Anyone holding them can mint a token for any
 #       account, including SUPER_ADMIN.
 #    3. Rotate the Cloudinary API secret and delete the old key.

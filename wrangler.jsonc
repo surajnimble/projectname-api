@@ -1,0 +1,89 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "projectname-api",
+  "main": "cloudflare/worker.ts",
+  "tsconfig": "cloudflare/tsconfig.json",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+
+  // One named instance keeps Socket.IO rooms, BullMQ workers and the in-process
+  // cron on the same process. Do not raise this without moving that state out.
+  "containers": [
+    {
+      "class_name": "ApiContainer",
+      "image": "./Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "API_CONTAINER",
+        "class_name": "ApiContainer"
+      }
+    ]
+  },
+  "exports": {
+    "ApiContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+
+  // Keeps the single container warm so the app's own cron and repeatable jobs
+  // keep running. Remove this only if you move scheduling out of the process.
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+
+  // Secrets are set with `wrangler secret put` and are never stored here.
+  "secrets": {
+    "required": [
+      "DATABASE_URL",
+      "JWT_ACCESS_SECRET",
+      "JWT_REFRESH_SECRET",
+      "REDIS_URL",
+      "SUPER_ADMIN_PASSWORD"
+    ]
+  },
+
+  "vars": {
+    "NODE_ENV": "production",
+    "PORT": "5000",
+    "APP_NAME": "projectname",
+    "LOG_LEVEL": "info",
+    "JWT_ACCESS_EXPIRY": "15m",
+    "JWT_REFRESH_EXPIRY": "7d",
+    "SUPER_ADMIN_EMAIL": "superadmin@projectname.com",
+
+    // Leave empty to let Swagger use the request host, or set the public
+    // Worker/custom-domain origin, for example https://api.example.com.
+    "PUBLIC_API_URL": "",
+
+    // Comma-separated browser origins, no wildcard. Empty blocks every browser
+    // origin while still allowing server-to-server clients.
+    "CORS_ORIGINS": "",
+    "SOCKET_CORS_ORIGINS": "",
+
+    "OTP_REQUIRED": "true",
+    "OTP_SMS_ENABLED": "false",
+    "OTP_STATIC_CODE": "",
+
+    "QUEUE_ENABLED": "true",
+    "WORKER_ENABLED": "true",
+    "TRACKING_ENABLED": "true",
+    "GEO_LOOKUP_ENABLED": "true",
+    "RATE_LIMIT_ENABLED": "true",
+    "ENCRYPTION_ENABLED": "false",
+
+    // PGlite is a local-only development database.
+    "PGLITE_MODE": "false",
+    "SEED_DEMO_DATA": "false"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

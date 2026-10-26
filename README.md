@@ -33,7 +33,7 @@ This is the operational README: what the project is built from, how to run it, h
 **Database and cache**
 
 - PostgreSQL — main relational database
-- Redis (Upstash / Render Key Value) — cart sessions, cache, rate-limit store, realtime analytics streams
+- Redis (Upstash / Redis Cloud) — cart sessions, cache, rate-limit store, realtime analytics streams
 - `ioredis` — the Redis client (not the `redis` package)
 
 **Auth and security**
@@ -69,6 +69,12 @@ This is the operational README: what the project is built from, how to run it, h
 - `swagger-jsdoc` + `swagger-ui-express` — auto-generated OpenAPI docs
 - `razorpay` / `stripe` — optional dependencies for online payments
 
+**Deployment**
+
+- Cloudflare Containers — runs the long-lived Express process (Socket.IO, BullMQ, in-process cron) behind a Worker
+- Docker — builds the `linux/amd64` image locally or in Workers Builds
+- `wrangler` — deploys the Worker, builds the image and manages secrets
+
 **Dev and test**
 
 - `vitest` — unit tests; `supertest` — HTTP integration
@@ -82,6 +88,8 @@ This is the operational README: what the project is built from, how to run it, h
 - Node.js 20+ (`.nvmrc` pins 22)
 - A PostgreSQL database
 - Optional: Redis — background jobs and realtime analytics need it
+- Docker — only for `wrangler deploy`, `wrangler dev` or a local image build; Workers Builds can build the image for you
+- A Cloudflare account on the Workers Paid plan for deployment
 
 ---
 
@@ -162,12 +170,18 @@ projectname-api/
 │   ├── comment-audit.ts, comment-normalise.ts
 │   ├── route-dump.ts, route-param-audit.ts, generate-postman.ts
 │   └── e2e-*.ts, run-e2e.ps1
+├── cloudflare/           # Cloudflare Worker front door
+│   ├── worker.ts         # forwards requests, keeps one container instance warm
+│   ├── tsconfig.json     # Worker-only typecheck (Workers types, no Node libs)
+│   └── entrypoint.sh     # migrate → seed-if-empty → node dist/server.js
 ├── tests/                # vitest
 ├── .github/workflows/    # CI
 ├── .env, .env.example    # .env.example is generated — npm run env:sync
+├── .dockerignore
 ├── .gitattributes
 ├── .nvmrc
-├── render.yaml           # Render blueprint
+├── Dockerfile            # linux/amd64 image for Cloudflare Containers
+├── wrangler.jsonc        # Worker, container, cron and non-secret vars
 ├── tsconfig.json         # typecheck + eslint (scripts and tests included)
 ├── tsconfig.build.json   # build only — src/ → dist/server.js
 ├── vitest.config.ts
@@ -201,7 +215,7 @@ Every module has `<name>.routes.ts`, `<name>.controller.ts`, `<name>.service.ts`
 | `system/` | `/version` |
 | `health/` | `/health` |
 
-**What goes into the build:** only `src/`. `tsconfig.build.json` sets `rootDir: ./src` and `outDir: ./dist`, so the entry is `dist/server.js` and `tests/`, `scripts/` and `prisma/` stay out of the image.
+**What goes into the build:** only `src/`. `tsconfig.build.json` sets `rootDir: ./src` and `outDir: ./dist`, so the entry is `dist/server.js` and `tests/`, `scripts/` and `prisma/` stay out of the image. The Worker is bundled separately from `cloudflare/worker.ts`; it contains no application code.
 
 ---
 
@@ -263,6 +277,15 @@ npm run prisma:generate
 | `npm run seed` | Idempotent seed — settings, RBAC, SUPER_ADMIN, demo data |
 | `npm run maintenance:off` | Kill switch — clears `maintenanceEnabled` in the DB and the Redis cache, no login needed |
 
+### Cloudflare
+
+| Command | What it does |
+| --- | --- |
+| `npm run cf:typecheck` | Typecheck the Worker and Container code against Workers types |
+| `npm run cf:dev` | Run the Worker and container locally (Docker required) |
+| `npm run cf:deploy` | Build the image, deploy the Worker and roll out the container |
+| `npm run cf:tail` | Stream Worker logs (`wrangler tail`) |
+
 ### Maintenance mode
 
 `PATCH /api/v1/settings/updateMaintenance` turns it on and off. While it is on, every route answers `503` except `/health`, `/docs`, `/version`, `/settings/getMaintenance`, `/auth/login` and `/auth/refreshToken`. A SUPER_ADMIN token is exempt on every route, and those two auth paths mint a session for nobody else — so a super admin always signs in and switches the mode off from the API, while everyone else is held back.
@@ -299,12 +322,13 @@ It writes `maintenanceEnabled = false` directly and drops the cached value, so t
 | `npm run comments:fix` | Rewrite multi-line `//` prose into doc blocks |
 | `npm run doctor` | Database, weak secrets, exposed `.env`, missing providers |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run cf:typecheck` | Worker/Container typecheck |
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm run format` / `format:check` | Prettier |
 | `npm test` | Unit + contract tests, no database needed |
 | `npm run test:watch` / `test:coverage` | Watch mode / coverage |
 | `npm run e2e` | Live HTTP suites, needs a real database |
-| `npm run verify` | **The gate:** env:check + typecheck + lint + test |
+| `npm run verify` | **The gate:** env:check + typecheck + cf:typecheck + lint + test |
 
 ### Environment
 
@@ -316,10 +340,19 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"   # new
 
 ### Simulating the production build
 
-Run exactly what Render runs:
+The container image is the production build. Build and run it locally with Docker:
 
 ```bash
-npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run seed && npm run build
+docker build --platform linux/amd64 -t projectname-api .
+docker run --rm --env-file .env -e NODE_ENV=production -p 5000:5000 projectname-api
+```
+
+The image entrypoint runs `prisma migrate deploy`, then `scripts/seed-if-empty.ts`, then `node dist/server.js`. Point `DATABASE_URL` at a disposable database before running it — the entrypoint writes to whatever database is in the env file.
+
+If you only want the compiled output, without Docker:
+
+```bash
+npm ci --include=dev && npx prisma generate && npm run build
 ```
 
 `--include=dev` is required — `NODE_ENV=production` makes npm omit devDependencies, and `prisma` / `typescript` / `tsx` all live there. Do **not** add `--ignore-scripts` — bcrypt fetches its native binary in an install script. In CI or production, `HUSKY=0` is the right way to skip git hooks: it turns the `prepare` hook into a no-op without suppressing install scripts.
@@ -344,20 +377,17 @@ This exercises the production env rules: strict CORS, no OTP codes in logs, refu
 
 Three supported ways. Migrations are a `20260101000000_init` folder with the full schema, plus a dated folder per later change. Any of them can be built from scratch with `npx prisma migrate deploy && npm run seed`. The rules for adding a migration are in `AGENTS.md`.
 
-### Option A — Render Postgres (current setup)
+### Option A — Supabase Postgres (current setup)
 
-The dashboard shows two URLs; which one you need depends on where the code runs.
-
-| URL | Resolves from | Use for |
-| --- | --- | --- |
-| Internal | inside Render only | your deployed Web Service |
-| External | anywhere, incl. your laptop | local dev + running tests |
+Cloudflare Containers have no private network link to your database, so use a publicly reachable Postgres URL. The current setup is Supabase's session pooler on port `5432`:
 
 ```
-DATABASE_URL="postgresql://USER:PASS@dpg-xxxx.<region>-postgres.render.com:5432/DB?schema=public&connection_limit=5"
+DATABASE_URL="postgresql://USER:PASS@aws-0-<region>.pooler.supabase.com:5432/postgres?schema=public&connection_limit=5"
 ```
 
-Keep `PGLITE_MODE=false`. The internal hostname only resolves inside Render's private network, which is why a local setup fails with a misleading "database does not exist".
+The session pooler supports Prisma migrations and normal prepared statements. Do not point `prisma migrate deploy` at the transaction pooler on port `6543`; if you need that pooler at runtime, add `pgbouncer=true` and run migrations against the session pooler. Add `sslmode=require` if your provider does not enable TLS by default.
+
+Keep `PGLITE_MODE=false`. A hostname that only resolves inside another platform's private network will fail from a container.
 
 ### Option B — Docker (closest to a self-hosted production box)
 
@@ -413,7 +443,7 @@ The full inventory is `src/config/env.config.ts` — a Zod schema validated befo
 
 | Variable | Rule |
 | --- | --- |
-| `DATABASE_URL` | Non-empty. The **internal** URL on Render, the external URL on a local machine |
+| `DATABASE_URL` | Non-empty. Publicly reachable Postgres URL (Supabase session pooler in the current setup) |
 | `JWT_ACCESS_SECRET` | At least 16 chars. Changing it logs everyone out |
 | `JWT_REFRESH_SECRET` | At least 16 chars, must differ from the access secret |
 
@@ -421,15 +451,16 @@ The full inventory is `src/config/env.config.ts` — a Zod schema validated befo
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `NODE_ENV` | `development` | `production` = strict CORS, secure cookie, codes never logged. **Set it on Render** |
-| `PORT` | `5000` | Render injects it |
+| `NODE_ENV` | `development` | `production` = strict CORS, secure cookie, codes never logged. **Set it in `wrangler.jsonc` for Cloudflare** |
+| `PORT` | `5000` | The container listens on 5000; Cloudflare routes to that port |
 | `APP_NAME` | `projectname` | JWT issuer / audience — changing it logs everyone out |
 | `LOG_LEVEL` | `info` | `fatal` … `trace`; use `debug` for server logs |
+| `PUBLIC_API_URL` | *(empty)* | Swagger base URL. Empty uses the request host; set the Worker or custom-domain origin in Cloudflare |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | `15m` / `7d` | Token lifetimes |
 | `OTP_REQUIRED` | `true` | Master switch for the whole OTP system — see [OTP](#otp) |
 | `OTP_SMS_ENABLED` | `false` | Deliver codes to phone numbers |
 | `OTP_STATIC_CODE` | *(empty)* | Digits-only fixed code for local work. **Boot error in production** |
-| `REDIS_URL` | *(empty)* | Without it cache, queue and rate limit degrade |
+| `REDIS_URL` | *(empty)* | Upstash `rediss://` URL in production; without it cache, queue and rate limit degrade |
 | `REDIS_PREFIX` | `projectname` | Redis key namespace |
 | `QUEUE_ENABLED` | `true` | `true` with an empty `REDIS_URL` is a boot error |
 | `QUEUE_PREFIX` | `projectname` | BullMQ queue namespace |
@@ -616,7 +647,7 @@ Brevo takes priority over SMTP when both are set. Set `OTP_SMS_ENABLED=true` to 
 
 ## Media storage
 
-Images, video and KYC PDFs go to **Cloudinary** — never to Render's disk, which is ephemeral and loses everything on every deploy and restart. A request is written to `uploads/tmp/`, streamed to Cloudinary, and the temp file is unlinked in a `finally`.
+Images, video and KYC PDFs go to **Cloudinary** — never to the container's disk, which is ephemeral and loses everything when the instance is replaced. A request is written to `uploads/tmp/`, streamed to Cloudinary, and the temp file is unlinked in a `finally`.
 
 Folders default to `CLOUDINARY_FOLDER/<kind>`; an upload may override them with a `folder` field in the request body.
 
@@ -649,39 +680,84 @@ The super admin's password is set on first seed only. Changing `SUPER_ADMIN_PASS
 
 - API — `http://localhost:5000/api/v1`
 - OpenAPI JSON — `http://localhost:5000/api/v1/docs.json`
-- Health (Render probes this) — `http://localhost:5000/api/v1/health`
+- Health (container readiness probe) — `http://localhost:5000/api/v1/health`
 
 The full route list, with auth and role per endpoint, is Part E of `FEATURES.md`; the generated spec at `GET /api/v1/docs.json` is the authoritative contract.
 
 ---
 
-## Deployment (Render)
+## Deployment (Cloudflare Containers)
 
-`render.yaml` is the source of truth — create the service with **New → Blueprint** and point it at this repo. Every `sync: false` value is filled in the dashboard.
+The API runs as a single Cloudflare Container behind a Worker. `wrangler.jsonc` is the source of truth and `Dockerfile` builds the `linux/amd64` image.
 
-- Build: `npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run seed && npm run build`
-- Start: `npm start`
-- Health check path: `/api/v1/health`
+### What runs where
 
-`--include=dev` is required. `render.yaml` sets `NODE_ENV=production`, which npm turns into `omit=dev`, and `prisma` / `typescript` / `tsx` are all devDependencies. Do **not** add `--ignore-scripts` — bcrypt pulls its native binary in an install script.
+| Piece | File | Job |
+| --- | --- | --- |
+| Worker | `cloudflare/worker.ts` | Forwards requests to the one container instance, keeps it warm on a cron |
+| Container | `Dockerfile`, `cloudflare/entrypoint.sh` | Migrates, seeds an empty database, then starts `node dist/server.js` |
+| Config | `wrangler.jsonc` | Instance size, cron, non-secret vars, required secret names |
 
-`migrate deploy` only creates the schema. `npm run seed` is what inserts the super admin, the settings and the permission matrix — on a fresh database you need both. The seed is idempotent, so it is safe on every deploy.
+`max_instances: 1` is deliberate. Socket.IO keeps room membership in memory, and BullMQ workers plus the in-process cron run inside the same process. Raising it splits that state across instances and breaks realtime delivery.
 
-| Dashboard value | Where it comes from |
-| --- | --- |
-| `DATABASE_URL` | Render Postgres → **Internal** Database URL |
-| `REDIS_URL` | Render Key Value, or Upstash / Redis Cloud |
-| `CORS_ORIGINS` | Your frontend, e.g. `https://app.yourdomain.com` |
-| `SUPER_ADMIN_PASSWORD` | Anything but the built-in `SuperSecret@123` |
-| `CLOUDINARY_*` | Cloudinary → Settings → API Keys (Root key) |
-| `BREVO_API_KEY` or `SMTP_*` | Required while `OTP_REQUIRED=true`, else the boot is refused |
-| `MSG91_*` + `OTP_SMS_ENABLED` | Only if you enable SMS |
+### Prerequisites
 
-`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` are generated by the blueprint. Set `PGLITE_MODE=false` in production.
+- A Cloudflare account on the Workers Paid plan — Containers are not available on the free plan
+- A publicly reachable PostgreSQL database (Supabase session pooler in the current setup)
+- An Upstash `rediss://` URL while `QUEUE_ENABLED=true`
+- Docker locally for `npm run cf:deploy`, or Workers Builds to build the image for you
 
-Migrations live in `prisma/migrations`. Never edit an already-applied folder in place — add a new dated folder (details in `AGENTS.md`).
+### First deploy
 
-> The free Render Postgres plan is deleted 30 days after creation, data included. Upgrade before it expires.
+```bash
+npx wrangler login
+
+npx wrangler secret put DATABASE_URL
+npx wrangler secret put JWT_ACCESS_SECRET
+npx wrangler secret put JWT_REFRESH_SECRET
+npx wrangler secret put REDIS_URL
+npx wrangler secret put SUPER_ADMIN_PASSWORD
+npx wrangler secret put BREVO_API_KEY    # or SMTP_* / MSG91_*
+
+npm run cf:deploy
+```
+
+Every non-secret value lives in `wrangler.jsonc`. Set `CORS_ORIGINS`, `SOCKET_CORS_ORIGINS` and `PUBLIC_API_URL` there before the first deploy.
+
+The first rollout takes several minutes while Cloudflare provisions the image and the container boots. `/api/v1/health` answers once Express is listening; `/api/v1/docs.json` follows.
+
+### Updating
+
+```bash
+npm run cf:deploy
+```
+
+The entrypoint runs `prisma migrate deploy` on every boot, so a migration committed with the code is applied before the new process serves traffic. `scripts/seed-if-empty.ts` seeds only when the users or settings tables are empty, so later cold starts skip it.
+
+Container environment variables are snapshotted when an instance starts. Changing a secret or a var does not reach a running container — deploy again, or restart the instance, to pick up the new value.
+
+### Workers Builds
+
+Connect the repository in the Cloudflare dashboard and set the deploy command to `npx wrangler deploy`. Workers Builds builds the Dockerfile, so no local Docker is needed. Add the same values as build secrets in the dashboard.
+
+### Logs and shell
+
+```bash
+npm run cf:tail
+npx wrangler containers list
+npx wrangler containers instances <ID>
+npx wrangler containers ssh <ID>
+```
+
+### Cost and sizing
+
+`basic` is 1/4 vCPU, 1 GiB RAM and 4 GB disk. The cron trigger every ten minutes keeps the instance from sleeping, because the app's own cron and BullMQ repeatable jobs only run while the process is up. Switch to `standard-1` (1/2 vCPU, 4 GiB RAM, 8 GB disk) in `wrangler.jsonc` if the app runs out of memory.
+
+### What the platform changes
+
+- **No local disk** — uploads must go to Cloudinary; anything under `uploads/` is gone on the next restart.
+- **No private network** — the database and Redis need publicly reachable, TLS-enabled URLs.
+- **One process** — realtime and scheduled work depend on the single instance staying warm.
 
 ---
 
@@ -710,8 +786,10 @@ It also flags weak secrets, `.env` files tracked by git, and the case where OTP 
 | --- | --- |
 | `Cannot find module 'dist/server.js'` | Wrong tsconfig. Run `npm run build`; the entry is `dist/server.js` |
 | `[env] Invalid environment variables` | The schema rejects it on purpose and names the variable. Usually a missing `DATABASE_URL`, a `JWT_*_SECRET` under 16 chars, or `QUEUE_ENABLED=true` with no `REDIS_URL` |
-| `OTP_STATIC_CODE ... must never be set in production` | Empty that variable on Render |
-| `OTP_REQUIRED=true in production needs a delivery provider` | Set `BREVO_API_KEY` / `SMTP_*` / `MSG91_*`, or set `OTP_REQUIRED=false` while still building |
+| `OTP_STATIC_CODE ... must never be set in production` | Empty it in `wrangler.jsonc` (it is already `""`) |
+| `OTP_REQUIRED=true in production needs a delivery provider` | Set `BREVO_API_KEY` / `SMTP_*` / `MSG91_*` as Worker secrets, or set `OTP_REQUIRED=false` while still building |
+| Container returns 500 right after deploy | `npm run cf:tail` and check the entrypoint output. Usually a missing secret, an unreachable `DATABASE_URL`, or a failed migration |
+| First request hangs for a minute or more | Expected on a cold boot: migrations and the seed run before Express listens. The Worker waits up to 180 s |
 | Login fails with `ACCOUNT_UNVERIFIED` | The account was created with `OTP_REQUIRED=false` and never verified. Re-run `npm run seed`, or verify the contact through `POST /auth/verifyEmail` |
 | `bcrypt` fails to load | Its native binary is missing. Do not pass `--ignore-scripts`; run `npm install` without it |
 | Every route 500s but `/health` is UP | `/health` never touches the database on purpose. Check `/health/db`, then `npm run doctor` |
