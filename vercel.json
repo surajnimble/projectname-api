@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "buildCommand": "npm ci --include=dev && npx prisma generate",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ]
+}
