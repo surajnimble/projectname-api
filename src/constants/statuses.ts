@@ -1,0 +1,143 @@
+export const ORDER_STATUS = {
+  PENDING: 'PENDING',
+  PENDING_TOKEN: 'PENDING_TOKEN',
+  CONFIRMED: 'CONFIRMED',
+  SHIPPED: 'SHIPPED',
+  OUT_FOR_DELIVERY: 'OUT_FOR_DELIVERY',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'CANCELLED',
+  RETURNED: 'RETURNED',
+} as const;
+
+export type OrderStatus = keyof typeof ORDER_STATUS;
+
+export const ORDER_STATUS_VALUES = Object.values(ORDER_STATUS) as OrderStatus[];
+
+export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PENDING_TOKEN, ORDER_STATUS.CANCELLED],
+  PENDING_TOKEN: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+  CONFIRMED: [ORDER_STATUS.SHIPPED, ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.CANCELLED],
+  SHIPPED: [ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED],
+  OUT_FOR_DELIVERY: [ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED],
+  DELIVERED: [ORDER_STATUS.RETURNED],
+  CANCELLED: [],
+  RETURNED: [],
+};
+
+export const canTransitionOrder = (from: string, to: string): boolean =>
+  ORDER_TRANSITIONS[from as OrderStatus]?.includes(to as OrderStatus) ?? false;
+
+export const SUB_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.PENDING_TOKEN, ORDER_STATUS.CANCELLED],
+  PENDING_TOKEN: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.CANCELLED],
+  CONFIRMED: [ORDER_STATUS.SHIPPED, ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.CANCELLED],
+  SHIPPED: [ORDER_STATUS.OUT_FOR_DELIVERY, ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED],
+  OUT_FOR_DELIVERY: [ORDER_STATUS.DELIVERED, ORDER_STATUS.RETURNED],
+  DELIVERED: [ORDER_STATUS.RETURNED],
+  CANCELLED: [],
+  RETURNED: [],
+};
+
+export const canTransitionSubOrder = (from: string, to: string): boolean =>
+  SUB_ORDER_TRANSITIONS[from as OrderStatus]?.includes(to as OrderStatus) ?? false;
+
+export const RETURN_STATUS = {
+  REQUESTED: 'REQUESTED',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  PICKED_UP: 'PICKED_UP',
+  RECEIVED: 'RECEIVED',
+  REFUNDED: 'REFUNDED',
+} as const;
+
+export type ReturnStatus = keyof typeof RETURN_STATUS;
+
+export const RETURN_STATUS_VALUES = Object.values(RETURN_STATUS) as ReturnStatus[];
+
+export const RETURN_TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
+  REQUESTED: [RETURN_STATUS.APPROVED, RETURN_STATUS.REJECTED],
+  APPROVED: [RETURN_STATUS.PICKED_UP, RETURN_STATUS.REJECTED],
+  REJECTED: [],
+  PICKED_UP: [RETURN_STATUS.RECEIVED],
+  RECEIVED: [RETURN_STATUS.REFUNDED],
+  REFUNDED: [],
+};
+
+export const canTransitionReturn = (from: string, to: string): boolean =>
+  RETURN_TRANSITIONS[from as ReturnStatus]?.includes(to as ReturnStatus) ?? false;
+
+export const TICKET_STATUS = {
+  OPEN: 'OPEN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  RESOLVED: 'RESOLVED',
+  CLOSED: 'CLOSED',
+} as const;
+
+export type TicketStatus = keyof typeof TICKET_STATUS;
+
+export const TICKET_STATUS_VALUES = Object.values(TICKET_STATUS) as TicketStatus[];
+
+export const TICKET_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
+  OPEN: [TICKET_STATUS.IN_PROGRESS, TICKET_STATUS.RESOLVED, TICKET_STATUS.CLOSED],
+  IN_PROGRESS: [TICKET_STATUS.RESOLVED, TICKET_STATUS.CLOSED],
+  RESOLVED: [TICKET_STATUS.CLOSED, TICKET_STATUS.IN_PROGRESS],
+  CLOSED: [],
+};
+
+export const canTransitionTicket = (from: string, to: string): boolean =>
+  TICKET_TRANSITIONS[from as TicketStatus]?.includes(to as TicketStatus) ?? false;
+
+export const PAYOUT_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['APPROVED', 'REJECTED'],
+  APPROVED: ['PROCESSING', 'PAID', 'FAILED'],
+  PROCESSING: ['PAID', 'FAILED'],
+  REJECTED: [],
+  PAID: [],
+  FAILED: ['PENDING'],
+};
+
+export const SHIPMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['LABEL_CREATED', 'CANCELLED'],
+  LABEL_CREATED: ['PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['IN_TRANSIT', 'FAILED'],
+  IN_TRANSIT: ['OUT_FOR_DELIVERY', 'FAILED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'FAILED', 'RETURNED'],
+  DELIVERED: ['RETURNED'],
+  FAILED: ['IN_TRANSIT', 'RETURNED'],
+  RETURNED: [],
+  CANCELLED: [],
+};
+
+export const TERMINAL_ORDER_STATUSES: OrderStatus[] = [
+  ORDER_STATUS.CANCELLED,
+  ORDER_STATUS.RETURNED,
+];
+
+export const DELIVERED_ORDER_STATUSES: OrderStatus[] = [
+  ORDER_STATUS.DELIVERED,
+  ORDER_STATUS.RETURNED,
+];
+
+export const HEALTH_STATUS = {
+  UP: 'UP',
+  DOWN: 'DOWN',
+  DEGRADED: 'DEGRADED',
+  DISABLED: 'DISABLED',
+  NOT_CONFIGURED: 'NOT_CONFIGURED',
+} as const;
+
+export type HealthStatus = keyof typeof HEALTH_STATUS;
+
+/**
+ * A row leaves PENDING only through a human decision — a replay that never
+ * succeeded, or a replay that did and closed the job. Neither transition is
+ * driven by the worker itself, so there is no automatic path back out of
+ * RESOLVED.
+ */
+export const FAILED_JOB_STATUS = {
+  PENDING: 'PENDING',
+  RESOLVED: 'RESOLVED',
+  ABANDONED: 'ABANDONED',
+} as const;
+
+export type FailedJobStatus = keyof typeof FAILED_JOB_STATUS;
