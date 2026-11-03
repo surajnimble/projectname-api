@@ -92,7 +92,7 @@ npm install
 npm run prisma:generate
 npm run env:sync      # regenerate .env.example from .env
 npm run db:migrate    # create the schema
-npm run seed          # settings, SUPER_ADMIN, permission matrix, demo data
+npm run seed          # settings, SUPER_ADMIN, permission matrix, full demo data
 npm run dev
 ```
 
@@ -112,7 +112,9 @@ projectname-api/
 │   │   ├── migration_lock.toml
 │   │   ├── 20260101000000_init/                      # the full schema
 │   │   └── 20261008000000_customer_vendor_control/   # customer ban, segments, announcements
-│   └── seed.ts
+│   ├── demo/                                          # local-only demo seed modules
+│   ├── seed.ts
+│   └── seed-demo.ts
 ├── src/
 │   ├── constants/        # roles, permissions, statuses, http, countries, tracking
 │   ├── messages/         # success, error, validation text
@@ -260,7 +262,7 @@ npm run prisma:generate
 | `npm run prisma:studio` | GUI data browser |
 | `npm run prisma:diff` | Print SQL for the current schema |
 | `npx prisma migrate deploy` | Apply pending migrations |
-| `npm run seed` | Idempotent seed — settings, RBAC, SUPER_ADMIN, demo data |
+| `npm run seed` | Local: truncates the demo tables, then seeds settings, RBAC, SUPER_ADMIN and 3-4 rows per model. Production: settings, RBAC and SUPER_ADMIN only |
 | `npm run maintenance:off` | Kill switch — clears `maintenanceEnabled` in the DB and the Redis cache, no login needed |
 
 ### Maintenance mode
@@ -288,6 +290,10 @@ It writes `maintenanceEnabled = false` directly and drops the cached value, so t
 | `npm run db:reset` | Drop, recreate, migrate, seed — **dev only** |
 
 `db:reset` refuses a remote or production host on purpose.
+
+On a non-production run (`NODE_ENV` not `production` and `SEED_DEMO_DATA` not `false`), `npm run seed` first truncates every demo table, so each run ends with the same clean dataset instead of accumulating rows. Production seeding never truncates: it only upserts settings, role permissions and the super admin. Stop the PGlite server with `npm run db:down` before `npm run db:check`, which opens the data directory directly.
+
+Accounts are deliberately excluded from that truncate, so the super admin keeps the password it was given. `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` are only hashed into a new row — first seed, a deleted account, or `npm run db:reset`. A normal reseed leaves `passwordHash` untouched, so a password changed through the admin panel survives. Seed is never run automatically; it fires only on `npm run seed` or `npm run db:reset`.
 
 ### Verifying
 

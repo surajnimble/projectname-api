@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { SETTINGS } from '../src/config/setting-defaults';
+import { resetDemoData } from './demo/reset';
+import { isDemoSeedEnabled, seedDemoContent } from './seed-demo';
 import slugify from 'slugify';
 
 const prisma = new PrismaClient();
@@ -251,6 +253,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   for (const tax of taxConfigs) {
     await prisma.taxConfig.upsert({ where: { slug: tax.slug }, create: tax, update: {} });
   }
+  // eslint-disable-next-line no-console
+  console.log('[seed] tax configs — done');
 
   const dropdowns = [
     { type: 'INDUSTRY', label: 'Fashion', value: 'fashion' },
@@ -298,6 +302,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
       });
     }
   }
+  // eslint-disable-next-line no-console
+  console.log('[seed] dropdowns + translations — done');
 
   const categorySeeds = [
     { name: 'Men', slug: 'men', parentId: null, sortOrder: 1 },
@@ -388,6 +394,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     },
     update: {},
   });
+  // eslint-disable-next-line no-console
+  console.log('[seed] categories/brands/tags/attributes/collection — done');
 
   const returnReasons = [
     { title: 'Wrong size', slug: 'wrong-size' },
@@ -452,6 +460,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     create: { name: 'Manual / Self Shipped', code: 'manual', isActive: true },
     update: {},
   });
+  // eslint-disable-next-line no-console
+  console.log('[seed] return reasons/ticket categories/shipping — done');
 
   const demoPassword = await bcrypt.hash('Demo@12345', 12);
 
@@ -545,6 +555,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
       isEmailVerified: true,
     },
   });
+  // eslint-disable-next-line no-console
+  console.log('[seed] vendor/customer/subadmin/address — done');
 
   if (!demoEnabled) return;
 
@@ -745,25 +757,60 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   });
 
   void superAdminId;
+  // eslint-disable-next-line no-console
+  console.log(
+    '[seed]   base demo data (settings, products, coupons, flash sales, pages, FAQs) — done',
+  );
+};
+
+/** Logs a seed step with a running/done marker so the operator sees live progress. */
+let stepIndex = 0;
+const logStep = <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  const n = (stepIndex += 1);
+  // eslint-disable-next-line no-console
+  console.log(`[seed] [${n}] ${label}...`);
+  return run().then((result) => {
+    // eslint-disable-next-line no-console
+    console.log(`[seed] [${n}] ${label} — done`);
+    return result;
+  });
 };
 
 const main = async (): Promise<void> => {
   // eslint-disable-next-line no-console
   console.log('[seed] starting...');
 
-  const settings = await seedSettings();
-  const permissions = await seedRolePermissions();
-  const superAdminId = await seedSuperAdmin();
-  await seedDemoData(superAdminId);
+  const demoEnabled = isDemoSeedEnabled();
+
+  // Local seed runs start from a clean dataset so a half-finished test cannot
+  // leave rows that break the next run. Production never reaches this branch.
+  if (demoEnabled) {
+    await logStep('clearing previous demo data', () => resetDemoData(prisma));
+  }
+
+  const settings = await logStep('seeding settings', () => seedSettings());
+  const permissions = await logStep('seeding role permissions', () => seedRolePermissions());
+  // The super admin is not demo data: it is written in every environment,
+  // including production, so the admin panel always has an owner account.
+  const superAdminId = await logStep('creating super admin', () => seedSuperAdmin());
+  await logStep('seeding demo users/vendors/delivery', () => seedDemoData(superAdminId));
+
+  const demoSummary = demoEnabled
+    ? await logStep('seeding demo content (all modules)', () =>
+        seedDemoContent(prisma, superAdminId),
+      )
+    : null;
 
   const counts = {
     settings,
     rolePermissions: permissions,
     users: await prisma.user.count(),
     vendors: await prisma.vendorProfile.count(),
+    deliveryBoys: await prisma.deliveryBoy.count(),
     products: await prisma.product.count(),
     categories: await prisma.category.count(),
     coupons: await prisma.coupon.count(),
+    ...(demoSummary ?? {}),
   };
 
   // eslint-disable-next-line no-console
@@ -775,7 +822,7 @@ const main = async (): Promise<void> => {
   console.log(`[seed] super admin -> ${adminEmail} / ${adminPassword}`);
   // eslint-disable-next-line no-console
   console.log(
-    '[seed] demo logins -> subadmin@ / vendor@ / customer@ (all @projectname.com, password: Demo@12345)',
+    '[seed] demo logins -> customer2@ / customer3@ / customer4@ / vendor2@ / vendor3@ / delivery1@ / delivery2@ / delivery3@ (all @projectname.com, password: Demo@12345)',
   );
 };
 
