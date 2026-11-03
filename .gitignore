@@ -75,6 +75,10 @@ temp/
 Thumbs.db
 Desktop.ini
 
+# ── Kilo tooling ────────────────────────────────────────────────────────────
+# Session state, worktrees and editor metadata. Never commit.
+.kilo/
+
 
 # ── Credentials that have no business in any repo ───────────────────────────
 # Per-developer overrides. The shared .env stays tracked; anything genuinely
