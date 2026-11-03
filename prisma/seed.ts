@@ -16,10 +16,19 @@ const prisma = new PrismaClient();
  * experience, and a seed that TRUNCATEs tables which do not exist yet aborts
  * before it writes a single row. `migrate deploy` is idempotent, so calling it
  * here every time is harmless on a database that already has the schema.
+ *
+ * PGlite (the local database started by `npm run db:up`) cannot run Prisma's
+ * migration engine — it needs a `started_at` column the engine adds to
+ * `_prisma_migrations`, and PGlite rejects it. In that mode the seed falls back
+ * to `npm run db:migrate`, which applies the same SQL through a hand-written
+ * runner that never needs that column.
  */
 const ensureMigrated = (): void => {
+  const isPglite = process.env.PGLITE_MODE === 'true';
+  const command = isPglite ? 'npm run db:migrate' : 'npx prisma migrate deploy';
+
   try {
-    execSync('npx prisma migrate deploy', { stdio: 'inherit', env: { ...process.env } });
+    execSync(command, { stdio: 'inherit', env: { ...process.env } });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[seed] migration failed — is DATABASE_URL reachable?', err);

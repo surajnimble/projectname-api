@@ -27,12 +27,91 @@ const readMigrations = (): Migration[] => {
     .sort((a, b) => a.name.localeCompare(b.name));
 };
 
-/** Splits a migration file into individual SQL statements, ignoring comments and blanks. */
-const splitStatements = (sql: string): string[] =>
-  sql
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith('--'));
+/**
+ * Splits a migration file into individual SQL statements.
+ *
+ * A naive split on `;` is wrong: the file is full of enum lists written as
+ * `CREATE TYPE "Foo" AS ENUM ('A', 'B', 'C')`, and the commas inside those
+ * literals are not statement boundaries. The naive version collapsed the
+ * whole file into one statement, which PGlite then rejected — while the
+ * migration row was still recorded as finished, so the next run saw nothing to
+ * apply and left the schema empty.
+ *
+ * The scanner walks the SQL once, tracking whether it is inside a single-quoted
+ * string or a dollar-quoted block, and only treats a `;` as a boundary when
+ * neither is open. Line comments (`--`) are skipped as before.
+ */
+const splitStatements = (sql: string): string[] => {
+  const statements: string[] = [];
+  let current = '';
+  let i = 0;
+  let inSingle = false;
+  let inDollarTag = '';
+
+  while (i < sql.length) {
+    const char = sql[i];
+
+    if (inDollarTag) {
+      current += char;
+      if (sql.startsWith(inDollarTag, i)) {
+        i += inDollarTag.length;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      current += char;
+      if (char === '\\' && i + 1 < sql.length) {
+        current += sql[i + 1];
+        i += 2;
+        continue;
+      }
+      if (char === "'") inSingle = false;
+      i += 1;
+      continue;
+    }
+
+    if (char === '-' && sql[i + 1] === '-') {
+      const end = sql.indexOf('\n', i);
+      i = end === -1 ? sql.length : end + 1;
+      continue;
+    }
+
+    if (char === '$') {
+      const match = sql.slice(i).match(/^\$[A-Za-z_0-9]*\$/);
+      if (match) {
+        inDollarTag = match[0];
+        current += inDollarTag;
+        i += inDollarTag.length;
+        continue;
+      }
+    }
+
+    if (char === "'") {
+      inSingle = true;
+      current += char;
+      i += 1;
+      continue;
+    }
+
+    if (char === ';') {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) statements.push(trimmed);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += char;
+    i += 1;
+  }
+
+  const trimmed = current.trim();
+  if (trimmed.length > 0) statements.push(trimmed);
+  return statements;
+};
 
 const main = async (): Promise<void> => {
   // Connects to DATABASE_URL (the TCP server started by `npm run db:up`),
