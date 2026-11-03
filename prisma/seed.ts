@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { SETTINGS } from '../src/config/setting-defaults';
@@ -7,6 +8,24 @@ import { isDemoSeedEnabled, seedDemoContent } from './seed-demo';
 import slugify from 'slugify';
 
 const prisma = new PrismaClient();
+
+/**
+ * Applies pending migrations before touching any row.
+ *
+ * Running `npm run seed` against a fresh database is the normal first-run
+ * experience, and a seed that TRUNCATEs tables which do not exist yet aborts
+ * before it writes a single row. `migrate deploy` is idempotent, so calling it
+ * here every time is harmless on a database that already has the schema.
+ */
+const ensureMigrated = (): void => {
+  try {
+    execSync('npx prisma migrate deploy', { stdio: 'inherit', env: { ...process.env } });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[seed] migration failed — is DATABASE_URL reachable?', err);
+    throw err;
+  }
+};
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   SUPER_ADMIN: ['*'],
@@ -783,6 +802,8 @@ const logStep = <T>(label: string, run: () => Promise<T>): Promise<T> => {
 const main = async (): Promise<void> => {
   // eslint-disable-next-line no-console
   console.log('[seed] starting...');
+
+  ensureMigrated();
 
   const demoEnabled = isDemoSeedEnabled();
 

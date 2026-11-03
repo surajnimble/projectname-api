@@ -130,16 +130,31 @@ const DEMO_TABLES = [
 
 /** Deletes every demo-owned row so the seed can rebuild a clean dataset. */
 export const resetDemoData = async (prisma: PrismaClient): Promise<void> => {
+  // A fresh database has no tables at all, and TRUNCATE on a missing relation
+  // aborts the whole seed before it writes a single row. Resolve which tables
+  // actually exist first, so the reset is a no-op instead of a failure.
+  const existing = new Set<string>();
+  const rows = (await prisma.$queryRawUnsafe(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`,
+  )) as unknown as { table_name: string }[];
+  for (const row of rows) existing.add(row.table_name);
+
+  const tables = DEMO_TABLES.filter((table) => existing.has(table));
+  if (tables.length === 0) return;
+
   // PGlite rejects one very long TRUNCATE statement, so the list goes in chunks.
   const chunkSize = 10;
-  for (let index = 0; index < DEMO_TABLES.length; index += chunkSize) {
-    const tables = DEMO_TABLES.slice(index, index + chunkSize)
+  for (let index = 0; index < tables.length; index += chunkSize) {
+    const chunk = tables
+      .slice(index, index + chunkSize)
       .map((table) => `"${table}"`)
       .join(', ');
     // Each chunk gets a unique comment so Prisma prepares a distinct statement;
     // PGlite rejects re-preparing an existing statement name (e.g. "s0") across calls.
     await prisma.$executeRawUnsafe(
-      `TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE -- chunk ${index}`,
+      `TRUNCATE TABLE ${chunk} RESTART IDENTITY CASCADE -- chunk ${index}`,
     );
   }
 };
