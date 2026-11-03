@@ -146,7 +146,11 @@ const seedSuperAdmin = async (): Promise<string> => {
   const user = await prisma.user.upsert({
     where: { email },
 
-    update: { isEmailVerified: true, isActive: true },
+    // The role is enforced on every run: a row that predates the seed, or one
+    // created by hand as a different role, must not stay a non-admin. The
+    // passwordHash is deliberately left alone so a password changed through
+    // the admin panel survives a reseed.
+    update: { role: 'SUPER_ADMIN', isEmailVerified: true, isActive: true },
     create: {
       email,
       name: 'Super Admin',
@@ -467,7 +471,7 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   const vendorUser = await prisma.user.upsert({
     where: { email: 'vendor@projectname.com' },
-    update: { isPhoneVerified: true, isEmailVerified: true },
+    update: { role: 'VENDOR', isPhoneVerified: true, isEmailVerified: true },
     create: {
       email: 'vendor@projectname.com',
       name: 'Ravi Kumar',
@@ -507,7 +511,7 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
 
   const customerUser = await prisma.user.upsert({
     where: { email: 'customer@projectname.com' },
-    update: { isPhoneVerified: true, isEmailVerified: true },
+    update: { role: 'CUSTOMER', isPhoneVerified: true, isEmailVerified: true },
     create: {
       email: 'customer@projectname.com',
       name: 'Amit Sharma',
@@ -544,7 +548,7 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
   await prisma.user.upsert({
     where: { email: 'subadmin@projectname.com' },
 
-    update: { isEmailVerified: true },
+    update: { role: 'SUB_ADMIN', isEmailVerified: true },
     create: {
       email: 'subadmin@projectname.com',
       name: 'Sub Admin',
