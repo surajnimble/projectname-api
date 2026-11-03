@@ -16,8 +16,12 @@ import { seedOpsModule } from './demo/ops';
 import { seedAnalyticsModule } from './demo/analytics';
 
 /** True when the current process may write demo data. */
-export const isDemoSeedEnabled = (): boolean =>
-  process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== 'false';
+export const isDemoSeedEnabled = (): boolean => {
+  // Explicit opt-in wins: SEED_DEMO_DATA=true forces the demo seed even in
+  // production, so a staging or demo environment can be populated on demand.
+  if (process.env.SEED_DEMO_DATA === 'true') return true;
+  return process.env.NODE_ENV !== 'production' && process.env.SEED_DEMO_DATA !== 'false';
+};
 
 /** Row counts reported by `npm run seed` once the demo seed finishes. */
 export interface DemoSummary {

@@ -263,6 +263,7 @@ npm run prisma:generate
 | `npm run prisma:diff` | Print SQL for the current schema |
 | `npx prisma migrate deploy` | Apply pending migrations |
 | `npm run seed` | Local: truncates the demo tables, then seeds settings, RBAC, SUPER_ADMIN and 3-4 rows per model. Production: settings, RBAC and SUPER_ADMIN only |
+| `SEED_DEMO_DATA=true npm run seed` | Force the full demo dataset even in production (truncates demo tables first) |
 | `npm run maintenance:off` | Kill switch — clears `maintenanceEnabled` in the DB and the Redis cache, no login needed |
 
 ### Maintenance mode
@@ -672,6 +673,8 @@ The full route list, with auth and role per endpoint, is Part E of `FEATURES.md`
 `--include=dev` is required. `render.yaml` sets `NODE_ENV=production`, which npm turns into `omit=dev`, and `prisma` / `typescript` / `tsx` are all devDependencies. Do **not** add `--ignore-scripts` — bcrypt pulls its native binary in an install script.
 
 `migrate deploy` only creates the schema. `npm run seed` is what inserts the super admin, the settings and the permission matrix — on a fresh database you need both. The seed is idempotent, so it is safe on every deploy.
+
+In production `npm run seed` writes settings, RBAC and the super admin only. To populate a staging or demo environment with full demo data, set `SEED_DEMO_DATA=true` — the seed truncates every demo table first, so the result is a clean dataset rather than accumulated rows. Never set it on a production database that holds real customer data.
 
 | Dashboard value | Where it comes from |
 | --- | --- |
