@@ -186,6 +186,8 @@ export const SUCCESS = {
     NOTE_REMOVED: 'Order note removed.',
     DELIVERY_BOY_ASSIGNED: 'Delivery boy assigned successfully.',
     DELIVERY_VERIFIED: 'Delivery verified successfully.',
+    ORDER_CONFIRMED_FOR_VENDOR: 'Sub-order confirmed and forwarded to vendor.',
+    ORDER_REJECTED_BY_ADMIN: 'Sub-order rejected by admin and stock restored.',
     DELIVERY_OTP_SENT: 'Delivery OTP sent successfully.',
     COD_COLLECTED: 'Cash on delivery collected successfully.',
     INVOICE_GENERATED: 'Invoice generated successfully.',

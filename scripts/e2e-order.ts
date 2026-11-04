@@ -233,15 +233,40 @@ const main = async (): Promise<void> => {
     noSkip.status === 201,
     `status=${noSkip.status} msg=${noSkip.body?.message}`,
   );
+  const noSkipOrder = noSkip.body?.result ?? {};
   record(
-    'an unconfirmed order starts in PENDING',
-    noSkip.body?.result?.status === 'PENDING',
-    noSkip.body?.result?.status,
+    'an unreviewed order starts in AWAITING_ADMIN_REVIEW',
+    noSkipOrder.status === 'AWAITING_ADMIN_REVIEW',
+    noSkipOrder.status,
+  );
+  const noSkipVendorOrders = await api(vendorA.token).get('/api/v1/orders/getVendorOrders');
+  record(
+    'vendor does not see an unreviewed order',
+    D_num(noSkipVendorOrders.body?.result?.totalRecord) === 0,
+    `totalRecord=${D_num(noSkipVendorOrders.body?.result?.totalRecord)}`,
+  );
+  const firstSubId = D_arr(noSkipOrder.subOrderList)[0]?.subOrderId ?? '';
+  const confirmedForVendor = await admin.patch(`/api/v1/orders/confirmForVendor/${firstSubId}`, {});
+  record(
+    'admin confirms sub-order for vendor -> 200',
+    confirmedForVendor.status === 200,
+    `status=${confirmedForVendor.status} msg=${confirmedForVendor.body?.message}`,
   );
   record(
-    'PENDING can be moved on by admin',
+    'confirmed sub-order moves to PENDING',
+    confirmedForVendor.body?.result?.status === 'PENDING',
+    confirmedForVendor.body?.result?.status,
+  );
+  const afterConfirmVendorOrders = await api(vendorA.token).get('/api/v1/orders/getVendorOrders');
+  record(
+    'vendor sees the order after admin confirmation',
+    D_num(afterConfirmVendorOrders.body?.result?.totalRecord) >= 1,
+    `totalRecord=${D_num(afterConfirmVendorOrders.body?.result?.totalRecord)}`,
+  );
+  record(
+    'admin can cancel an unreviewed order via updateStatus',
     (
-      await admin.patch(`/api/v1/orders/updateStatus/${noSkip.body?.result?.orderId}`, {
+      await admin.patch(`/api/v1/orders/updateStatus/${noSkipOrder.orderId ?? ''}`, {
         status: 'CANCELLED',
       })
     ).status === 200,

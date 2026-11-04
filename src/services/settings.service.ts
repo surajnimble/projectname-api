@@ -198,6 +198,8 @@ export const getOrderMinAmount = () => getSetting<number>(SETTING_KEY.ORDER_MIN_
 export const getOrderMaxItems = () => getSetting<number>(SETTING_KEY.ORDER_MAX_ITEMS, 50);
 export const getOrderCancelWindowMin = () =>
   getSetting<number>(SETTING_KEY.ORDER_CANCEL_WINDOW_MIN, 30);
+export const getOrderRequireAdminConfirmation = () =>
+  getSetting<boolean>(SETTING_KEY.ORDER_REQUIRE_ADMIN_CONFIRMATION, true);
 export const getCartMaxItems = () => getSetting<number>(SETTING_KEY.CART_MAX_ITEMS, 50);
 
 export const getGiftWrapConfig = async () => {

@@ -13,6 +13,7 @@ import {
   serializeOrder,
   serializeOrderSummary,
   serializeVendorOrder,
+  serializeAdminReviewOrder,
   serializePlaceOrderResult,
   serializeTrackOrder,
   serializeOrderTimeline,
@@ -42,6 +43,10 @@ export const guards = {
   adminAssign: [
     requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
     requirePermission(PERMISSION.ORDER_ASSIGN_DELIVERY),
+  ],
+  adminConfirm: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.ORDER_CONFIRM),
   ],
   vendor: [requireRole('VENDOR')],
 };
@@ -592,6 +597,61 @@ export const assignDeliveryBoy = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: SUCCESS.ORDER.DELIVERY_BOY_ASSIGNED,
     result: serializeSubOrder(sub),
+  });
+});
+
+export const getPendingAdminReview = asyncHandler(async (req, res) => {
+  const { page, limit, skip, take } = getPagination(req.query as any);
+
+  const { rows, total } = await service.listPendingAdminReview({
+    ...(req.query as any),
+    skip,
+    take,
+  });
+
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.ORDER.FETCHED,
+    result: {
+      reviewList: rows.map(serializeAdminReviewOrder),
+    },
+    totalRecord: total,
+    currentPage: page,
+    limit,
+  });
+});
+
+export const confirmForVendor = asyncHandler(async (req, res) => {
+  const result = await service.confirmForVendor(
+    D.str(req.params.subOrderId),
+    req.auth!.userId,
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.ORDER_CONFIRMED_FOR_VENDOR,
+    result: {
+      subOrderId: D.str(result.subOrderId),
+      orderId: D.str(result.orderId),
+      status: D.str(result.status),
+    },
+  });
+});
+
+export const rejectByAdmin = asyncHandler(async (req, res) => {
+  const result = await service.rejectByAdmin(
+    D.str(req.params.subOrderId),
+    req.body,
+    req.auth!.userId,
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.ORDER_REJECTED_BY_ADMIN,
+    result: {
+      subOrderId: D.str(result.subOrderId),
+      orderId: D.str(result.orderId),
+      status: D.str(result.status),
+    },
   });
 });
 

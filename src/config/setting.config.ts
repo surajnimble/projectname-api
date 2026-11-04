@@ -32,6 +32,7 @@ export const SETTING_KEY = {
   ORDER_REQUIRE_PHONE_VERIFY: 'orderRequirePhoneVerify',
   ORDER_MAX_PER_CUSTOMER_PER_DAY: 'orderMaxPerCustomerPerDay',
   ORDER_SHOW_VENDOR_SPLIT: 'orderShowVendorSplit',
+  ORDER_REQUIRE_ADMIN_CONFIRMATION: 'orderRequireAdminConfirmation',
 
   PAYMENT_COD_ENABLED: 'paymentCodEnabled',
   PAYMENT_UPI_ENABLED: 'paymentUpiEnabled',

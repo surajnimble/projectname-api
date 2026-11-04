@@ -1756,9 +1756,11 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | DELETE | `/orders/removeNote/{id}/{noteId}` | Required | ADMIN / VENDOR | Remove an internal order note |
 | DELETE | `/orders/removeTag/{id}/{tagId}` | Required | ADMIN | Remove an order tag |
 | GET | `/orders/getAll` | Required | CUSTOMER | My orders |
+| GET | `/orders/getAllOrders` | Required | ADMIN | All orders, across every vendor |
 | GET | `/orders/getById/{id}` | Required | CUSTOMER | Order detail |
 | GET | `/orders/getInvoice/{id}` | Required | CUSTOMER | Invoice PDF |
 | GET | `/orders/getNotes/{id}` | Required | ADMIN / VENDOR | List internal order notes, newest first |
+| GET | `/orders/getOrderDetails/{id}` | Required | ADMIN | Order detail, admin view |
 | GET | `/orders/getPackingSlip/{id}` | Required | VENDOR | Packing slip |
 | GET | `/orders/getShippingLabel/{subOrderId}` | Required | VENDOR | Shipping label |
 | GET | `/orders/getTags/{id}` | Required | ADMIN | List order tags |
@@ -1836,11 +1838,14 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | GET | `/products/getBySlug/{slug}` | Public | Public | SEO URL product |
 | GET | `/products/getFilters` | Public | Public | Facets |
 | GET | `/products/getFrequentlyBought/{id}` | Public | Public | Frequently bought |
+| GET | `/products/getPendingApprovals` | Required | ADMIN | Products awaiting approval, oldest submission first |
 | GET | `/products/getRecentlyViewed` | Required | Any | Recently viewed |
 | GET | `/products/getRecommended` | Required | Any | Recommendations |
 | GET | `/products/getRelated/{id}` | Public | Public | Related products |
+| PATCH | `/products/approveProduct/{id}` | Required | ADMIN | Approve a product and make it visible |
 | PATCH | `/products/bulkDelete` | Required | VENDOR | Bulk delete |
 | PATCH | `/products/bulkUpdate` | Required | VENDOR | Bulk edit |
+| PATCH | `/products/rejectProduct/{id}` | Required | ADMIN | Reject a product with a reason |
 | PATCH | `/products/toggleStatus/{id}` | Required | VENDOR | Active/Inactive |
 | PATCH | `/products/updateProduct/{id}` | Required | VENDOR | Update own product |
 | PATCH | `/products/updateStock/{id}` | Required | VENDOR | Update stock |
@@ -1848,6 +1853,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | POST | `/products/bulkImportCsv` | Required | VENDOR | CSV import |
 | POST | `/products/bulkPriceUpdate` | Required | VENDOR | Bulk price update |
 | POST | `/products/createProduct` | Required | VENDOR | Create product |
+| POST | `/products/submitForApproval/{id}` | Required | VENDOR | Submit a product for admin approval |
 | POST | `/products/trackView/{id}` | Public | Any | Increment view |
 | POST | `/products/uploadImages/{id}` | Required | VENDOR | Upload images |
 

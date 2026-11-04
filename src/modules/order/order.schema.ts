@@ -109,6 +109,14 @@ export const updateSubOrderStatusSchema = z
   })
   .strict();
 
+export const confirmForVendorSchema = z.object({}).strict();
+
+export const rejectByAdminSchema = z
+  .object({
+    reason: z.string().trim().min(3, VALIDATION.REQUIRED('reason')).max(500),
+  })
+  .strict();
+
 export const VENDOR_BULK_ACTION = {
   ACCEPT: 'ACCEPT',
   REJECT: 'REJECT',

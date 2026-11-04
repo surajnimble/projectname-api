@@ -179,6 +179,36 @@ router.patch(
   controller.updateStatus,
 );
 
+router.get(
+  '/getPendingAdminReview',
+  authenticate,
+  ...controller.guards.adminConfirm,
+  validate({ query: schema.vendorOrdersSchema }),
+  controller.getPendingAdminReview,
+);
+
+router.patch(
+  '/confirmForVendor/:subOrderId',
+  authenticate,
+  ...controller.guards.adminConfirm,
+  validate({
+    params: schema.subOrderParamSchema,
+    body: schema.confirmForVendorSchema,
+  }),
+  controller.confirmForVendor,
+);
+
+router.patch(
+  '/rejectByAdmin/:subOrderId',
+  authenticate,
+  ...controller.guards.adminConfirm,
+  validate({
+    params: schema.subOrderParamSchema,
+    body: schema.rejectByAdminSchema,
+  }),
+  controller.rejectByAdmin,
+);
+
 router.patch(
   '/assignDeliveryBoy/:subOrderId',
   authenticate,

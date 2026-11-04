@@ -102,6 +102,33 @@ export const serializeVendorOrder = (s: any) => {
   };
 };
 
+export const serializeAdminReviewOrder = (s: any) => {
+  const order = s?.order;
+  const vendor = s?.vendor;
+
+  return {
+    subOrderId: D.str(s?.id),
+    orderId: D.str(order?.id),
+    orderNumber: D.str(order?.orderNumber),
+    status: D.str(s?.status),
+    orderStatus: D.str(order?.status),
+    total: D.float(s?.total),
+    subtotal: D.float(s?.subtotal),
+    placedAt: D.date(order?.createdAt),
+    vendorId: D.str(vendor?.id),
+    shopName: D.str(vendor?.shopName),
+    customerData: order?.user
+      ? {
+          userId: D.str(order.user.id),
+          name: D.str(order.user.name),
+          email: D.str(order.user.email),
+          phone: D.str(order.user.phone),
+        }
+      : {},
+    itemCount: D.arr(s?.items).length,
+  };
+};
+
 export const serializePlaceOrderResult = (order: any, skipped: any[] = []) => {
   const base = serializeOrder(order);
 

@@ -52,6 +52,7 @@ enum ProductApprovalStatus {
 enum OrderStatus {
   PENDING
   PENDING_TOKEN
+  AWAITING_ADMIN_REVIEW
   CONFIRMED
   SHIPPED
   OUT_FOR_DELIVERY

@@ -18,6 +18,7 @@ import {
   getOrderMaxItems,
   getOrderMinAmount,
   getOrderCancelWindowMin,
+  getOrderRequireAdminConfirmation,
   getPaymentMethodsConfig,
   getGiftWrapConfig,
   getShippingConfig,
@@ -247,6 +248,20 @@ export const placeOrder = async (
   const tokenAmount = calcTokenAmount(total, tokenCfg);
   const tokenRequired = tokenAmount > 0 && tokenAmount < total;
 
+  const requireAdminReview = await getOrderRequireAdminConfirmation();
+
+  const initialStatus = (): OrderStatusType => {
+    if (D.bool(input.skipStatus)) {
+      return (
+        tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.CONFIRMED
+      ) as OrderStatusType;
+    }
+    if (requireAdminReview) {
+      return ORDER_STATUS.AWAITING_ADMIN_REVIEW as OrderStatusType;
+    }
+    return (tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.PENDING) as OrderStatusType;
+  };
+
   const byVendor = new Map<string, typeof usable>();
   for (const line of usable) {
     const vendorId = D.str(line.item.product?.vendorId);
@@ -291,9 +306,7 @@ export const placeOrder = async (
           orderNumber,
           userId,
           addressId,
-          status: (tokenRequired
-            ? ORDER_STATUS.PENDING_TOKEN
-            : ORDER_STATUS.PENDING) as OrderStatusType,
+          status: initialStatus(),
           paymentMethod: method as PaymentMethod,
           paymentStatus: (tokenRequired
             ? PaymentStatus.PENDING
@@ -345,9 +358,7 @@ export const placeOrder = async (
           data: {
             orderId: created.id,
             vendorId,
-            status: (tokenRequired
-              ? ORDER_STATUS.PENDING_TOKEN
-              : ORDER_STATUS.PENDING) as OrderStatusType,
+            status: initialStatus(),
             subtotal: vendorSubtotal,
             taxAmount: vendorTax,
             shippingAmount: vendorShipping,
@@ -473,16 +484,6 @@ export const placeOrder = async (
 
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
       await tx.cart.update({ where: { id: cart.id }, data: { couponCode: '' } });
-
-      if (D.bool(input.skipStatus)) {
-        const nextStatus = tokenRequired ? ORDER_STATUS.PENDING_TOKEN : ORDER_STATUS.CONFIRMED;
-
-        await tx.order.update({ where: { id: created.id }, data: { status: nextStatus } });
-        await tx.subOrder.updateMany({
-          where: { orderId: created.id },
-          data: { status: nextStatus },
-        });
-      }
 
       return created;
     },
@@ -625,9 +626,17 @@ export const listVendorOrders = async (
   vendorId: string,
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {
-  const where: Prisma.SubOrderWhereInput = { vendorId };
+  const where: Prisma.SubOrderWhereInput = {
+    vendorId,
+    status: { not: ORDER_STATUS.AWAITING_ADMIN_REVIEW },
+  };
 
-  if (D.str(query.status)) where.status = query.status as OrderStatusType;
+  if (D.str(query.status)) {
+    where.status = {
+      not: ORDER_STATUS.AWAITING_ADMIN_REVIEW,
+      equals: query.status as OrderStatusType,
+    };
+  }
 
   if (D.str(query.from) || D.str(query.to)) {
     where.createdAt = {
@@ -660,6 +669,53 @@ export const listVendorOrders = async (
         },
         items: true,
         shipments: { orderBy: { createdAt: 'desc' } },
+      },
+    }),
+    prisma.subOrder.count({ where }),
+  ]);
+
+  return { rows, total };
+};
+
+export const listPendingAdminReview = async (
+  query: Record<string, any>,
+): Promise<{ rows: any[]; total: number }> => {
+  const where: Prisma.SubOrderWhereInput = { status: ORDER_STATUS.AWAITING_ADMIN_REVIEW };
+
+  if (D.str(query.from) || D.str(query.to)) {
+    where.createdAt = {
+      ...(D.str(query.from) ? { gte: new Date(D.str(query.from)) } : {}),
+      ...(D.str(query.to) ? { lte: new Date(D.str(query.to)) } : {}),
+    };
+  }
+
+  if (D.str(query.search)) {
+    const term = D.str(query.search);
+    where.OR = [
+      { order: { orderNumber: { contains: term, mode: 'insensitive' } } },
+      { order: { user: { name: { contains: term, mode: 'insensitive' } } } },
+      { vendor: { shopName: { contains: term, mode: 'insensitive' } } },
+    ];
+  }
+
+  const [rows, total] = await Promise.all([
+    prisma.subOrder.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: D.num(query.skip),
+      take: D.num(query.take),
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            user: { select: { id: true, name: true, phone: true, email: true } },
+            address: true,
+          },
+        },
+        vendor: { select: { id: true, shopName: true } },
+        items: true,
       },
     }),
     prisma.subOrder.count({ where }),
@@ -927,6 +983,139 @@ export const updateSubOrderStatus = async (
     where: { id: subOrderId },
     include: { items: true, vendor: true },
   });
+};
+
+export interface ConfirmForVendorResult {
+  subOrderId: string;
+  orderId: string;
+  status: string;
+}
+
+/**
+ * Confirms a sub-order that is awaiting admin review, moving it to PENDING so
+ * the vendor can see and act on it. Stock stays decremented.
+ */
+export const confirmForVendor = async (
+  subOrderId: string,
+  actorId?: string,
+  req?: any,
+): Promise<ConfirmForVendorResult> => {
+  const sub = await prisma.subOrder.findFirst({
+    where: { id: subOrderId, status: ORDER_STATUS.AWAITING_ADMIN_REVIEW },
+    include: { order: { select: { id: true, orderNumber: true, userId: true } }, vendor: true },
+  });
+
+  if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+
+  if (!canTransitionSubOrder(sub.status, ORDER_STATUS.PENDING)) {
+    throw AppError.unprocessable(
+      `${ERROR.ORDER.INVALID_STATUS_TRANSITION} (${sub.status} -> ${ORDER_STATUS.PENDING})`,
+      ERROR_CODE.INVALID_STATUS_TRANSITION,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.subOrder.update({
+      where: { id: subOrderId },
+      data: { status: ORDER_STATUS.PENDING as OrderStatusType },
+    });
+
+    await pushTimeline(tx, {
+      orderId: sub.orderId,
+      subOrderId,
+      status: ORDER_STATUS.PENDING,
+      fromStatus: sub.status,
+      remark: 'Confirmed by admin and forwarded to vendor',
+      createdById: actorId,
+    });
+
+    await refreshParentStatus(tx, sub.orderId);
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'SUB_ORDER_CONFIRMED_FOR_VENDOR',
+    entity: 'SubOrder',
+    entityId: subOrderId,
+    meta: { orderId: sub.orderId, vendorId: sub.vendorId },
+  });
+
+  void notifyUser({
+    userId: D.str(sub.vendor.userId),
+    type: 'ORDER',
+    title: `Order ${sub.order.orderNumber} confirmed`,
+    body: 'Admin confirmed your order. It is now ready to process.',
+    data: { orderId: sub.orderId, subOrderId, vendorId: sub.vendorId },
+  });
+
+  return { subOrderId, orderId: sub.orderId, status: ORDER_STATUS.PENDING };
+};
+
+/**
+ * Rejects a sub-order awaiting admin review, moving it to CANCELLED and
+ * restoring stock. The customer is notified; the vendor never sees it.
+ */
+export const rejectByAdmin = async (
+  subOrderId: string,
+  input: { reason: string },
+  actorId?: string,
+  req?: any,
+): Promise<ConfirmForVendorResult> => {
+  const sub = await prisma.subOrder.findFirst({
+    where: { id: subOrderId, status: ORDER_STATUS.AWAITING_ADMIN_REVIEW },
+    include: { order: { select: { id: true, orderNumber: true, userId: true } }, vendor: true },
+  });
+
+  if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+
+  if (!canTransitionSubOrder(sub.status, ORDER_STATUS.CANCELLED)) {
+    throw AppError.unprocessable(
+      `${ERROR.ORDER.INVALID_STATUS_TRANSITION} (${sub.status} -> ${ORDER_STATUS.CANCELLED})`,
+      ERROR_CODE.INVALID_STATUS_TRANSITION,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.subOrder.update({
+      where: { id: subOrderId },
+      data: {
+        status: ORDER_STATUS.CANCELLED as OrderStatusType,
+        cancelReason: D.str(input.reason),
+      },
+    });
+
+    await pushTimeline(tx, {
+      orderId: sub.orderId,
+      subOrderId,
+      status: ORDER_STATUS.CANCELLED,
+      fromStatus: sub.status,
+      remark: D.str(input.reason),
+      createdById: actorId,
+    });
+
+    await restoreStock(tx, sub.orderId, subOrderId);
+    await refreshParentStatus(tx, sub.orderId);
+  });
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'SUB_ORDER_REJECTED_BY_ADMIN',
+    entity: 'SubOrder',
+    entityId: subOrderId,
+    meta: { orderId: sub.orderId, vendorId: sub.vendorId, reason: input.reason },
+  });
+
+  void notifyUser({
+    userId: sub.order.userId,
+    type: 'ORDER',
+    title: `Order ${sub.order.orderNumber} cancelled`,
+    body: D.str(input.reason),
+    data: { orderId: sub.orderId, subOrderId },
+  });
+
+  return { subOrderId, orderId: sub.orderId, status: ORDER_STATUS.CANCELLED };
 };
 
 const BULK_STATUS_BY_ACTION: Record<string, string> = {
@@ -1218,6 +1407,7 @@ const refreshParentStatus = async (
   }
 
   const rank: string[] = [
+    ORDER_STATUS.AWAITING_ADMIN_REVIEW,
     ORDER_STATUS.PENDING,
     ORDER_STATUS.PENDING_TOKEN,
     ORDER_STATUS.CONFIRMED,
