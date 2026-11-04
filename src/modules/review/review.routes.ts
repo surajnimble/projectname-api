@@ -78,6 +78,13 @@ export const reviewRoutes = review;
 const question = Router();
 
 question.get(
+  '/getAll',
+  optionalAuth,
+  validate({ query: schema.listQuestionsSchema }),
+  controller.listQuestions,
+);
+
+question.get(
   '/getAll/:productId',
   optionalAuth,
   validate({ params: schema.questionProductParamSchema, query: schema.listQuestionsSchema }),

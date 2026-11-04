@@ -1,6 +1,8 @@
 import { Request } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
+import { ERROR } from '../../messages/error';
+import { AppError } from '../../utils/AppError';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
@@ -9,6 +11,7 @@ import { requireRole } from '../../middlewares/auth.middleware';
 import { getRolePermissions } from '../../middlewares/rbac.middleware';
 import { PERMISSION_VALUES } from '../../constants/permissions';
 import * as service from './shipping.service';
+import { prisma } from '../../services/prisma.service';
 import {
   serializeShippingZone,
   serializeShippingMethod,
@@ -98,6 +101,23 @@ export const zoneDelete = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: SUCCESS.SHIPPING.ZONE_DELETED,
     result: { id: D.str(req.params.id) },
+  });
+});
+
+/**
+ * @openapi
+ * /shipping/zones/toggleZone/:id:
+ *   patch:
+ *     tags: [Shipping]
+ *     summary: Toggle a shipping zone active/inactive (admin)
+ *     responses:
+ *       200: { description: Zone toggled }
+ */
+export const zoneToggle = asyncHandler(async (req, res) => {
+  const row = await service.toggleZone(D.str(req.params.id), req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.SHIPPING.ZONE_TOGGLED,
+    result: serializeShippingZone(row),
   });
 });
 
@@ -355,9 +375,15 @@ export const subAdminList = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
   const { rows, total } = await service.listSubAdmins({ ...(req.query as any), skip, take });
 
+  const roles = [...new Set(rows.map((u: any) => u.role))];
+  const rolePerms = await Promise.all(roles.map((role) => service.listRolePermissions(role)));
+  const permMap = Object.fromEntries(roles.map((role, i) => [role, rolePerms[i]]));
+
   return ApiResponse.paginated(res, {
     message: SUCCESS.ADMIN.SUB_ADMINS_FETCHED,
-    result: { subAdminList: rows.map((u: any) => serializeUser(u)) },
+    result: {
+      subAdminList: rows.map((u: any) => serializeUser(u, permMap[u.role])),
+    },
     totalRecord: total,
     currentPage: page,
     limit,
@@ -611,8 +637,14 @@ export const allPermissions = asyncHandler(async (_req, res) => {
 });
 
 export const permissionsSetByRole = asyncHandler(async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: D.str(req.params.id) },
+    select: { role: true },
+  });
+  if (!user) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
   const count = await service.setRolePermissions(
-    D.str(req.params.id),
+    user.role,
     req.body.permissions,
     actorId(req),
     req,
@@ -620,7 +652,7 @@ export const permissionsSetByRole = asyncHandler(async (req, res) => {
 
   return ApiResponse.success(res, {
     message: SUCCESS.ADMIN.PERMISSIONS_UPDATED,
-    result: { role: D.str(req.params.id), permissionCount: D.num(count) },
+    result: { role: user.role, permissionCount: D.num(count) },
   });
 });
 

@@ -305,6 +305,37 @@ export const deleteZone = async (zoneId: string, req?: any): Promise<void> => {
   });
 };
 
+export const toggleZone = async (
+  zoneId: string,
+  input: Record<string, any>,
+  req?: any,
+): Promise<any> => {
+  const existing = await prisma.shippingZone.findUnique({
+    where: { id: zoneId },
+    select: { id: true, name: true, isActive: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.SHIPPING.ZONE_NOT_FOUND);
+
+  const isActive = input.isActive !== undefined ? input.isActive : !existing.isActive;
+
+  const row = await prisma.shippingZone.update({
+    where: { id: zoneId },
+    data: { isActive },
+    include: ZONE_INCLUDE,
+  });
+
+  void writeAuditLog({
+    req,
+    action: isActive ? 'ACTIVATE' : 'SUSPEND',
+    entity: 'ShippingZone',
+    entityId: zoneId,
+    description: existing.name,
+  });
+
+  return row;
+};
+
 export const listMethods = async (
   query: Record<string, any>,
 ): Promise<{ rows: any[]; total: number }> => {

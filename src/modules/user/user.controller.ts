@@ -216,7 +216,7 @@ export const getAll = asyncHandler(async (req, res) => {
         status: D.str(filters.status),
         vendorStatus: D.str(filters.vendorStatus),
       },
-      userList: rows.map(serializeUser),
+      userList: rows.map((u) => serializeUser(u)),
     },
     totalRecord: total,
     currentPage: filters.page,

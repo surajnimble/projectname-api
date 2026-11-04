@@ -64,13 +64,14 @@ export const serializeKycDocument = (d: any) => ({
     : {},
 });
 
-export const serializeUser = (u: any) => ({
+export const serializeUser = (u: any, permissions?: string[]) => ({
   userId: D.str(u?.id),
   name: D.str(u?.name),
   email: D.str(u?.email),
   phone: D.str(u?.phone),
   avatarUrl: D.str(u?.avatarUrl),
   role: D.str(u?.role),
+  permissions: permissions ?? [],
   isActive: D.bool(u?.isActive),
   isEmailVerified: D.bool(u?.isEmailVerified),
   isPhoneVerified: D.bool(u?.isPhoneVerified),

@@ -497,6 +497,7 @@ export const SUCCESS = {
   SHIPPING: {
     ZONE_CREATED: 'Shipping zone created successfully.',
     ZONE_UPDATED: 'Shipping zone updated successfully.',
+    ZONE_TOGGLED: 'Shipping zone toggled successfully.',
     ZONE_DELETED: 'Shipping zone deleted successfully.',
     ZONES_FETCHED: 'Shipping zones fetched successfully.',
     METHOD_CREATED: 'Shipping method created successfully.',

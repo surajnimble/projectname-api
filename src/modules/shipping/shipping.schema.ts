@@ -44,6 +44,12 @@ export const updateZoneSchema = createZoneSchema
 
 export const zoneIdParamSchema = z.object({ id });
 
+export const toggleZoneSchema = z
+  .object({
+    isActive: z.boolean().optional(),
+  })
+  .strict();
+
 export const listMethodsSchema = z
   .object({
     zoneId: id.optional(),

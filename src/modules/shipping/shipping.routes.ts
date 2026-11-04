@@ -39,6 +39,14 @@ router.delete(
   controller.zoneDelete,
 );
 
+router.patch(
+  '/toggleZone/:id',
+  authenticate,
+  ...controller.guards.admin,
+  validate({ params: schema.zoneIdParamSchema, body: schema.toggleZoneSchema }),
+  controller.zoneToggle,
+);
+
 router.get(
   '/getMethods',
   authenticate,
@@ -335,7 +343,7 @@ admin.patch(
   authenticate,
   ...controller.guards.superAdmin,
   requirePermission(PERMISSION.ROLE_PERMISSION_MANAGE),
-  validate({ params: schema.roleIdParamSchema, body: schema.setPermissionsSchema }),
+  validate({ params: idParamSchema, body: schema.setPermissionsSchema }),
   controller.permissionsSetByRole,
 );
 

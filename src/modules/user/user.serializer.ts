@@ -4,7 +4,7 @@ import { serializeActivityLog, serializeAddress, serializeUser } from '../../uti
 export { serializeActivityLog, serializeAddress, serializeUser };
 
 export const serializeUserList = (rows: any[]) => ({
-  userList: D.arr(rows).map(serializeUser),
+  userList: D.arr(rows).map((u) => serializeUser(u)),
 });
 
 export const serializeAddressList = (rows: any[]) => ({
