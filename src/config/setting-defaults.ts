@@ -49,6 +49,7 @@ export const SETTINGS: SettingSeed[] = [
   { key: 'orderRequirePhoneVerify', value: true, category: 'order', isPublic: true },
   { key: 'orderMaxPerCustomerPerDay', value: 20, category: 'order', isPublic: false },
   { key: 'orderShowVendorSplit', value: true, category: 'order', isPublic: true },
+  { key: 'orderRequireAdminConfirmation', value: false, category: 'order', isPublic: true },
 
   { key: 'paymentCodEnabled', value: true, category: 'payment', isPublic: true },
   { key: 'paymentUpiEnabled', value: true, category: 'payment', isPublic: true },

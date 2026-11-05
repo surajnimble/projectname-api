@@ -812,7 +812,10 @@ const main = async (): Promise<void> => {
   // eslint-disable-next-line no-console
   console.log('[seed] starting...');
 
-  ensureMigrated();
+  const skipMigrate = process.env.SKIP_MIGRATE === 'true';
+  if (!skipMigrate) {
+    ensureMigrated();
+  }
 
   const demoEnabled = isDemoSeedEnabled();
 
