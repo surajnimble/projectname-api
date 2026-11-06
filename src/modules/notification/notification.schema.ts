@@ -16,6 +16,7 @@ export const listNotificationsSchema = z
       .optional(),
     channel: z.nativeEnum(NotificationChannel).optional(),
     isRead: z.enum(['true', 'false']).optional(),
+    search: z.string().trim().max(120).optional(),
   })
   .merge(paginationSchema)
   .strict();
@@ -43,6 +44,14 @@ export const preferencesSchema = z
       .min(1)
       .max(200),
   })
+  .strict();
+
+export const adminListConversationsSchema = z
+  .object({
+    isActive: z.enum(['true', 'false']).optional(),
+    search: z.string().trim().max(120).optional(),
+  })
+  .merge(paginationSchema)
   .strict();
 
 export const listConversationsSchema = z
@@ -156,7 +165,10 @@ export const broadcastSchema = z
     type: z
       .enum(['ORDER', 'PAYMENT', 'PAYOUT', 'RETURN', 'TICKET', 'PROMO', 'SYSTEM', 'ALERT'])
       .default('PROMO'),
-    channel: z.nativeEnum(NotificationChannel).optional().default('IN_APP'),
+    // Broadcast currently creates in-app notifications and emits the socket event.
+    // Other channels are not delivered by this service yet, so reject them rather
+    // than silently recording a notification that was never sent.
+    channel: z.literal('IN_APP').optional().default('IN_APP'),
     title: z.string().trim().min(2, VALIDATION.MIN_LENGTH('title', 2)).max(120),
     body: z.string().trim().max(1000).optional(),
     data: z.record(z.unknown()).optional(),

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import * as controller from './review.controller';
 import * as schema from './review.schema';
 import * as cartSchema from '../cart/cart.schema';
@@ -46,6 +48,7 @@ review.patch(
   '/approve/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REVIEW_MODERATE),
   validate({ params: idParamSchema }),
   controller.approveReview,
 );
@@ -54,6 +57,7 @@ review.patch(
   '/reject/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REVIEW_MODERATE),
   validate({ params: idParamSchema }),
   controller.rejectReview,
 );
@@ -105,6 +109,7 @@ question.patch(
   '/approve/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.QUESTION_MODERATE),
   validate({ params: idParamSchema }),
   controller.approveQuestion,
 );
@@ -124,6 +129,7 @@ coupon.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ query: schema.listCouponsSchema }),
   controller.couponList,
 );
@@ -132,6 +138,7 @@ coupon.get(
   '/getById/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ params: schema.couponIdParamSchema }),
   controller.couponDetail,
 );
@@ -148,6 +155,7 @@ coupon.post(
   '/createCoupon',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ body: schema.createCouponSchema }),
   controller.couponCreate,
 );
@@ -156,6 +164,7 @@ coupon.patch(
   '/updateCoupon/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ params: schema.couponIdParamSchema, body: schema.updateCouponSchema }),
   controller.couponUpdate,
 );
@@ -164,6 +173,7 @@ coupon.delete(
   '/deleteCoupon/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ params: schema.couponIdParamSchema }),
   controller.couponDelete,
 );
@@ -211,6 +221,7 @@ coupon.get(
   '/getUsages/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ params: schema.couponIdParamSchema, query: schema.listCouponsSchema }),
   controller.couponUsages,
 );
@@ -219,6 +230,7 @@ coupon.patch(
   '/toggleStatus/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.COUPON_MANAGE),
   validate({ params: schema.couponIdParamSchema, body: schema.toggleCouponSchema }),
   controller.couponToggle,
 );
@@ -238,6 +250,7 @@ flash.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FLASH_SALE_MANAGE),
   validate({ query: schema.listFlashSalesSchema }),
   controller.flashList,
 );
@@ -253,6 +266,7 @@ flash.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FLASH_SALE_MANAGE),
   validate({ body: schema.createFlashSaleSchema }),
   controller.flashCreate,
 );
@@ -261,6 +275,7 @@ flash.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FLASH_SALE_MANAGE),
   validate({ params: schema.flashSaleIdParamSchema, body: schema.updateFlashSaleSchema }),
   controller.flashUpdate,
 );
@@ -269,6 +284,7 @@ flash.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FLASH_SALE_MANAGE),
   validate({ params: schema.flashSaleIdParamSchema }),
   controller.flashDelete,
 );

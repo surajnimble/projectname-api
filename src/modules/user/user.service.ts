@@ -456,12 +456,25 @@ export const getUserById = async (userId: string): Promise<any> => {
     select: {
       ...PROFILE_SELECT,
       ...PROFILE_INCLUDE,
+      customerBan: {
+        select: {
+          id: true,
+          reason: true,
+          expiresAt: true,
+          revokedAt: true,
+          revokeReason: true,
+          createdAt: true,
+        },
+      },
       _count: { select: { orders: true, reviews: true, addresses: true } },
     },
   });
 
   if (!user) throw AppError.notFound(ERROR.USER.NOT_FOUND, ERROR_CODE.NOT_FOUND);
-  return user;
+  return {
+    ...user,
+    banData: user.customerBan ? withBanState(user.customerBan) : null,
+  };
 };
 
 export const updateUser = async (
@@ -738,6 +751,9 @@ export const impersonateUser = async (
   if (targetUserId === req?.auth?.userId) {
     throw AppError.forbidden(ERROR.USER.SELF_IMPERSONATION, ERROR_CODE.FORBIDDEN);
   }
+  if (target.role !== ROLES.CUSTOMER) {
+    throw AppError.forbidden(ERROR.USER.IMPERSONATION_CUSTOMER_ONLY, ERROR_CODE.FORBIDDEN);
+  }
 
   const expiresIn = Number(input?.durationMin ?? 30) * 60;
 
@@ -746,18 +762,18 @@ export const impersonateUser = async (
     role: target.role,
     vendorId: target.vendorProfile?.id ?? '',
     email: target.email,
-    sessionKey: `imp_${req?.auth?.userId ?? ''}`,
+    sessionKey: `imp_${req?.auth?.userId ?? ''}_${randomString(20)}`,
     deviceId: D.str(req?.deviceId),
-  });
+    impersonatedById: D.str(req?.auth?.userId),
+  }, { expiresIn });
 
-  void writeAuditLog({
+  await writeAuditLog({
     req,
     action: ADMIN_ACTION.IMPERSONATE,
     entity: 'User',
     entityId: target.id,
     description: `Impersonated ${target.email} for ${expiresIn / 60} min â€” ${D.str(input.reason)}`,
     meta: { reason: D.str(input.reason), expiresIn, targetRole: target.role },
-    impersonatedById: req?.auth?.userId,
   });
 
   return { accessToken, expiresIn, target };

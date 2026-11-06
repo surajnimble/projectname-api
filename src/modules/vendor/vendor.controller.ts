@@ -492,11 +492,35 @@ export const suspendVendor = asyncHandler(async (req, res) => {
   });
 });
 
+export const bulkApproveVendors = asyncHandler(async (req, res) => {
+  const result = await service.bulkApproveVendors(req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.VENDOR.BULK_APPROVED,
+    result,
+  });
+});
+
+export const bulkSuspendVendors = asyncHandler(async (req, res) => {
+  const result = await service.bulkSuspendVendors(req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.VENDOR.BULK_SUSPENDED,
+    result,
+  });
+});
+
 export const updateCommission = asyncHandler(async (req, res) => {
   const vendor = await service.updateCommission(req.params.id, req.body, req);
   return ApiResponse.success(res, {
     message: SUCCESS.VENDOR.COMMISSION_UPDATED,
     result: { vendorId: D.str(vendor.id), commissionRate: D.float(vendor.commissionRate) },
+  });
+});
+
+export const getCommissionBounds = asyncHandler(async (_req, res) => {
+  const bounds = await service.getCommissionBoundsForAdmin();
+  return ApiResponse.success(res, {
+    message: SUCCESS.COMMON.FETCHED,
+    result: bounds,
   });
 });
 

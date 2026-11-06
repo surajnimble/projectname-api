@@ -63,6 +63,29 @@ export const setRolePermissions = async (
   return permissions.length;
 };
 
+export const getUserPermissions = async (userId: string, role: string): Promise<Permission[]> => {
+  if (role !== ROLES.SUB_ADMIN) return getRolePermissions(role);
+
+  const cacheKey = REDIS_KEYS.USER_PERMISSIONS(`user:${userId}`);
+  const cached = await cacheGet<Permission[]>(cacheKey);
+  if (cached) return cached;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, hasCustomPermissions: true, subAdminPermissions: true },
+  });
+
+  const resolved =
+    user?.role === ROLES.SUB_ADMIN && user.hasCustomPermissions
+      ? user.subAdminPermissions.filter((permission): permission is Permission =>
+          PERMISSION_VALUES.includes(permission as Permission),
+        )
+      : await getRolePermissions(role);
+
+  await cacheSet(cacheKey, resolved, CACHE_TTL.PERMISSIONS_SEC);
+  return resolved;
+};
+
 export const requirePermission = (...permissions: Permission[]): RequestHandler =>
   asyncHandler(async (req, res, next) => {
     if (!req.auth) {
@@ -78,9 +101,7 @@ export const requirePermission = (...permissions: Permission[]): RequestHandler 
       return next();
     }
 
-    const granted = req.auth.permissions?.length
-      ? req.auth.permissions
-      : await getRolePermissions(req.auth.role);
+    const granted = await getUserPermissions(req.auth.userId, req.auth.role);
 
     req.auth.permissions = granted;
 

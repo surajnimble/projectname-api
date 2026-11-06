@@ -38,10 +38,8 @@ import {
   shippingRoutes,
   deliveryBoyRoutes,
   settingsRoutes,
-  adminRoutes,
-  auditRoutes,
-  activityLogRoutes,
 } from '../modules/shipping/shipping.routes';
+import { adminRoutes, auditRoutes, activityLogRoutes } from '../modules/admin/admin.routes';
 import {
   trackingRoutes,
   deviceRoutes,

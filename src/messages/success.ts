@@ -60,6 +60,8 @@ export const SUCCESS = {
   VENDOR: {
     PROFILE_UPDATED: 'Vendor profile updated successfully.',
     APPROVED: 'Vendor approved successfully.',
+    BULK_APPROVED: 'Bulk vendor approval completed.',
+    BULK_SUSPENDED: 'Bulk vendor suspension completed.',
     REJECTED: 'Vendor rejected.',
     SUSPENDED: 'Vendor suspended successfully.',
     COMMISSION_UPDATED: 'Commission updated successfully.',
@@ -123,6 +125,7 @@ export const SUCCESS = {
   },
   TAG: {
     CREATED: 'Tag created successfully.',
+    UPDATED: 'Tag updated successfully.',
     DELETED: 'Tag deleted successfully.',
     FETCHED: 'Tags fetched successfully.',
   },
@@ -174,6 +177,7 @@ export const SUCCESS = {
     STATUS_UPDATED: 'Order status updated.',
     VENDOR_STATUS_UPDATED: 'Sub-order status updated.',
     VENDOR_BULK_STATUS_UPDATED: 'Selected sub-orders updated successfully.',
+    ADMIN_BULK_REVIEW_UPDATED: 'Selected orders reviewed successfully.',
     VENDOR_ORDERS_FETCHED: 'Vendor orders fetched successfully.',
     FETCHED: 'Orders fetched successfully.',
     TRACKED: 'Order tracking fetched.',
@@ -505,6 +509,8 @@ export const SUCCESS = {
     METHOD_DELETED: 'Shipping method deleted successfully.',
     METHODS_FETCHED: 'Shipping methods fetched successfully.',
     PARTNER_CREATED: 'Shipping partner created successfully.',
+    PARTNER_UPDATED: 'Shipping partner updated successfully.',
+    PARTNER_DELETED: 'Shipping partner deleted successfully.',
     PARTNERS_FETCHED: 'Shipping partners fetched successfully.',
     SERVICEABILITY_CHECKED: 'Serviceability checked successfully.',
     RATE_CALCULATED: 'Shipping rate calculated successfully.',

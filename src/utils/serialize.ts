@@ -1323,6 +1323,7 @@ export const serializeAuditLog = (a: any) => ({
   auditLogId: D.str(a?.id),
   actorId: D.str(a?.actorId),
   actorRole: D.str(a?.actorRole),
+  impersonatedById: D.str(a?.impersonatedById),
   action: D.str(a?.action),
   entity: D.str(a?.entity),
   entityId: D.str(a?.entityId),
@@ -1335,6 +1336,9 @@ export const serializeAuditLog = (a: any) => ({
 
   actorData: a?.actor
     ? { userId: D.str(a.actor.id), name: D.str(a.actor.name), email: D.str(a.actor.email) }
+    : {},
+  impersonatedByData: a?.target
+    ? { userId: D.str(a.target.id), name: D.str(a.target.name), email: D.str(a.target.email) }
     : {},
 });
 
@@ -1457,6 +1461,7 @@ export const serializeCountry = (c: any) => ({
   dialCode: D.str(c?.dialCode),
   currency: D.str(c?.currency),
   isActive: D.bool(c?.isActive),
+  stateCount: D.num(c?._count?.states),
 
   stateList: D.arr(c?.states).map((s: any) => ({
     stateId: D.str(s?.code),

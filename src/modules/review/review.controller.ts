@@ -573,7 +573,12 @@ export const couponValidate = asyncHandler(async (req, res) => {
  */
 export const couponUsages = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
-  const { rows, total } = await service.listCouponUsages({ ...(req.query as any), skip, take });
+  const { rows, total } = await service.listCouponUsages({
+    ...(req.query as any),
+    couponId: D.str(req.params.id),
+    skip,
+    take,
+  });
 
   return ApiResponse.paginated(res, {
     message: SUCCESS.COUPON.USAGES_FETCHED,

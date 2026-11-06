@@ -67,6 +67,7 @@ export const authenticate: RequestHandler = asyncHandler(async (req, res, next) 
     email: user.email,
     sessionKey: payload.sessionKey ?? '',
     deviceId: payload.deviceId ?? req.deviceId ?? '',
+    impersonatedById: payload.impersonatedById,
   };
 
   next();
@@ -101,6 +102,7 @@ export const optionalAuth: RequestHandler = asyncHandler(async (req, res, next) 
       email: user.email,
       sessionKey: payload.sessionKey ?? '',
       deviceId: payload.deviceId ?? req.deviceId ?? '',
+      impersonatedById: payload.impersonatedById,
     };
   } catch {
     return next();

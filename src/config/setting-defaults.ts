@@ -46,10 +46,10 @@ export const SETTINGS: SettingSeed[] = [
   { key: 'orderCancelWindowMin', value: 30, category: 'business', isPublic: true },
   { key: 'orderAutoCancelUnpaidMin', value: 1440, category: 'order', isPublic: false },
   { key: 'orderAllowGuestCheckout', value: false, category: 'order', isPublic: true },
+  { key: 'orderRequireAdminConfirmation', value: true, category: 'order', isPublic: false },
   { key: 'orderRequirePhoneVerify', value: true, category: 'order', isPublic: true },
   { key: 'orderMaxPerCustomerPerDay', value: 20, category: 'order', isPublic: false },
   { key: 'orderShowVendorSplit', value: true, category: 'order', isPublic: true },
-  { key: 'orderRequireAdminConfirmation', value: false, category: 'order', isPublic: true },
 
   { key: 'paymentCodEnabled', value: true, category: 'payment', isPublic: true },
   { key: 'paymentUpiEnabled', value: true, category: 'payment', isPublic: true },

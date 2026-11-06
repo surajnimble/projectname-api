@@ -78,6 +78,34 @@ const PEOPLE: DemoPerson[] = [
     phone: '+919812345686',
     role: 'DELIVERY_BOY',
   },
+  ...Array.from({ length: 3 }, (_, index): DemoPerson => ({
+    id: demoId('user', `customer-${index + 5}`),
+    email: `customer${index + 5}@projectname.com`,
+    name: ['Aarav Nair', 'Isha Kapoor', 'Kabir Das'][index] ?? `Demo Customer ${index + 5}`,
+    phone: `+919812345${687 + index}`,
+    role: 'CUSTOMER',
+  })),
+  ...Array.from({ length: 5 }, (_, index): DemoPerson => ({
+    id: demoId('user', `vendor-${index + 4}`),
+    email: `vendor${index + 4}@projectname.com`,
+    name: `Marketplace Seller ${index + 4}`,
+    phone: `+919812346${100 + index}`,
+    role: 'VENDOR',
+  })),
+  ...Array.from({ length: 4 }, (_, index): DemoPerson => ({
+    id: demoId('user', `delivery-${index + 4}`),
+    email: `delivery${index + 4}@projectname.com`,
+    name: `Delivery Partner ${index + 4}`,
+    phone: `+919812347${100 + index}`,
+    role: 'DELIVERY_BOY',
+  })),
+  ...Array.from({ length: 6 }, (_, index): DemoPerson => ({
+    id: demoId('user', `sub-admin-${index + 2}`),
+    email: `subadmin${index + 2}@projectname.com`,
+    name: `Operations Admin ${index + 2}`,
+    phone: `+919812348${100 + index}`,
+    role: 'SUB_ADMIN',
+  })),
 ];
 
 /** Creates the extra verified users that the demo marketplace needs. */
@@ -173,8 +201,30 @@ const seedVendors = async (
     },
   );
 
+  for (const [index, userId] of vendorUserIds.slice(3).entries()) {
+    await seedRowBy(prisma, 'vendorProfile', { userId }, demoId('vendor', index + 4), {
+      userId,
+      shopName: `Demo Marketplace ${index + 4}`,
+      slug: `demo-marketplace-${index + 4}`,
+      description: 'Local demo seller account for marketplace workflow testing.',
+      logo: `https://picsum.photos/seed/demo-marketplace-${index + 4}/200/200`,
+      gstNumber: `29DEMO${String(index + 4).padStart(4, '0')}F1Z5`,
+      panNumber: `DEMO${String(index + 4).padStart(5, '0')}`,
+      bankHolderName: `Marketplace Seller ${index + 4}`,
+      bankAccountNo: `000000000${index + 4}`,
+      bankIfsc: 'HDFC0000001',
+      upiId: `seller${index + 4}@upi`,
+      commissionRate: 10 + (index % 4),
+      status: index % 3 === 0 ? 'PENDING' : 'APPROVED',
+      isDocumentsSubmitted: true,
+      approvedAt: index % 3 === 0 ? null : daysFromNow(-15),
+      rating: 4.0 + (index % 5) / 10,
+      ratingCount: 4 + index,
+    });
+  }
+
   // eslint-disable-next-line no-console
-  console.log('[seed]   vendors (3) — done');
+  console.log('[seed]   vendor profiles — done');
   return { main: mainId, second: second.id, third: third.id };
 };
 
@@ -214,6 +264,16 @@ const seedDeliveryBoys = async (
       totalDelivered: 32,
       rating: 4.1,
     },
+    ...deliveryUserIds.slice(3).map((userId, index) => ({
+      userId,
+      name: `Delivery Partner ${index + 4}`,
+      phone: `+919812347${100 + index}`,
+      email: `delivery${index + 4}@projectname.com`,
+      vehicleType: index % 2 === 0 ? 'BIKE' : 'SCOOTER',
+      vehicleNo: `RJ 14 DP ${String(2000 + index).slice(-4)}`,
+      totalDelivered: 12 + index * 7,
+      rating: 4.0 + (index % 5) / 10,
+    })),
   ];
 
   const ids: string[] = [];
@@ -306,6 +366,16 @@ const seedAddresses = async (prisma: PrismaClient, customerIds: string[]): Promi
       stateCode: 'GJ',
       pincode: '380001',
     },
+    ...customerIds.slice(4).map((userId, index) => ({
+      userId,
+      fullName: ['Aarav Nair', 'Isha Kapoor', 'Kabir Das'][index] ?? `Demo Customer ${index + 5}`,
+      phone: `+919812345${687 + index}`,
+      line1: `${20 + index} Demo Market Road`,
+      city: ['Chennai', 'Pune', 'Jaipur'][index] ?? 'New Delhi',
+      state: ['Tamil Nadu', 'Maharashtra', 'Rajasthan'][index] ?? 'Delhi',
+      stateCode: ['TN', 'MH', 'RJ'][index] ?? 'DL',
+      pincode: ['600001', '411001', '302001'][index] ?? '110001',
+    })),
   ];
 
   const ids = [mainAddressId];
@@ -336,6 +406,16 @@ const seedAuthArtefacts = async (
     { userId: customerIds[1], deviceId: 'demo-device-ios-1', platform: 'IOS' },
     { userId: customerIds[2], deviceId: 'demo-device-web-1', platform: 'WEB' },
     { userId: vendorUserIds[0], deviceId: 'demo-device-android-2', platform: 'ANDROID' },
+    ...customerIds.slice(3).map((userId, index) => ({
+      userId,
+      deviceId: `demo-device-customer-${index + 4}`,
+      platform: index % 2 === 0 ? 'ANDROID' : 'IOS',
+    })),
+    ...vendorUserIds.slice(1, 4).map((userId, index) => ({
+      userId,
+      deviceId: `demo-device-vendor-${index + 2}`,
+      platform: 'WEB',
+    })),
   ];
 
   for (const [index, device] of devices.entries()) {
@@ -527,16 +607,28 @@ export const seedIdentity = async (
     'customer2@projectname.com',
     'customer3@projectname.com',
     'customer4@projectname.com',
+    'customer5@projectname.com',
+    'customer6@projectname.com',
+    'customer7@projectname.com',
   ];
   const vendorEmails = [
     'vendor@projectname.com',
     'vendor2@projectname.com',
     'vendor3@projectname.com',
+    'vendor4@projectname.com',
+    'vendor5@projectname.com',
+    'vendor6@projectname.com',
+    'vendor7@projectname.com',
+    'vendor8@projectname.com',
   ];
   const deliveryEmails = [
     'delivery1@projectname.com',
     'delivery2@projectname.com',
     'delivery3@projectname.com',
+    'delivery4@projectname.com',
+    'delivery5@projectname.com',
+    'delivery6@projectname.com',
+    'delivery7@projectname.com',
   ];
 
   const customerIds = (

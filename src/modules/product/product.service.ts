@@ -528,6 +528,425 @@ export const updateStock = async (
   };
 };
 
+export const adjustStock = async (
+  productId: string,
+  input: { adjustment: number; setStockTo?: number; expectedStock?: number; lowStockThreshold?: number; reason: string; variantId?: string },
+  req?: any,
+): Promise<StockResult & { adjustment: number; reason: string }> => {
+  await requireOwnProduct(productId, req);
+
+  const adjustment = D.num(input.adjustment);
+  const reason = D.str(input.reason).trim();
+  if (!adjustment && input.setStockTo === undefined && input.lowStockThreshold === undefined) {
+    throw AppError.badRequest('Provide a stock change or a new low-stock threshold.');
+  }
+  if ((input.setStockTo === undefined) !== (input.expectedStock === undefined)) {
+    throw AppError.badRequest('Expected stock is required when setting an absolute stock quantity.');
+  }
+  if (reason.length < 3) throw AppError.badRequest('Please provide a reason for this stock adjustment.');
+
+  const variantId = D.str(input.variantId);
+  let previousStock = 0;
+  let currentStock = 0;
+  let lowStockThreshold = 5;
+
+  if (variantId) {
+    const state = await prisma.$transaction(async (tx) => {
+      const product = await tx.product.findFirst({
+        where: { id: productId, deletedAt: null },
+        select: { id: true, lowStockThreshold: true },
+      });
+      if (!product) throw AppError.notFound(ERROR.PRODUCT.NOT_FOUND, ERROR_CODE.NOT_FOUND);
+
+      const variant = await tx.productVariant.findFirst({
+        where: { id: variantId, productId },
+        select: { id: true, stock: true },
+      });
+      if (!variant) throw AppError.notFound(ERROR.PRODUCT.INVALID_VARIANT, ERROR_CODE.NOT_FOUND);
+
+      const before = D.num(variant.stock);
+      const changed = await tx.productVariant.updateMany({
+        where: {
+          id: variantId,
+          productId,
+          ...(input.setStockTo !== undefined
+            ? { stock: D.num(input.expectedStock) }
+            : adjustment < 0
+              ? { stock: { gte: Math.abs(adjustment) } }
+              : {}),
+        },
+        data: {
+          stock: input.setStockTo !== undefined
+            ? D.num(input.setStockTo)
+            : { increment: adjustment },
+        },
+      });
+      if (changed.count !== 1) {
+        throw AppError.unprocessable(
+          input.setStockTo !== undefined
+            ? 'Stock changed since you opened this item. Refresh and try again.'
+            : 'The adjustment would make variant stock negative. Refresh and try again.',
+        );
+      }
+
+      const threshold = input.lowStockThreshold !== undefined
+        ? D.num(input.lowStockThreshold)
+        : D.num(product.lowStockThreshold);
+      if (input.lowStockThreshold !== undefined) {
+        await tx.product.update({
+          where: { id: productId },
+          data: { lowStockThreshold: threshold },
+        });
+      }
+
+      const updated = await tx.productVariant.findUnique({
+        where: { id: variantId },
+        select: { stock: true },
+      });
+      const nextStock = D.num(updated?.stock);
+      await tx.activityLog.create({
+        data: {
+          userId: D.str(req?.auth?.userId) || undefined,
+          action: 'STOCK_ADJUSTED',
+          entity: 'Product',
+          entityId: productId,
+          meta: {
+            adjustment: nextStock - before,
+            previousStock: before,
+            stock: nextStock,
+            variantId,
+            reason,
+          },
+          ip: D.str(req?.ip),
+          userAgent: D.str(req?.headers?.['user-agent']),
+          deviceId: D.str(req?.deviceId),
+          requestId: D.str(req?.id),
+        },
+      });
+      return {
+        previousStock: before,
+        stock: nextStock,
+        lowStockThreshold: threshold,
+      };
+    });
+
+    previousStock = state.previousStock;
+    currentStock = state.stock;
+    lowStockThreshold = state.lowStockThreshold;
+  } else {
+    const state = await prisma.$transaction(async (tx) => {
+      const product = await tx.product.findFirst({
+        where: { id: productId, deletedAt: null },
+        select: { id: true, stock: true, lowStockThreshold: true },
+      });
+      if (!product) throw AppError.notFound(ERROR.PRODUCT.NOT_FOUND, ERROR_CODE.NOT_FOUND);
+
+      const before = D.num(product.stock);
+      const changed = await tx.product.updateMany({
+        where: {
+          id: productId,
+          deletedAt: null,
+          ...(input.setStockTo !== undefined
+            ? { stock: D.num(input.expectedStock) }
+            : adjustment < 0
+              ? { stock: { gte: Math.abs(adjustment) } }
+              : {}),
+        },
+        data: {
+          stock: input.setStockTo !== undefined
+            ? D.num(input.setStockTo)
+            : { increment: adjustment },
+          ...(input.lowStockThreshold !== undefined
+            ? { lowStockThreshold: D.num(input.lowStockThreshold) }
+            : {}),
+        },
+      });
+      if (changed.count !== 1) {
+        throw AppError.unprocessable(
+          input.setStockTo !== undefined
+            ? 'Stock changed since you opened this item. Refresh and try again.'
+            : 'The adjustment would make inventory negative. Refresh and try again.',
+        );
+      }
+
+      const updated = await tx.product.findUnique({
+        where: { id: productId },
+        select: { stock: true, lowStockThreshold: true },
+      });
+      const nextStock = D.num(updated?.stock);
+      await tx.activityLog.create({
+        data: {
+          userId: D.str(req?.auth?.userId) || undefined,
+          action: 'STOCK_ADJUSTED',
+          entity: 'Product',
+          entityId: productId,
+          meta: {
+            adjustment: nextStock - before,
+            previousStock: before,
+            stock: nextStock,
+            variantId: '',
+            reason,
+          },
+          ip: D.str(req?.ip),
+          userAgent: D.str(req?.headers?.['user-agent']),
+          deviceId: D.str(req?.deviceId),
+          requestId: D.str(req?.id),
+        },
+      });
+      return {
+        previousStock: before,
+        stock: nextStock,
+        lowStockThreshold: D.num(updated?.lowStockThreshold),
+      };
+    });
+
+    previousStock = state.previousStock;
+    currentStock = state.stock;
+    lowStockThreshold = state.lowStockThreshold;
+  }
+
+  const appliedAdjustment = currentStock - previousStock;
+
+  return {
+    productId,
+    variantId,
+    previousStock,
+    stock: currentStock,
+    adjustment: appliedAdjustment,
+    reason,
+    isLowStock: currentStock <= lowStockThreshold,
+  };
+};
+
+export const listInventory = async (
+  query: { page?: number; limit?: number; search?: string; status?: 'ALL' | 'LOW' | 'OUT' | 'HEALTHY' },
+): Promise<{
+  rows: Array<{
+    productId: string;
+    variantId: string;
+    variantTitle: string;
+    isVariant: boolean;
+    hasVariants: boolean;
+    name: string;
+    sku: string;
+    shop: string;
+    stock: number;
+    threshold: number;
+    status: string;
+    isLow: boolean;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
+  summary: { products: number; units: number; low: number; out: number };
+}> => {
+  const { page, limit, skip, take } = getPagination(query);
+  const search = D.str(query.search).trim();
+  const pattern = `%${search}%`;
+  const conditions: Prisma.Sql[] = [];
+
+  if (search) {
+    conditions.push(Prisma.sql`(
+      i."name" ILIKE ${pattern}
+      OR i."sku" ILIKE ${pattern}
+      OR i."variantTitle" ILIKE ${pattern}
+      OR i."shop" ILIKE ${pattern}
+    )`);
+  }
+
+  switch (query.status ?? 'ALL') {
+    case 'LOW':
+      conditions.push(Prisma.sql`i."stock" > 0 AND i."stock" <= i."threshold"`);
+      break;
+    case 'OUT':
+      conditions.push(Prisma.sql`i."stock" <= 0`);
+      break;
+    case 'HEALTHY':
+      conditions.push(Prisma.sql`i."stock" > i."threshold"`);
+      break;
+    default:
+      break;
+  }
+
+  const whereSql = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
+  const inventoryCte = Prisma.sql`
+    WITH inventory_items AS (
+      SELECT
+        p."id" AS "productId",
+        ''::text AS "variantId",
+        ''::text AS "variantTitle",
+        false AS "isVariant",
+        EXISTS (SELECT 1 FROM "ProductVariant" pv WHERE pv."productId" = p."id") AS "hasVariants",
+        p."name" AS "name",
+        p."sku" AS "sku",
+        v."shopName" AS "shop",
+        p."stock" AS "stock",
+        p."lowStockThreshold" AS "threshold",
+        p."status"::text AS "status",
+        p."updatedAt" AS "updatedAt"
+      FROM "Product" p
+      INNER JOIN "VendorProfile" v ON v."id" = p."vendorId"
+      WHERE p."deletedAt" IS NULL
+
+      UNION ALL
+
+      SELECT
+        p."id" AS "productId",
+        pv."id" AS "variantId",
+        pv."title" AS "variantTitle",
+        true AS "isVariant",
+        true AS "hasVariants",
+        p."name" AS "name",
+        COALESCE(NULLIF(pv."sku", ''), p."sku") AS "sku",
+        v."shopName" AS "shop",
+        pv."stock" AS "stock",
+        p."lowStockThreshold" AS "threshold",
+        p."status"::text AS "status",
+        pv."updatedAt" AS "updatedAt"
+      FROM "Product" p
+      INNER JOIN "VendorProfile" v ON v."id" = p."vendorId"
+      INNER JOIN "ProductVariant" pv ON pv."productId" = p."id"
+      WHERE p."deletedAt" IS NULL
+    )
+  `;
+
+  const [rows, countRows, summaryRows] = await Promise.all([
+    prisma.$queryRaw<Array<{
+      productId: string;
+      variantId: string;
+      variantTitle: string;
+      isVariant: boolean;
+      hasVariants: boolean;
+      name: string;
+      sku: string;
+      shop: string;
+      stock: number;
+      threshold: number;
+      status: string;
+    }>>(Prisma.sql`
+      ${inventoryCte}
+      SELECT
+        i."productId", i."variantId", i."variantTitle", i."isVariant", i."hasVariants",
+        i."name", i."sku", i."shop", i."stock", i."threshold", i."status"
+      FROM inventory_items i
+      ${whereSql}
+      ORDER BY i."stock" ASC, i."updatedAt" DESC, i."name" ASC
+      LIMIT ${take} OFFSET ${skip}
+    `),
+    prisma.$queryRaw<Array<{ total: number }>>(Prisma.sql`
+      ${inventoryCte}
+      SELECT COUNT(*)::int AS total
+      FROM inventory_items i
+      ${whereSql}
+    `),
+    prisma.$queryRaw<Array<{ products: number; units: number; low: number; out: number }>>(Prisma.sql`
+      ${inventoryCte}
+      SELECT
+        COUNT(*)::int AS products,
+        COALESCE(SUM(GREATEST(i."stock", 0)), 0)::float8 AS units,
+        COUNT(*) FILTER (WHERE i."stock" > 0 AND i."stock" <= i."threshold")::int AS low,
+        COUNT(*) FILTER (WHERE i."stock" <= 0)::int AS out
+      FROM inventory_items i
+    `),
+  ]);
+
+  const summary = summaryRows[0] ?? { products: 0, units: 0, low: 0, out: 0 };
+  return {
+    rows: rows.map((row) => ({
+      productId: D.str(row.productId),
+      variantId: D.str(row.variantId),
+      variantTitle: D.str(row.variantTitle),
+      isVariant: D.bool(row.isVariant),
+      hasVariants: D.bool(row.hasVariants),
+      name: D.str(row.name),
+      sku: D.str(row.sku),
+      shop: D.str(row.shop),
+      stock: D.num(row.stock),
+      threshold: D.num(row.threshold),
+      status: D.str(row.status),
+      isLow: D.num(row.stock) <= D.num(row.threshold),
+    })),
+    total: D.num(countRows[0]?.total),
+    page,
+    limit,
+    summary: {
+      products: D.num(summary.products),
+      units: D.num(summary.units),
+      low: D.num(summary.low),
+      out: D.num(summary.out),
+    },
+  };
+};
+
+export const getStockMovements = async (
+  query: { page?: number; limit?: number; productId?: string },
+): Promise<{ rows: any[]; total: number; page: number; limit: number }> => {
+  const { page, limit, skip, take } = getPagination(query);
+  const where: Prisma.ActivityLogWhereInput = {
+    entity: 'Product',
+    action: { in: ['STOCK_ADJUSTED', 'STOCK_UPDATED'] },
+    ...(D.str(query.productId) ? { entityId: D.str(query.productId) } : {}),
+  };
+
+  const [logs, total] = await prisma.$transaction([
+    prisma.activityLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
+      include: { user: { select: { id: true, name: true } } },
+    }),
+    prisma.activityLog.count({ where }),
+  ]);
+
+  const productIds = Array.from(new Set(logs.map((log) => log.entityId).filter(Boolean)));
+  const metas = logs.map((log) => D.obj(log.meta as unknown as Record<string, any>));
+  const variantIds = Array.from(new Set(metas.map((meta) => D.str(meta.variantId)).filter(Boolean)));
+  const [products, variants] = await Promise.all([
+    productIds.length
+      ? prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true, sku: true },
+        })
+      : Promise.resolve([]),
+    variantIds.length
+      ? prisma.productVariant.findMany({
+          where: { id: { in: variantIds } },
+          select: { id: true, title: true, sku: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const productById = new Map<string, { id: string; name: string; sku: string }>();
+  for (const product of products) productById.set(product.id, product);
+  const variantById = new Map<string, { id: string; title: string; sku: string }>();
+  for (const variant of variants) variantById.set(variant.id, variant);
+
+  const rows = logs.map((log, index) => {
+    const meta = metas[index] ?? {};
+    const product = productById.get(log.entityId);
+    const variantId = D.str(meta.variantId);
+    const variant = variantById.get(variantId);
+    const previousStock = D.num(meta.previousStock ?? meta.from);
+    const stock = D.num(meta.stock ?? meta.to);
+    return {
+      movementId: log.id,
+      productId: log.entityId,
+      productName: [D.str(product?.name), D.str(variant?.title)].filter(Boolean).join(' — '),
+      sku: D.str(variant?.sku) || D.str(product?.sku),
+      variantId,
+      adjustment: D.num(meta.adjustment) || stock - previousStock,
+      previousStock,
+      stock,
+      reason: D.str(meta.reason),
+      action: D.str(log.action),
+      actorName: D.str(log.user?.name) || 'System',
+      createdAt: D.date(log.createdAt),
+    };
+  });
+
+  return { rows, total, page, limit };
+};
+
 export const toggleStatus = async (
   productId: string,
   status: ProductStatus,

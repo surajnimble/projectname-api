@@ -245,6 +245,60 @@ export const createTag = async (input: any): Promise<any> =>
     },
   });
 
+export const updateTag = async (id: string, input: Record<string, unknown>, req?: any): Promise<any> => {
+  const existing = await prisma.tag.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, name: true, slug: true },
+  });
+
+  if (!existing) throw AppError.notFound(ERROR.TAG.NOT_FOUND, ERROR_CODE.NOT_FOUND);
+
+  const data: Prisma.TagUpdateInput = {};
+  // The route schema validates these fields, but keep the service boundary type-safe too.
+  if (typeof input.name === 'string') data.name = input.name;
+
+  if (typeof input.slug === 'string') {
+    const slug = input.slug;
+    const taken = await prisma.tag.findFirst({
+      where: { slug, id: { not: id }, deletedAt: null },
+      select: { id: true },
+    });
+    if (taken) throw AppError.conflict(ERROR.COMMON.DUPLICATE, ERROR_CODE.DUPLICATE);
+    data.slug = slug;
+  }
+
+  if (Object.keys(data).length === 0) {
+    throw AppError.badRequest(ERROR.COMMON.VALIDATION_FAILED, ERROR_CODE.VALIDATION_ERROR);
+  }
+
+  const updated = await prisma.tag.update({
+    where: { id },
+    data,
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      isActive: true,
+      createdAt: true,
+      _count: { select: { products: true } },
+    },
+  });
+
+  void writeAuditLog({
+    req,
+    action: ADMIN_ACTION.UPDATE,
+    entity: 'Tag',
+    entityId: id,
+    description: `Tag updated: ${updated.name}`,
+    changes: {
+      ...(input.name !== undefined ? { name: { from: existing.name, to: updated.name } } : {}),
+      ...(input.slug !== undefined ? { slug: { from: existing.slug, to: updated.slug } } : {}),
+    },
+  });
+
+  return updated;
+};
+
 export const bulkCreateTags = async (input: {
   tags: any[];
   continueOnError: boolean;

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import { asyncHandler } from '../../utils/asyncHandler';
 import * as controller from './content.controller';
 import * as schema from './content.schema';
@@ -25,6 +27,7 @@ page.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAGE_MANAGE),
   validate({ body: schema.createPageSchema }),
   controller.createPage,
 );
@@ -33,6 +36,7 @@ page.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAGE_MANAGE),
   validate({ params: schema.contentIdParamSchema, body: schema.updatePageSchema }),
   controller.updatePage,
 );
@@ -41,6 +45,7 @@ page.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAGE_MANAGE),
   validate({ params: schema.contentIdParamSchema }),
   controller.deletePage,
 );
@@ -67,6 +72,7 @@ blog.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BLOG_MANAGE),
   validate({ body: schema.createBlogSchema }),
   controller.createBlog,
 );
@@ -75,6 +81,7 @@ blog.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BLOG_MANAGE),
   validate({ params: schema.contentIdParamSchema, body: schema.updateBlogSchema }),
   controller.updateBlog,
 );
@@ -83,6 +90,7 @@ blog.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BLOG_MANAGE),
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteBlog,
 );
@@ -97,6 +105,7 @@ faq.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FAQ_MANAGE),
   validate({ body: schema.createFaqSchema }),
   controller.createFaq,
 );
@@ -105,6 +114,7 @@ faq.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FAQ_MANAGE),
   validate({ params: schema.faqIdParamSchema, body: schema.updateFaqSchema }),
   controller.updateFaq,
 );
@@ -113,6 +123,7 @@ faq.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.FAQ_MANAGE),
   validate({ params: schema.faqIdParamSchema }),
   controller.deleteFaq,
 );
@@ -127,6 +138,7 @@ banner.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BANNER_MANAGE),
   validate({ body: schema.createBannerSchema }),
   controller.createBanner,
 );
@@ -135,6 +147,7 @@ banner.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BANNER_MANAGE),
   validate({ params: schema.bannerIdParamSchema, body: schema.updateBannerSchema }),
   controller.updateBanner,
 );
@@ -143,6 +156,7 @@ banner.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BANNER_MANAGE),
   validate({ params: schema.bannerIdParamSchema }),
   controller.deleteBanner,
 );
@@ -162,6 +176,7 @@ contact.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.CONTACT_VIEW),
   validate({ query: schema.listContactsSchema }),
   controller.listContacts,
 );
@@ -170,6 +185,7 @@ contact.patch(
   '/:id/markRead',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.CONTACT_VIEW),
   validate({ params: schema.contentIdParamSchema, body: schema.markContactReadSchema }),
   controller.markContactRead,
 );
@@ -190,6 +206,7 @@ newsletter.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NEWSLETTER_MANAGE),
   validate({ query: schema.listSubscribersSchema }),
   controller.listSubscribers,
 );
@@ -198,6 +215,7 @@ newsletter.post(
   '/sendCampaign',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NEWSLETTER_MANAGE),
   validate({ body: schema.sendCampaignSchema }),
   controller.sendCampaign,
 );
@@ -226,7 +244,13 @@ country.post(
   controller.checkPincode,
 );
 
-country.post('/seedCountries', authenticate, ...controller.guards.admin, controller.seedCountries);
+country.post(
+  '/seedCountries',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.COUNTRY_MANAGE),
+  controller.seedCountries,
+);
 
 export const countryRoutes = country;
 
@@ -240,6 +264,7 @@ currency.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.CURRENCY_MANAGE),
   validate({ body: schema.currencySchema }),
   controller.createCurrency,
 );
@@ -248,6 +273,7 @@ currency.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.CURRENCY_MANAGE),
   validate({ params: schema.contentIdParamSchema, body: schema.currencyUpdateSchema }),
   controller.updateCurrency,
 );
@@ -256,6 +282,7 @@ currency.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.CURRENCY_MANAGE),
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteCurrency,
 );
@@ -270,6 +297,7 @@ tax.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TAX_MANAGE),
   validate({ body: schema.taxConfigSchema }),
   controller.createTaxConfig,
 );
@@ -278,6 +306,7 @@ tax.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TAX_MANAGE),
   validate({ params: schema.contentIdParamSchema, body: schema.taxConfigUpdateSchema }),
   controller.updateTaxConfig,
 );
@@ -286,6 +315,7 @@ tax.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TAX_MANAGE),
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteTaxConfig,
 );
@@ -306,6 +336,7 @@ i18n.post(
   '/bulkUpsert',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.I18N_MANAGE),
   validate({ body: schema.bulkUpsertTranslationsSchema }),
   controller.bulkUpsertTranslations,
 );
@@ -314,6 +345,7 @@ i18n.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.I18N_MANAGE),
   validate({ body: schema.createTranslationSchema }),
   controller.createTranslation,
 );
@@ -322,6 +354,7 @@ i18n.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.I18N_MANAGE),
   validate({ params: idParamSchema, body: schema.updateTranslationSchema }),
   controller.updateTranslation,
 );
@@ -330,6 +363,7 @@ i18n.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.I18N_MANAGE),
   validate({ params: idParamSchema }),
   controller.deleteTranslation,
 );
@@ -348,6 +382,7 @@ content.post(
   '/dropdowns/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.SETTINGS_UPDATE),
   validate({ body: schema.dropdownSchema }),
   controller.createDropdown,
 );
@@ -356,6 +391,7 @@ content.patch(
   '/dropdowns/:id/update',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.SETTINGS_UPDATE),
   validate({ params: schema.contentIdParamSchema, body: schema.dropdownSchema.partial() }),
   controller.updateDropdown,
 );
@@ -364,6 +400,7 @@ content.delete(
   '/dropdowns/:id/delete',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.SETTINGS_UPDATE),
   validate({ params: schema.contentIdParamSchema }),
   controller.deleteDropdown,
 );
@@ -376,6 +413,7 @@ webhook.post(
   '/register',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ body: schema.createWebhookSchema }),
   controller.registerWebhook,
 );
@@ -467,6 +505,7 @@ webhook.get(
   '/getLogs',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ query: schema.webhookLogSchema }),
   controller.listWebhookLogs,
 );
@@ -475,6 +514,7 @@ webhook.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ query: schema.listWebhooksSchema }),
   controller.listWebhooks,
 );
@@ -483,6 +523,7 @@ webhook.patch(
   '/:id/update',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ params: schema.webhookIdParamSchema, body: schema.updateWebhookSchema }),
   controller.updateWebhook,
 );
@@ -491,6 +532,7 @@ webhook.post(
   '/:id/rotateSecret',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ params: schema.webhookIdParamSchema }),
   controller.rotateSecret,
 );
@@ -499,6 +541,7 @@ webhook.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WEBHOOK_MANAGE),
   validate({ params: schema.webhookIdParamSchema }),
   controller.deleteWebhook,
 );
@@ -518,6 +561,7 @@ bulk.post(
   '/importOrders',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BULK_IMPORT),
   validate({ body: schema.bulkRowsSchema }),
   controller.importOrders,
 );
@@ -526,6 +570,7 @@ bulk.post(
   '/importUsers',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.BULK_IMPORT),
   validate({ body: schema.bulkRowsSchema }),
   controller.importUsers,
 );
@@ -533,6 +578,7 @@ bulk.post(
 bulk.get(
   '/getJobStatus/:jobId',
   authenticate,
+  controller.bulkJobAccess,
   validate({ params: schema.jobIdParamSchema }),
   controller.getBulkJobStatus,
 );
@@ -540,6 +586,7 @@ bulk.get(
 bulk.get(
   '/getJobHistory',
   authenticate,
+  controller.bulkJobAccess,
   validate({ query: schema.listJobsSchema }),
   controller.listBulkJobs,
 );
@@ -557,6 +604,7 @@ const reportHandler = (type: string) =>
 const reportRoute = (type: string) => [
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_VIEW),
   validate({ query: schema.reportSchema }),
   reportHandler(type),
 ];
@@ -575,6 +623,7 @@ report.get(
   '/export/:type',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_EXPORT),
   validate({ params: schema.reportTypeParamSchema, query: schema.reportSchema }),
   controller.exportReport,
 );
@@ -583,6 +632,7 @@ report.post(
   '/schedule',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_VIEW),
   validate({ body: schema.createScheduleSchema }),
   controller.scheduleReport,
 );
@@ -591,6 +641,7 @@ report.get(
   '/getSchedules',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_VIEW),
   validate({ query: schema.listSchedulesSchema }),
   controller.listSchedules,
 );
@@ -599,6 +650,7 @@ report.patch(
   '/schedule/:id/update',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_VIEW),
   validate({ params: schema.scheduleIdParamSchema, body: schema.createScheduleSchema.partial() }),
   controller.updateSchedule,
 );
@@ -607,6 +659,7 @@ report.delete(
   '/schedule/:id/delete',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REPORT_VIEW),
   validate({ params: schema.scheduleIdParamSchema }),
   controller.deleteSchedule,
 );
@@ -615,12 +668,19 @@ export const reportRoutes = report;
 
 const apiKey = Router();
 
-apiKey.get('/getAll', authenticate, ...controller.guards.admin, controller.listApiKeys);
+apiKey.get(
+  '/getAll',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.API_KEY_MANAGE),
+  controller.listApiKeys,
+);
 
 apiKey.post(
   '/create',
   authenticate,
   ...controller.guards.superAdmin,
+  requirePermission(PERMISSION.API_KEY_MANAGE),
   validate({ body: schema.createApiKeySchema }),
   controller.createApiKey,
 );
@@ -629,6 +689,7 @@ apiKey.patch(
   '/revoke/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.API_KEY_MANAGE),
   validate({ params: schema.apiKeyIdParamSchema }),
   controller.revokeApiKey,
 );
@@ -637,6 +698,7 @@ apiKey.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.superAdmin,
+  requirePermission(PERMISSION.API_KEY_MANAGE),
   validate({ params: schema.apiKeyIdParamSchema }),
   controller.deleteApiKey,
 );
@@ -645,6 +707,7 @@ apiKey.get(
   '/getUsage/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.API_KEY_MANAGE),
   validate({ params: schema.apiKeyIdParamSchema }),
   controller.getApiKeyUsage,
 );

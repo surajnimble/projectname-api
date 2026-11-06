@@ -325,6 +325,8 @@ model User {
   phone                String    @default("")
   passwordHash         String?
   role                 Role      @default(CUSTOMER)
+  subAdminPermissions  String[]  @default([])
+  hasCustomPermissions Boolean   @default(false)
   isActive             Boolean   @default(true)
   isEmailVerified      Boolean   @default(false)
   isPhoneVerified      Boolean   @default(false)
@@ -2285,8 +2287,10 @@ model Delivery {
   subOrderId    String
   deliveryBoyId String?
   status        ShipmentStatus @default(PENDING)
-  deliveryOtp   String         @default("")
-  otpVerifiedAt DateTime?
+  deliveryOtp          String         @default("")
+  deliveryOtpExpiresAt DateTime?
+  deliveryOtpAttempts  Int            @default(0)
+  otpVerifiedAt        DateTime?
   latitude      Float          @default(0.0)
   longitude     Float          @default(0.0)
   remarks       String         @default("")

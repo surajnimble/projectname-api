@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import * as controller from './order.controller';
 import * as schema from './order.schema';
 
@@ -70,6 +72,7 @@ router.get(
   '/getTags/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_VIEW),
   validate({ params: schema.orderIdParamSchema }),
   controller.getTags,
 );
@@ -78,6 +81,7 @@ router.post(
   '/addTags/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_UPDATE_STATUS),
   validate({ params: schema.orderIdParamSchema, body: schema.addOrderTagsSchema }),
   controller.addTags,
 );
@@ -86,6 +90,7 @@ router.delete(
   '/removeTag/:id/:tagId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_UPDATE_STATUS),
   validate({ params: schema.orderTagParamSchema }),
   controller.removeTag,
 );
@@ -94,6 +99,7 @@ router.post(
   '/addNote/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_UPDATE_STATUS),
   validate({ params: schema.orderIdParamSchema, body: schema.addOrderNoteSchema }),
   controller.addNote,
 );
@@ -102,6 +108,7 @@ router.get(
   '/getNotes/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_VIEW),
   validate({ params: schema.orderIdParamSchema }),
   controller.getNotes,
 );
@@ -110,6 +117,7 @@ router.delete(
   '/removeNote/:id/:noteId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ORDER_UPDATE_STATUS),
   validate({ params: schema.orderNoteParamSchema }),
   controller.removeNote,
 );
@@ -179,6 +187,14 @@ router.patch(
   controller.updateStatus,
 );
 
+router.post(
+  '/adminBulkReview',
+  authenticate,
+  ...controller.guards.adminConfirm,
+  validate({ body: schema.adminBulkReviewSchema }),
+  controller.adminBulkReview,
+);
+
 router.get(
   '/getPendingAdminReview',
   authenticate,
@@ -220,6 +236,7 @@ router.patch(
 router.post(
   '/verifyDeliveryOtp/:subOrderId',
   authenticate,
+  ...controller.guards.adminStatus,
   validate({ params: schema.subOrderParamSchema, body: schema.confirmDeliverySchema }),
   controller.verifyDeliveryOtp,
 );

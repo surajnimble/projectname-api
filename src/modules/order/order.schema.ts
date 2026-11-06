@@ -122,6 +122,27 @@ export const VENDOR_BULK_ACTION = {
   REJECT: 'REJECT',
 } as const;
 
+export const ADMIN_BULK_REVIEW_ACTION = {
+  CONFIRM: 'CONFIRM',
+  REJECT: 'REJECT',
+} as const;
+
+export const adminBulkReviewSchema = z
+  .object({
+    subOrderIds: z
+      .array(id)
+      .min(1, ERROR.ORDER.BULK_NO_SUB_ORDERS)
+      .max(50, VALIDATION.MAX_LENGTH('subOrderIds', 50)),
+    action: z.enum([ADMIN_BULK_REVIEW_ACTION.CONFIRM, ADMIN_BULK_REVIEW_ACTION.REJECT]),
+    reason: z.string().trim().min(3).max(500).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.action === ADMIN_BULK_REVIEW_ACTION.REJECT && !value.reason) {
+      ctx.addIssue({ code: 'custom', path: ['reason'], message: VALIDATION.REQUIRED('reason') });
+    }
+  });
+
 export const vendorBulkStatusUpdateSchema = z
   .object({
     subOrderIds: z
@@ -166,7 +187,7 @@ export const reorderSchema = z
 
 export const confirmDeliverySchema = z
   .object({
-    otp: z.string().trim().length(4).optional(),
+    otp: z.string().trim().regex(/^\d{4}$/, 'Enter the 4-digit delivery OTP.'),
     remarks: z.string().trim().max(300).optional(),
 
     collectedAmount: z.coerce.number().min(0).optional(),

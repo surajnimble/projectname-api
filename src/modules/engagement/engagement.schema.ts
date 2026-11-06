@@ -63,7 +63,8 @@ export const referralIdParamSchema = z.object({ id });
 
 export const referralStatusSchema = z
   .object({
-    status: z.enum(['PENDING', 'COMPLETED', 'EXPIRED', 'REJECTED']),
+    // COMPLETED is only reachable through completeReferral so rewards are paid atomically.
+    status: z.enum(['EXPIRED', 'REJECTED']),
   })
   .strict();
 

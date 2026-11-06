@@ -53,6 +53,7 @@ export interface AccessTokenPayload {
   email: string;
   sessionKey: string;
   deviceId: string;
+  impersonatedById?: string;
   type: 'access';
   purpose: AccessTokenPurpose;
 }
@@ -65,12 +66,13 @@ export interface RefreshTokenPayload {
 
 export const signAccessToken = (
   payload: Omit<AccessTokenPayload, 'type' | 'purpose'> & { purpose?: AccessTokenPurpose },
+  options: Pick<SignOptions, 'expiresIn'> = {},
 ): string =>
   jwt.sign(
     { ...payload, type: 'access', purpose: payload.purpose ?? 'session' },
     JWT.ACCESS_SECRET,
     {
-      expiresIn: JWT.ACCESS_EXPIRY,
+      expiresIn: options.expiresIn ?? JWT.ACCESS_EXPIRY,
       issuer: JWT.ISSUER,
       audience: JWT.AUDIENCE,
     } as SignOptions,

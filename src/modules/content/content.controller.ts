@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, type RequestHandler } from 'express';
 import { ApiResponse } from '../../utils/ApiResponse';
 import { SUCCESS } from '../../messages/success';
 import { ERROR } from '../../messages/error';
@@ -8,6 +8,8 @@ import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { AppError } from '../../utils/AppError';
 import { requireRole } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import * as service from './content.service';
 import {
   serializeBanner,
@@ -32,6 +34,19 @@ const userId = (req: Request): string => req.auth!.userId;
 export const guards = {
   admin: [requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN)],
   superAdmin: [requireRole(ROLES.SUPER_ADMIN)],
+};
+
+/**
+ * Vendors may inspect only their own import jobs. Staff access requires the
+ * dedicated bulk-import permission rather than authentication alone.
+ */
+export const bulkJobAccess: RequestHandler = (req, res, next) => {
+  const role = D.str(req.auth?.role);
+
+  if (role === ROLES.VENDOR) return next();
+  if (isAdminRole(role)) return requirePermission(PERMISSION.BULK_IMPORT)(req, res, next);
+
+  return next(AppError.forbidden(ERROR.COMMON.FORBIDDEN));
 };
 
 const isStaff = (req: Request): boolean => isAdminRole(D.str(req.auth?.role));
@@ -1115,7 +1130,10 @@ export const listBulkJobs = asyncHandler(async (req, res) => {
  *       200: { description: The job with its per-row results }
  */
 export const getBulkJobStatus = asyncHandler(async (req, res) => {
-  const job = await service.getBulkJob(req.params.jobId);
+  const job = await service.getBulkJob(
+    req.params.jobId,
+    isStaff(req) ? undefined : ownVendorId(req),
+  );
 
   return ApiResponse.success(res, {
     message: SUCCESS.BULK.STATUS_FETCHED,

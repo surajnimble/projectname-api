@@ -914,7 +914,7 @@ export const getAbandonedCarts = async (
   const cutoff = new Date(Date.now() - minAgeHours * 3_600_000);
 
   const carts = await prisma.cart.findMany({
-    where: { updatedAt: { lte: cutoff } },
+    where: { updatedAt: { lte: cutoff }, items: { some: {} } },
     include: {
       items: {
         include: {
@@ -1381,7 +1381,7 @@ export const getVendorPerformance = async (
       commission: stats.commission,
       earnings: stats.earnings,
       fulfilmentRate:
-        stats.subOrders > 0 ? D.float(round(stats.delivered / stats.subOrders, 1)) : 0,
+        stats.subOrders > 0 ? toPercent(stats.delivered, stats.subOrders) : 0,
     };
   });
 
@@ -1445,10 +1445,20 @@ export const getAppVersions = async (query: Record<string, any>): Promise<Record
 export const exportAnalytics = async (
   query: Record<string, any>,
 ): Promise<{ columns: string[]; rows: any[][]; truncated: boolean }> => {
-  const { from, to } = resolveRange(query);
   const maxRows = ANALYTICS.EXPORT_MAX_ROWS;
   const limit = Math.min(maxRows, D.num(query.limit) || maxRows);
 
+  if (D.str(query.report) === 'revenue') {
+    const report = await getRevenue(query);
+    const series = D.arr(report.series).slice(0, limit);
+    return {
+      columns: ['period', 'orders', 'revenue'],
+      rows: series.map((row: any) => [D.str(row.bucket), D.num(row.orders), D.float(row.revenue)]),
+      truncated: D.arr(report.series).length > series.length,
+    };
+  }
+
+  const { from, to } = resolveRange(query);
   const rows = await prisma.pageView.findMany({
     where: { createdAt: { gte: from, lte: to } },
     orderBy: { createdAt: 'desc' },

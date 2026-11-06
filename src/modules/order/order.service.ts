@@ -4,16 +4,19 @@ import { AppError } from '../../utils/AppError';
 import { D, money } from '../../utils/defaults';
 import { ERROR } from '../../messages/error';
 import { ERROR_CODE } from '../../constants/http';
-import { isAdminRole } from '../../constants/roles';
+import { isAdminRole, ROLES } from '../../constants/roles';
 import {
   ORDER_STATUS,
   canTransitionOrder,
   canTransitionSubOrder,
   TERMINAL_ORDER_STATUSES,
+  SHIPMENT_STATUS_TRANSITIONS,
 } from '../../constants/statuses';
 import { PaymentMethod, PaymentStatus, type OrderStatus as OrderStatusType } from '@prisma/client';
 import { calcCommission, calcTokenAmount } from '../../utils/calculations';
-import { generateOrderNumber } from '../../utils/slug';
+import { generateAwb, generateOrderNumber } from '../../utils/slug';
+import { randomNumericCode, safeCompare, hmacSha256 } from '../../utils/crypto';
+import { JWT } from '../../config/jwt.config';
 import {
   getOrderMaxItems,
   getOrderMinAmount,
@@ -34,7 +37,7 @@ import { assertVendorAcceptingOrders } from '../vendor/vendor.service';
 import { recordEarning, requestReturn, updateReturnStatus } from '../payment/payment.service';
 import { addMinutes, daysBetween } from '../../utils/dates';
 import { WARRANTY } from '../../config/password.config';
-import { VENDOR_BULK_ACTION } from './order.schema';
+import { ADMIN_BULK_REVIEW_ACTION, VENDOR_BULK_ACTION } from './order.schema';
 
 export const ORDER_INCLUDE = {
   user: { select: { id: true, name: true, email: true, phone: true } },
@@ -535,9 +538,19 @@ export const listOrders = async (
   }
 
   if (D.str(query.from) || D.str(query.to)) {
+    const fromValue = D.str(query.from);
+    const toValue = D.str(query.to);
+    const toDate = toValue
+      ? new Date(
+          /^\d{4}-\d{2}-\d{2}$/.test(toValue)
+            ? `${toValue}T23:59:59.999Z`
+            : toValue,
+        )
+      : undefined;
+
     where.createdAt = {
-      ...(D.str(query.from) ? { gte: new Date(D.str(query.from)) } : {}),
-      ...(D.str(query.to) ? { lte: new Date(D.str(query.to)) } : {}),
+      ...(fromValue ? { gte: new Date(fromValue) } : {}),
+      ...(toDate ? { lte: toDate } : {}),
     };
   }
 
@@ -683,9 +696,19 @@ export const listPendingAdminReview = async (
   const where: Prisma.SubOrderWhereInput = { status: ORDER_STATUS.AWAITING_ADMIN_REVIEW };
 
   if (D.str(query.from) || D.str(query.to)) {
+    const fromValue = D.str(query.from);
+    const toValue = D.str(query.to);
+    const toDate = toValue
+      ? new Date(
+          /^\d{4}-\d{2}-\d{2}$/.test(toValue)
+            ? `${toValue}T23:59:59.999Z`
+            : toValue,
+        )
+      : undefined;
+
     where.createdAt = {
-      ...(D.str(query.from) ? { gte: new Date(D.str(query.from)) } : {}),
-      ...(D.str(query.to) ? { lte: new Date(D.str(query.to)) } : {}),
+      ...(fromValue ? { gte: new Date(fromValue) } : {}),
+      ...(toDate ? { lte: toDate } : {}),
     };
   }
 
@@ -803,6 +826,10 @@ export const updateOrderStatus = async (
 ): Promise<OrderRow> => {
   const order = await getOrderById(orderId);
 
+  if (D.str(input.status) === ORDER_STATUS.DELIVERED) {
+    throw AppError.badRequest('Complete each delivery with its customer OTP before marking the order delivered.');
+  }
+
   if (!canTransitionOrder(order.status, D.str(input.status))) {
     throw AppError.unprocessable(
       `${ERROR.ORDER.INVALID_STATUS_TRANSITION} (${order.status} -> ${input.status})`,
@@ -815,7 +842,6 @@ export const updateOrderStatus = async (
       where: { id: orderId },
       data: {
         status: input.status as OrderStatusType,
-        ...(input.status === ORDER_STATUS.DELIVERED ? { deliveredAt: new Date() } : {}),
         ...(input.status === ORDER_STATUS.CANCELLED
           ? { isCancelled: true, cancelledAt: new Date() }
           : {}),
@@ -826,20 +852,6 @@ export const updateOrderStatus = async (
       where: { orderId, status: { notIn: [ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] } },
       data: { status: input.status as OrderStatusType },
     });
-
-    if (input.status === ORDER_STATUS.DELIVERED && order.paymentMethod === PaymentMethod.COD) {
-      await tx.payment.updateMany({
-        where: { orderId, status: PaymentStatus.COD_PENDING },
-        data: {
-          status: PaymentStatus.COD_COLLECTED,
-          paidAmount: { increment: order.total - order.walletAmount },
-        },
-      });
-      await tx.order.update({
-        where: { id: orderId },
-        data: { paymentStatus: PaymentStatus.PAID, balancePaid: true },
-      });
-    }
 
     await pushTimeline(tx, {
       orderId,
@@ -1118,6 +1130,102 @@ export const rejectByAdmin = async (
   return { subOrderId, orderId: sub.orderId, status: ORDER_STATUS.CANCELLED };
 };
 
+export const adminBulkReviewSubOrders = async (
+  input: { subOrderIds: string[]; action: string; reason?: string },
+  actorId?: string,
+  req?: any,
+): Promise<BulkSubOrderStatusResult> => {
+  const action = D.str(input.action);
+  const isReject = action === ADMIN_BULK_REVIEW_ACTION.REJECT;
+  const target = isReject ? ORDER_STATUS.CANCELLED : ORDER_STATUS.PENDING;
+  const ids = Array.from(new Set(D.arr(input.subOrderIds).map((id: string) => D.str(id)))).filter(Boolean);
+
+  const rows = await prisma.subOrder.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      orderId: true,
+      status: true,
+      order: { select: { userId: true, orderNumber: true } },
+    },
+  });
+  const eligible = new Map(rows.map((row) => [row.id, row]));
+  const applicable = ids.filter(
+    (id) =>
+      eligible.has(id) &&
+      eligible.get(id)!.status === ORDER_STATUS.AWAITING_ADMIN_REVIEW &&
+      canTransitionSubOrder(eligible.get(id)!.status, target),
+  );
+
+  if (applicable.length === 0) {
+    throw AppError.unprocessable(ERROR.ORDER.BULK_NO_SUB_ORDERS, ERROR_CODE.INVALID_STATUS_TRANSITION);
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    for (const id of applicable) {
+      const sub = eligible.get(id)!;
+      const moved = await tx.subOrder.updateMany({
+        where: { id, status: sub.status },
+        data: {
+          status: target as OrderStatusType,
+          ...(isReject ? { cancelReason: D.str(input.reason) } : {}),
+        },
+      });
+      if (moved.count !== 1) {
+        throw AppError.conflict(ERROR.ORDER.INVALID_STATUS_TRANSITION, ERROR_CODE.DUPLICATE);
+      }
+      await pushTimeline(tx, {
+        orderId: sub.orderId,
+        subOrderId: id,
+        status: target,
+        fromStatus: sub.status,
+        remark: isReject ? D.str(input.reason) : 'Confirmed by admin for vendor processing',
+        createdById: actorId,
+      });
+      if (isReject) await restoreStock(tx, sub.orderId, id);
+    }
+
+    const parentIds = Array.from(new Set(applicable.map((id) => eligible.get(id)!.orderId)));
+    for (const orderId of parentIds) await refreshParentStatus(tx, orderId);
+
+    return tx.subOrder.findMany({
+      where: { id: { in: applicable } },
+      include: { items: true, vendor: true },
+    });
+  }, { timeout: 20_000, maxWait: 8_000 });
+
+  const skipped = ids
+    .filter((id) => !applicable.includes(id))
+    .map((id) => ({
+      subOrderId: id,
+      reason: eligible.has(id) ? ERROR.ORDER.INVALID_STATUS_TRANSITION : ERROR.ORDER.SUB_ORDER_NOT_FOUND,
+    }));
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: isReject ? 'ADMIN_BULK_REJECT_SUB_ORDERS' : 'ADMIN_BULK_CONFIRM_SUB_ORDERS',
+    entity: 'SubOrder',
+    entityId: applicable.join(','),
+    meta: { action, subOrderIds: applicable, skippedCount: skipped.length, reason: D.str(input.reason) },
+  });
+
+  if (isReject) {
+    for (const id of applicable) {
+      const sub = eligible.get(id)!;
+      void notifyUser({
+        userId: sub.order.userId,
+        type: 'ORDER',
+        title: `Order ${sub.order.orderNumber} cancelled`,
+        body: D.str(input.reason),
+        data: { orderId: sub.orderId, subOrderId: id },
+      });
+    }
+  }
+
+  return { action, requested: ids.length, updated, skipped };
+};
+
 const BULK_STATUS_BY_ACTION: Record<string, string> = {
   [VENDOR_BULK_ACTION.ACCEPT]: ORDER_STATUS.CONFIRMED,
   [VENDOR_BULK_ACTION.REJECT]: ORDER_STATUS.CANCELLED,
@@ -1218,8 +1326,7 @@ export const bulkUpdateSubOrderStatus = async (
         include: {
           items: true,
           vendor: true,
-          shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
-        },
+                  },
       });
     },
     { timeout: 20_000, maxWait: 8_000 },
@@ -1433,36 +1540,154 @@ export const assignDeliveryBoy = async (
   actorId?: string,
   req?: any,
 ): Promise<any> => {
-  const sub = await prisma.subOrder.findUnique({
-    where: { id: subOrderId },
-    select: { id: true, orderId: true, status: true, vendorId: true },
-  });
+  const [sub, boy] = await Promise.all([
+    prisma.subOrder.findUnique({
+      where: { id: subOrderId },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        vendorId: true,
+        deliveryBoyId: true,
+        trackingNumber: true,
+        order: { select: { userId: true, orderNumber: true } },
+      },
+    }),
+    prisma.deliveryBoy.findUnique({
+      where: { id: deliveryBoyId },
+      select: {
+        id: true,
+        userId: true,
+        isActive: true,
+        user: { select: { role: true, isActive: true } },
+      },
+    }),
+  ]);
 
   if (!sub) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+  if (!boy || !boy.isActive || !boy.user.isActive || boy.user.role !== ROLES.DELIVERY_BOY) {
+    throw AppError.notFound(ERROR.DELIVERY_BOY.NOT_FOUND);
+  }
 
-  const boy = await prisma.deliveryBoy.findFirst({
-    where: { id: deliveryBoyId, isActive: true },
-    select: { id: true },
-  });
+  if (
+    sub.status !== ORDER_STATUS.OUT_FOR_DELIVERY &&
+    !canTransitionSubOrder(sub.status, ORDER_STATUS.OUT_FOR_DELIVERY)
+  ) {
+    throw AppError.unprocessable(
+      ERROR.ORDER.INVALID_STATUS_TRANSITION,
+      ERROR_CODE.INVALID_STATUS_TRANSITION,
+    );
+  }
 
-  if (!boy) throw AppError.notFound(ERROR.DELIVERY_BOY.NOT_FOUND);
+  const otp = randomNumericCode(4);
+  const otpHash = hmacSha256(otp, JWT.ACCESS_SECRET);
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-  const sub2 = await prisma.subOrder.update({
-    where: { id: subOrderId },
-    data: { deliveryBoyId },
-    include: { vendor: true, order: { select: { orderNumber: true } } },
-  });
+  const assigned = await prisma.$transaction(async (tx) => {
+    let shipment = await tx.shipment.findFirst({
+      where: { subOrderId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, awb: true, status: true },
+    });
 
-  await prisma.deliveryBoy.update({
-    where: { id: deliveryBoyId },
-    data: { currentLoad: { increment: 1 } },
-  });
+    // In-house delivery must still have a shipment row so the rider queue and
+    // tracking history have one consistent source of truth.
+    if (!shipment) {
+      shipment = await tx.shipment.create({
+        data: {
+          subOrderId,
+          orderId: sub.orderId,
+          awb: sub.trackingNumber || generateAwb(),
+          status: 'OUT_FOR_DELIVERY',
+          remarks: 'Assigned to delivery rider',
+        },
+        select: { id: true, awb: true, status: true },
+      });
+    } else if (
+      shipment.status !== 'OUT_FOR_DELIVERY' &&
+      !(SHIPMENT_STATUS_TRANSITIONS[shipment.status] ?? []).includes('OUT_FOR_DELIVERY')
+    ) {
+      throw AppError.unprocessable(
+        `${ERROR.ORDER.INVALID_STATUS_TRANSITION} (${shipment.status} -> OUT_FOR_DELIVERY)`,
+        ERROR_CODE.INVALID_STATUS_TRANSITION,
+      );
+    }
 
-  await pushTimeline(prisma, {
-    orderId: sub.orderId,
-    subOrderId,
-    status: sub.status,
-    remark: 'Delivery boy assigned',
+    if (shipment.status !== 'OUT_FOR_DELIVERY') {
+      await tx.shipment.update({
+        where: { id: shipment.id },
+        data: { status: 'OUT_FOR_DELIVERY' },
+      });
+    }
+
+    const existingDelivery = await tx.delivery.findFirst({
+      where: { subOrderId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    const deliveryData = {
+      shipmentId: shipment.id,
+      subOrderId,
+      deliveryBoyId,
+      status: 'OUT_FOR_DELIVERY' as const,
+      deliveryOtp: otpHash,
+      deliveryOtpExpiresAt: expiresAt,
+      deliveryOtpAttempts: 0,
+      otpVerifiedAt: null,
+      deliveredAt: null,
+    };
+
+    if (existingDelivery) {
+      await tx.delivery.update({ where: { id: existingDelivery.id }, data: deliveryData });
+    } else {
+      await tx.delivery.create({ data: deliveryData });
+    }
+
+    const nextStatus = ORDER_STATUS.OUT_FOR_DELIVERY;
+
+    const updated = await tx.subOrder.update({
+      where: { id: subOrderId },
+      data: {
+        deliveryBoyId,
+        status: nextStatus as OrderStatusType,
+        ...(D.str(sub.trackingNumber) ? {} : { trackingNumber: shipment.awb }),
+      },
+      include: { vendor: true, items: true },
+    });
+
+    if (sub.deliveryBoyId !== deliveryBoyId) {
+      if (sub.deliveryBoyId) {
+        await tx.deliveryBoy.updateMany({
+          where: { id: sub.deliveryBoyId, currentLoad: { gt: 0 } },
+          data: { currentLoad: { decrement: 1 } },
+        });
+      }
+      await tx.deliveryBoy.update({
+        where: { id: deliveryBoyId },
+        data: { currentLoad: { increment: 1 } },
+      });
+    }
+
+    if (sub.status !== nextStatus) {
+      await pushTimeline(tx, {
+        orderId: sub.orderId,
+        subOrderId,
+        status: nextStatus,
+        fromStatus: sub.status,
+        remark: 'Assigned to delivery rider',
+      });
+      await refreshParentStatus(tx, sub.orderId);
+    } else {
+      await pushTimeline(tx, {
+        orderId: sub.orderId,
+        subOrderId,
+        status: sub.status,
+        remark: 'Delivery rider assigned or reassigned',
+      });
+    }
+
+    return updated;
   });
 
   void writeActivityLog({
@@ -1474,21 +1699,35 @@ export const assignDeliveryBoy = async (
     meta: { deliveryBoyId },
   });
 
-  void sub2;
-  return sub2;
+  // The OTP is sent only to the customer account. It is never returned from
+  // the assignment API or exposed in the rider delivery-list serializer.
+  void notifyUser({
+    userId: sub.order.userId,
+    type: 'ORDER',
+    title: `Delivery OTP for order ${sub.order.orderNumber}`,
+    body: `Share this 4-digit OTP with the delivery rider to confirm delivery: ${otp}. It expires in 10 minutes.`,
+    data: { orderId: sub.orderId, subOrderId, deliveryOtp: otp },
+  });
+
+  return assigned;
 };
 
 export const confirmDelivery = async (
   subOrderId: string,
-  input: { otp?: string; remarks?: string; collectedAmount?: number },
+  input: { otp: string; remarks?: string; collectedAmount?: number },
   actorId?: string,
   req?: any,
 ): Promise<any> => {
+  const role = D.str(req?.auth?.role);
+  const isAdmin = role === ROLES.SUPER_ADMIN || role === ROLES.SUB_ADMIN;
+  if (!isAdmin && role !== ROLES.DELIVERY_BOY) {
+    throw AppError.forbidden(ERROR.COMMON.FORBIDDEN);
+  }
+
   const sub = await prisma.subOrder.findUnique({
     where: { id: subOrderId },
     include: {
       order: true,
-      shipments: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
   });
 
@@ -1504,70 +1743,190 @@ export const confirmDelivery = async (
     );
   }
 
+  const delivery = await prisma.delivery.findFirst({
+    where: { subOrderId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      shipmentId: true,
+      deliveryBoyId: true,
+      deliveryOtp: true,
+      deliveryOtpExpiresAt: true,
+      deliveryOtpAttempts: true,
+      otpVerifiedAt: true,
+      status: true,
+      shipment: { select: { status: true } },
+    },
+  });
+
+  if (!delivery || !delivery.deliveryOtp || delivery.otpVerifiedAt) {
+    throw AppError.unprocessable(ERROR.DELIVERY_BOY.OTP_INVALID);
+  }
+
+  if (
+    delivery.status !== 'OUT_FOR_DELIVERY' ||
+    delivery.shipment.status !== 'OUT_FOR_DELIVERY'
+  ) {
+    throw AppError.unprocessable(ERROR.ORDER.INVALID_STATUS_TRANSITION, ERROR_CODE.INVALID_STATUS_TRANSITION);
+  }
+
+  if (role === ROLES.DELIVERY_BOY) {
+    const rider = await prisma.deliveryBoy.findUnique({
+      where: { userId: D.str(actorId) },
+      select: { id: true, isActive: true },
+    });
+    if (!rider || !rider.isActive || rider.id !== delivery.deliveryBoyId) {
+      throw AppError.forbidden(ERROR.COMMON.FORBIDDEN);
+    }
+  }
+
+  if (delivery.deliveryOtpAttempts >= 5) {
+    throw AppError.tooManyRequests(ERROR.DELIVERY_BOY.OTP_ATTEMPTS_EXCEEDED);
+  }
+
+  const now = new Date();
+  if (!delivery.deliveryOtpExpiresAt || delivery.deliveryOtpExpiresAt <= now) {
+    await prisma.delivery.updateMany({
+      where: { id: delivery.id, otpVerifiedAt: null, deliveryOtp: delivery.deliveryOtp },
+      data: { deliveryOtp: '', deliveryOtpExpiresAt: null },
+    });
+    throw AppError.unprocessable(ERROR.DELIVERY_BOY.OTP_EXPIRED);
+  }
+
+  const submittedHash = hmacSha256(D.str(input.otp), JWT.ACCESS_SECRET);
+  if (!safeCompare(submittedHash, delivery.deliveryOtp)) {
+    const attempt = await prisma.delivery.updateMany({
+      where: {
+        id: delivery.id,
+        otpVerifiedAt: null,
+        deliveryOtp: delivery.deliveryOtp,
+        deliveryOtpAttempts: { lt: 5 },
+      },
+      data: { deliveryOtpAttempts: { increment: 1 } },
+    });
+    if (attempt.count !== 1 || delivery.deliveryOtpAttempts >= 4) {
+      throw AppError.tooManyRequests(ERROR.DELIVERY_BOY.OTP_ATTEMPTS_EXCEEDED);
+    }
+    throw AppError.unprocessable(ERROR.DELIVERY_BOY.OTP_INVALID);
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
+    // Compare-and-set makes the code single-use even when two requests race.
+    const verified = await tx.delivery.updateMany({
+      where: {
+        id: delivery.id,
+        deliveryOtp: delivery.deliveryOtp,
+        deliveryOtpExpiresAt: { gt: now },
+        deliveryOtpAttempts: { lt: 5 },
+        otpVerifiedAt: null,
+      },
+      data: {
+        otpVerifiedAt: now,
+        deliveryOtp: '',
+        deliveryOtpExpiresAt: null,
+      },
+    });
+    if (verified.count !== 1) {
+      throw AppError.unprocessable(ERROR.DELIVERY_BOY.OTP_INVALID);
+    }
+
     await tx.subOrder.update({
       where: { id: subOrderId },
       data: { status: ORDER_STATUS.DELIVERED as OrderStatusType },
     });
 
-    const shipment = D.arr(sub.shipments)[0];
+    await tx.shipment.update({
+      where: { id: delivery.shipmentId },
+      data: { status: 'DELIVERED', deliveredAt: now },
+    });
 
-    let shipmentId = D.str(shipment?.id);
-
-    if (!shipmentId) {
-      const created = await tx.shipment.create({
-        data: {
-          subOrderId,
-          orderId: sub.orderId,
-          status: 'DELIVERED',
-          deliveredAt: new Date(),
-          remarks: D.str(input.remarks),
-        },
-      });
-      shipmentId = created.id;
-    } else {
-      await tx.shipment.update({
-        where: { id: shipmentId },
-        data: { status: 'DELIVERED', deliveredAt: new Date() },
-      });
-    }
-
-    await tx.delivery.create({
+    await tx.delivery.update({
+      where: { id: delivery.id },
       data: {
-        shipmentId,
-        subOrderId,
-        deliveryBoyId: D.str(sub.deliveryBoyId),
         status: 'DELIVERED',
         remarks: D.str(input.remarks),
-        deliveredAt: new Date(),
+        deliveredAt: now,
       },
     });
 
     if (sub.deliveryBoyId) {
-      await tx.deliveryBoy.update({
-        where: { id: sub.deliveryBoyId },
+      await tx.deliveryBoy.updateMany({
+        where: { id: sub.deliveryBoyId, currentLoad: { gt: 0 } },
         data: { currentLoad: { decrement: 1 }, totalDelivered: { increment: 1 } },
       });
     }
 
     if (sub.order.paymentMethod === PaymentMethod.COD) {
-      const collected =
-        D.num(input.collectedAmount) || money(sub.order.total - sub.order.walletAmount);
-
-      await tx.payment.updateMany({
-        where: { orderId: sub.orderId, status: PaymentStatus.COD_PENDING },
-        data: {
-          status: PaymentStatus.COD_COLLECTED,
-          paidAmount: { increment: collected },
-          collectedBy: D.str(actorId),
-          paidAt: new Date(),
+      const payment = await tx.payment.findFirst({
+        where: {
+          orderId: sub.orderId,
+          method: PaymentMethod.COD,
+          status: { in: [PaymentStatus.PENDING, PaymentStatus.COD_PENDING, PaymentStatus.COD_COLLECTED, PaymentStatus.PAID] },
         },
+        orderBy: { createdAt: 'desc' },
       });
 
-      await tx.order.update({
-        where: { id: sub.orderId },
-        data: { paymentStatus: PaymentStatus.PAID, balancePaid: true },
-      });
+      if (!payment) {
+        throw AppError.unprocessable(ERROR.PAYMENT.NO_PAYMENT_RECORD, ERROR_CODE.INVALID_STATUS_TRANSITION);
+      }
+
+      const outstanding = money(Math.max(0, payment.amount - payment.paidAmount));
+      if (outstanding > 0) {
+        const activeSubOrders = await tx.subOrder.aggregate({
+          where: {
+            orderId: sub.orderId,
+            status: { notIn: [ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] },
+          },
+          _sum: { total: true },
+        });
+        const activeSubOrderTotal = D.float(activeSubOrders._sum.total);
+        const remainingSubOrders = await tx.subOrder.count({
+          where: {
+            orderId: sub.orderId,
+            status: { notIn: [ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] },
+          },
+        });
+        const subOrderShare =
+          remainingSubOrders === 0
+            ? outstanding
+            : activeSubOrderTotal > 0
+              ? money(outstanding * (sub.total / activeSubOrderTotal))
+              : outstanding;
+        const collected =
+          input.collectedAmount === undefined
+            ? Math.min(outstanding, Math.max(0, subOrderShare))
+            : money(input.collectedAmount);
+
+        if (collected <= 0) {
+          throw AppError.unprocessable(ERROR.PAYMENT.COD_COLLECTION_REQUIRED, ERROR_CODE.INVALID_STATUS_TRANSITION);
+        }
+        if (collected > outstanding) {
+          throw AppError.unprocessable(ERROR.PAYMENT.COD_COLLECTION_EXCEEDS_DUE, ERROR_CODE.INVALID_STATUS_TRANSITION);
+        }
+
+        const paidAmount = money(Math.min(payment.amount, payment.paidAmount + collected));
+        const isSettled = paidAmount >= payment.amount;
+        const paymentUpdate = await tx.payment.updateMany({
+          where: { id: payment.id, paidAmount: payment.paidAmount, status: payment.status },
+          data: {
+            status: isSettled ? PaymentStatus.COD_COLLECTED : PaymentStatus.COD_PENDING,
+            paidAmount,
+            collectedBy: D.str(actorId),
+            paidAt: isSettled ? now : null,
+          },
+        });
+        if (paymentUpdate.count !== 1) {
+          throw AppError.conflict(ERROR.PAYMENT.ALREADY_PAID, ERROR_CODE.DUPLICATE);
+        }
+
+        await tx.order.update({
+          where: { id: sub.orderId },
+          data: {
+            paymentStatus: isSettled ? PaymentStatus.PAID : PaymentStatus.COD_PENDING,
+            balancePaid: isSettled,
+          },
+        });
+      }
     }
 
     await pushTimeline(tx, {

@@ -361,6 +361,31 @@ export const walletTransactions = asyncHandler(async (req, res) => {
   });
 });
 
+export const adminWalletSummary = asyncHandler(async (req, res) => {
+  const summary = await service.getWalletSummary(D.str(req.params.userId));
+  return ApiResponse.success(res, {
+    message: SUCCESS.WALLET.BALANCE_FETCHED,
+    result: summary,
+  });
+});
+
+export const adminWalletTransactions = asyncHandler(async (req, res) => {
+  const { page, limit, skip, take } = getPagination(req.query as any);
+  const { rows, total } = await service.listWalletTransactions(D.str(req.params.userId), {
+    ...(req.query as any),
+    skip,
+    take,
+  });
+
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.WALLET.TRANSACTIONS_FETCHED,
+    result: { walletList: rows.map(serializeWalletEntry) },
+    totalRecord: total,
+    currentPage: page,
+    limit,
+  });
+});
+
 /**
  * @openapi
  * /payments/wallet/adjust:

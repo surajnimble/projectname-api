@@ -12,6 +12,7 @@ declare global {
         email: string;
         sessionKey: string;
         deviceId: string;
+        impersonatedById?: string;
         permissions?: string[];
       };
 

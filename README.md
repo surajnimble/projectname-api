@@ -90,13 +90,16 @@ This is the operational README: what the project is built from, how to run it, h
 ```bash
 npm install
 npm run prisma:generate
-npm run env:sync      # regenerate .env.example from .env
+copy .env.example .env  # Windows PowerShell / CMD
+npm run db:up         # start isolated local PGlite (127.0.0.1)
 npm run db:migrate    # create the schema
 npm run seed          # settings, SUPER_ADMIN, permission matrix, full demo data
 npm run dev
 ```
 
 The API is then on <http://localhost:5000/api/v1>.
+
+**Local seed safety:** the seed command refuses to run against a non-loopback `DATABASE_URL`, before it applies migrations or writes data. In non-production development runs, the demo seed populates the primary admin list resources and verifies that **59 resources have at least seven rows each**; it exits with the deficient resource names if that invariant is not met. The data is synthetic and intended only for local QA.
 
 ---
 
@@ -139,7 +142,8 @@ projectname-api/
 │   │   ├── content/      # page, blog, faq, banner, contact, newsletter, report,
 │   │   │                 # bulk, apiKey, webhook, currency, tax, country, i18n, dropdown
 │   │   ├── notification/ # notification, chat, ticket
-│   │   ├── shipping/     # shipping, deliveryBoy, settings, admin, audit, activityLog
+│   │   ├── shipping/     # shipping, deliveryBoy, settings
+│   │   ├── admin/        # sub-admins, permissions, dashboard, audit/activity logs, system health, cron + failed jobs
 │   │   ├── analytics/    # tracking, device, analytics, search, upload
 │   │   ├── system/       # version, maintenance
 │   │   └── health/       # /api/v1/health
@@ -166,7 +170,7 @@ projectname-api/
 │   └── e2e-*.ts, run-e2e.ps1
 ├── tests/                # vitest
 ├── .github/workflows/    # CI
-├── .env, .env.example    # .env.example is generated — npm run env:sync
+├── .env, .env.example    # .env is local-only; .env.example contains safe defaults
 ├── .gitattributes
 ├── .nvmrc
 ├── render.yaml           # Render blueprint
@@ -198,7 +202,8 @@ Every module has `<name>.routes.ts`, `<name>.controller.ts`, `<name>.service.ts`
 | `engagement/` | `/loyalty`, `/referral`, `/giftCards`, `/templates` |
 | `content/` | `/pages`, `/blogs`, `/faqs`, `/banners`, `/contact`, `/newsletter`, `/countries`, `/currencies`, `/tax`, `/i18n`, `/content`, `/webhooks`, `/bulk`, `/reports`, `/apiKeys` |
 | `notification/` | `/notifications`, `/chat`, `/tickets` |
-| `shipping/` | `/shipping`, `/deliveryBoys`, `/settings`, `/admin`, `/auditLogs`, `/activityLogs` |
+| `shipping/` | `/shipping`, `/deliveryBoys`, `/settings` |
+| `admin/` | `/admin`, `/auditLogs`, `/activityLogs` |
 | `analytics/` | `/track`, `/devices`, `/analytics`, `/search`, `/uploads` |
 | `system/` | `/version` |
 | `health/` | `/health` |
@@ -300,8 +305,8 @@ Accounts are deliberately excluded from that truncate, so the super admin keeps 
 
 | Command | What it does |
 | --- | --- |
-| `npm run env:check` | Fail if `.env` and `.env.example` drifted |
-| `npm run env:sync` | Regenerate `.env.example` from `.env` |
+| `npm run env:check` | Verify `.env.example` matches the curated local-only template |
+| `npm run env:sync` | Write the curated local-only `.env.example`; never copy values from `.env` |
 | `npm run comments:check` | Fail if a comment breaks the structure |
 | `npm run comments:fix` | Rewrite multi-line `//` prose into doc blocks |
 | `npm run doctor` | Database, weak secrets, exposed `.env`, missing providers |
@@ -364,7 +369,7 @@ The dashboard shows two URLs; which one you need depends on where the code runs.
 DATABASE_URL="postgresql://USER:PASS@dpg-xxxx.<region>-postgres.render.com:5432/DB?schema=public&connection_limit=5"
 ```
 
-Keep `PGLITE_MODE=false`. The internal hostname only resolves inside Render's private network, which is why a local setup fails with a misleading "database does not exist".
+Use `PGLITE_MODE=true` only with the local PGlite bridge described below. Never use a hosted or production `DATABASE_URL` for local QA.
 
 ### Option B — Docker (closest to a self-hosted production box)
 
@@ -414,7 +419,7 @@ WORKER_ENABLED=true
 
 ## Environment variables
 
-The full inventory is `src/config/env.config.ts` — a Zod schema validated before the server starts; a missing or invalid value stops the boot. `.env` is split into **required** (no default) and **optional** (each has a default). `.env.example` is generated with `npm run env:sync`.
+The full inventory is `src/config/env.config.ts` — a Zod schema validated before the server starts; a missing or invalid value stops the boot. `.env` is split into **required** (no default) and **optional** (each has a default). Start by copying the curated local `.env.example` to `.env`. `npm run env:sync` only writes the approved local-only template; it never reads or copies values from `.env`. Keep `.env` out of source control.
 
 **Required**
 

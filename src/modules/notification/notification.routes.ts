@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import * as controller from './notification.controller';
 import * as schema from './notification.schema';
 
@@ -58,6 +60,7 @@ notification.post(
   '/sendBulk',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_SEND),
   validate({ body: schema.broadcastSchema }),
   controller.broadcast,
 );
@@ -66,6 +69,7 @@ notification.get(
   '/getTemplates',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ query: schema.listNotificationsSchema }),
   controller.getTemplates,
 );
@@ -74,6 +78,7 @@ notification.post(
   '/createTemplate',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ body: schema.templateSchema }),
   controller.createTemplate,
 );
@@ -82,6 +87,7 @@ notification.patch(
   '/updateTemplate/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: idParamSchema, body: schema.templateSchema.partial() }),
   controller.updateTemplate,
 );
@@ -90,6 +96,7 @@ notification.delete(
   '/deleteTemplate/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: idParamSchema }),
   controller.deleteTemplate,
 );
@@ -97,6 +104,25 @@ notification.delete(
 export const notificationRoutes = notification;
 
 const chat = Router();
+
+// Administrative conversation review is read-only and separately permissioned.
+chat.get(
+  '/admin/getConversations',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.CHAT_VIEW),
+  validate({ query: schema.adminListConversationsSchema }),
+  controller.adminGetConversations,
+);
+
+chat.get(
+  '/admin/getMessages/:conversationId',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.CHAT_VIEW),
+  validate({ params: schema.conversationIdParamSchema, query: schema.listConversationsSchema }),
+  controller.adminGetMessages,
+);
 
 chat.get(
   '/getConversations',
@@ -175,11 +201,12 @@ ticket.post(
   '/categories',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ body: schema.ticketCategorySchema }),
   controller.createCategory,
 );
 
-ticket.get('/getStats', authenticate, ...controller.guards.admin, controller.getStats);
+ticket.get('/getStats', authenticate, ...controller.guards.admin, requirePermission(PERMISSION.TICKET_LIST), controller.getStats);
 
 ticket.post(
   '/create',
@@ -220,6 +247,7 @@ ticket.patch(
   '/assign/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_ASSIGN),
   validate({ params: schema.ticketIdParamSchema, body: schema.assignTicketSchema }),
   controller.assign,
 );
@@ -235,6 +263,7 @@ ticket.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ params: schema.ticketIdParamSchema }),
   controller.deleteTicket,
 );
@@ -243,6 +272,7 @@ ticket.post(
   '/addNote/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ params: schema.ticketIdParamSchema, body: schema.addTicketNoteSchema }),
   controller.addTicketNote,
 );
@@ -251,6 +281,7 @@ ticket.get(
   '/getNotes/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_LIST),
   validate({ params: schema.ticketIdParamSchema }),
   controller.getTicketNotes,
 );
@@ -259,6 +290,7 @@ ticket.delete(
   '/removeNote/:id/:noteId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ params: schema.ticketNoteParamSchema }),
   controller.removeTicketNote,
 );
@@ -272,6 +304,7 @@ cannedResponse.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ query: schema.listCannedResponsesSchema }),
   controller.listCannedResponses,
 );
@@ -280,6 +313,7 @@ cannedResponse.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ body: schema.createCannedResponseSchema }),
   controller.createCannedResponse,
 );
@@ -288,6 +322,7 @@ cannedResponse.patch(
   '/update/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ params: schema.cannedResponseIdParamSchema, body: schema.updateCannedResponseSchema }),
   controller.updateCannedResponse,
 );
@@ -296,6 +331,7 @@ cannedResponse.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.TICKET_MANAGE),
   validate({ params: schema.cannedResponseIdParamSchema }),
   controller.deleteCannedResponse,
 );

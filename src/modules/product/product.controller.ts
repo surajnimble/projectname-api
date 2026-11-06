@@ -5,7 +5,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { ROLES } from '../../constants/roles';
 import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
-import { requireRole, optionalAuth } from '../../middlewares/auth.middleware';
+import { authorize, requireRole, optionalAuth } from '../../middlewares/auth.middleware';
 import { requirePermission } from '../../middlewares/rbac.middleware';
 import { PERMISSION } from '../../constants/permissions';
 import { getUploadedFiles } from '../../middlewares/upload.middleware';
@@ -38,6 +38,19 @@ export const guards = {
   adminUpdate: [
     requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
     requirePermission(PERMISSION.PRODUCT_UPDATE),
+  ],
+  inventoryRead: [
+    requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    requirePermission(PERMISSION.REPORT_VIEW),
+  ],
+  // Vendors may update their own stock. Staff must pass both role and the
+  // granular product:update permission before the service checks ownership.
+  stockUpdate: [
+    authorize(ROLES.VENDOR, ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
+    (req: Request, res: any, next: (error?: unknown) => void) => {
+      if (req.auth?.role === ROLES.VENDOR) return next();
+      return requirePermission(PERMISSION.PRODUCT_UPDATE)(req, res, next);
+    },
   ],
   adminApprove: [
     requireRole(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN),
@@ -91,6 +104,72 @@ export const updateStock = asyncHandler(async (req, res) => {
   return ApiResponse.success(res, {
     message: SUCCESS.PRODUCT.STOCK_UPDATED,
     result: serializeStockResult(result),
+  });
+});
+
+export const adjustStock = asyncHandler(async (req, res) => {
+  const result = await service.adjustStock(req.params.id, req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.PRODUCT.STOCK_UPDATED,
+    result: serializeStockResult(result),
+  });
+});
+
+export const listInventory = asyncHandler(async (req, res) => {
+  const { rows, total, page, limit, summary } = await service.listInventory(req.query as any);
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.PRODUCT.FETCHED,
+    result: {
+      itemList: rows.map((row) => ({
+        productId: D.str(row.productId),
+        variantId: D.str(row.variantId),
+        variantTitle: D.str(row.variantTitle),
+        isVariant: D.bool(row.isVariant),
+        hasVariants: D.bool(row.hasVariants),
+        name: D.str(row.name),
+        sku: D.str(row.sku),
+        shop: D.str(row.shop),
+        stock: D.num(row.stock),
+        threshold: D.num(row.threshold),
+        status: D.str(row.status),
+        isLow: D.bool(row.isLow),
+      })),
+      summary: {
+        products: D.num(summary.products),
+        units: D.num(summary.units),
+        low: D.num(summary.low),
+        out: D.num(summary.out),
+      },
+    },
+    totalRecord: total,
+    currentPage: page,
+    limit,
+  });
+});
+
+export const getStockMovements = asyncHandler(async (req, res) => {
+  const { rows, total, page, limit } = await service.getStockMovements(req.query as any);
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.PRODUCT.FETCHED,
+    result: {
+      itemList: rows.map((row) => ({
+        movementId: D.str(row.movementId),
+        productId: D.str(row.productId),
+        productName: D.str(row.productName),
+        sku: D.str(row.sku),
+        variantId: D.str(row.variantId),
+        adjustment: D.num(row.adjustment),
+        previousStock: D.num(row.previousStock),
+        stock: D.num(row.stock),
+        reason: D.str(row.reason),
+        action: D.str(row.action),
+        actorName: D.str(row.actorName),
+        createdAt: D.date(row.createdAt),
+      })),
+    },
+    totalRecord: total,
+    currentPage: page,
+    limit,
   });
 });
 

@@ -255,6 +255,7 @@ export const currencySchema = z
   .strict();
 
 export const currencyUpdateSchema = currencySchema
+  .omit({ code: true })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
 

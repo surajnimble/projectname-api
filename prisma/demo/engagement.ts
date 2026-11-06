@@ -33,6 +33,11 @@ const seedCoupons = async (
       value: 0,
       minOrderAmount: 0,
     },
+    { code: 'DEMO-PCT10', title: '10 percent off', description: 'Demo percentage offer', type: 'PERCENT', value: 10, minOrderAmount: 499 },
+    { code: 'DEMO-PCT20', title: '20 percent off', description: 'Demo percentage offer for selected carts', type: 'PERCENT', value: 20, minOrderAmount: 999 },
+    { code: 'DEMO-FIRST', title: 'First order offer', description: 'Welcome offer for new customers', type: 'FIRST_ORDER', value: 100, minOrderAmount: 299 },
+    { code: 'DEMO-FLAT100', title: 'Flat 100 off', description: 'Demo flat discount', type: 'FLAT', value: 100, minOrderAmount: 799 },
+    { code: 'DEMO-SHIP2', title: 'Shipping saver', description: 'Second free shipping offer', type: 'FREE_SHIPPING', value: 0, minOrderAmount: 499 },
   ].entries()) {
     await seedRowBy(prisma, 'coupon', { code: coupon.code }, demoId('coupon', coupon.code), {
       ...coupon,
@@ -45,7 +50,7 @@ const seedCoupons = async (
     });
   }
 
-  const coupons = await prisma.coupon.findMany({ select: { id: true }, take: 3 });
+  const coupons = await prisma.coupon.findMany({ where: { code: { in: ['FLAT50', 'FREESHIP', 'DEMO-PCT10', 'DEMO-PCT20', 'DEMO-FIRST', 'DEMO-FLAT100', 'DEMO-SHIP2'] } }, select: { id: true }, take: 7 });
   for (const [index, coupon] of coupons.entries()) {
     const orderId = commerce.orderIds[index % commerce.orderIds.length];
     if (!orderId) continue;
@@ -81,6 +86,11 @@ const seedPromotions = async (
       daysFrom: 1,
       daysTo: 10,
     },
+    { name: 'Weekend Fashion Deals', slug: 'demo-weekend-fashion', discountType: 'PERCENT', discountValue: 15, daysFrom: -1, daysTo: 4 },
+    { name: 'Home Essentials Sale', slug: 'demo-home-essentials', discountType: 'PERCENT', discountValue: 20, daysFrom: 0, daysTo: 7 },
+    { name: 'New Seller Spotlight', slug: 'demo-seller-spotlight', discountType: 'FLAT', discountValue: 150, daysFrom: 2, daysTo: 9 },
+    { name: 'Festive Preview', slug: 'demo-festive-preview', discountType: 'PERCENT', discountValue: 30, daysFrom: 1, daysTo: 12 },
+    { name: 'Clearance Picks', slug: 'demo-clearance-picks', discountType: 'FLAT', discountValue: 250, daysFrom: -3, daysTo: 6 },
   ];
 
   for (const sale of sales) {
@@ -96,8 +106,8 @@ const seedPromotions = async (
     });
   }
 
-  const flashSales = await prisma.flashSale.findMany({ select: { id: true }, take: 3 });
-  for (const [index, slug] of Object.keys(catalog.productIdBySlug).slice(0, 4).entries()) {
+  const flashSales = await prisma.flashSale.findMany({ select: { id: true }, take: 7, orderBy: { createdAt: 'asc' } });
+  for (const [index, slug] of Object.keys(catalog.productIdBySlug).slice(0, 7).entries()) {
     const flashSaleId = flashSales[index % flashSales.length]?.id;
     const productId = catalog.productIdBySlug[slug];
     if (!flashSaleId || !productId) continue;
@@ -130,6 +140,11 @@ const seedPromotions = async (
       linkUrl: '/collections/men',
       type: 'CATEGORY',
     },
+    { title: 'Home Refresh', slug: 'demo-home-refresh', image: 'https://picsum.photos/seed/banner-home/1600/500', linkUrl: '/collections/home', type: 'HOME' },
+    { title: 'Smart Tech', slug: 'demo-smart-tech', image: 'https://picsum.photos/seed/banner-tech/1600/500', linkUrl: '/collections/electronics', type: 'CATEGORY' },
+    { title: 'Daily Essentials', slug: 'demo-essentials', image: 'https://picsum.photos/seed/banner-essentials/1600/500', linkUrl: '/collections/essentials', type: 'HOME' },
+    { title: 'New Arrivals', slug: 'demo-new-arrivals', image: 'https://picsum.photos/seed/banner-arrivals/1600/500', linkUrl: '/collections/new-arrivals', type: 'HOME' },
+    { title: 'Seller Picks', slug: 'demo-seller-picks', image: 'https://picsum.photos/seed/banner-sellers/1600/500', linkUrl: '/vendors', type: 'HOME' },
   ].entries()) {
     await seedRowBy(prisma, 'banner', { slug: banner.slug }, demoId('banner', banner.slug), {
       ...banner,
@@ -152,6 +167,9 @@ const seedRewards = async (
     { type: 'DEBIT', amount: 150, balanceAfter: 350, description: 'Order payment' },
     { type: 'REFUND', amount: 799, balanceAfter: 1149, description: 'Return refund' },
     { type: 'REWARD', amount: 100, balanceAfter: 1249, description: 'Referral reward' },
+    { type: 'ADJUSTMENT', amount: 250, balanceAfter: 1499, description: 'Support adjustment' },
+    { type: 'CREDIT', amount: 300, balanceAfter: 1799, description: 'Promotional credit' },
+    { type: 'DEBIT', amount: 75, balanceAfter: 1724, description: 'Wallet purchase' },
   ];
 
   for (const [index, row] of walletRows.entries()) {
@@ -172,6 +190,9 @@ const seedRewards = async (
     { type: 'REDEEM', points: -50, balanceAfter: 50, description: 'Redeemed at checkout' },
     { type: 'EARN', points: 200, balanceAfter: 250, description: 'Festival bonus' },
     { type: 'EXPIRE', points: -25, balanceAfter: 225, description: 'Points expired' },
+    { type: 'ADJUSTMENT', points: 50, balanceAfter: 275, description: 'Support points adjustment' },
+    { type: 'EARN', points: 75, balanceAfter: 350, description: 'Review reward' },
+    { type: 'REDEEM', points: -100, balanceAfter: 250, description: 'Redeemed loyalty points' },
   ];
 
   for (const [index, row] of loyaltyRows.entries()) {
@@ -189,6 +210,10 @@ const seedRewards = async (
     { referrerIndex: 0, refereeIndex: 1, status: 'COMPLETED' },
     { referrerIndex: 0, refereeIndex: 2, status: 'PENDING' },
     { referrerIndex: 1, refereeIndex: null, status: 'PENDING' },
+    { referrerIndex: 2, refereeIndex: 3, status: 'COMPLETED' },
+    { referrerIndex: 3, refereeIndex: 4, status: 'PENDING' },
+    { referrerIndex: 4, refereeIndex: 5, status: 'PENDING' },
+    { referrerIndex: 5, refereeIndex: 6, status: 'EXPIRED' },
   ].entries()) {
     await seedRow(prisma, 'referral', demoId('referral', index + 1), {
       referrerId: identity.customerIds[referral.referrerIndex],
@@ -208,6 +233,9 @@ const seedRewards = async (
     { code: 'GIFT-DEMO-1002', value: 500, status: 'ACTIVE' },
     { code: 'GIFT-DEMO-1003', value: 250, status: 'REDEEMED' },
     { code: 'GIFT-DEMO-1004', value: 2000, status: 'EXPIRED' },
+    { code: 'GIFT-DEMO-1005', value: 750, status: 'ACTIVE' },
+    { code: 'GIFT-DEMO-1006', value: 1500, status: 'ACTIVE' },
+    { code: 'GIFT-DEMO-1007', value: 300, status: 'DISABLED' },
   ].entries()) {
     await seedRowBy(prisma, 'giftCard', { code: giftCard.code }, demoId('gift-card', index + 1), {
       code: giftCard.code,
@@ -244,6 +272,9 @@ const seedNotifications = async (
       title: 'Profile updated',
       body: 'Your profile was updated.',
     },
+    { type: 'RETURN', channel: 'IN_APP', title: 'Return request received', body: 'Your return request is under review.' },
+    { type: 'PAYOUT', channel: 'IN_APP', title: 'Vendor payout processed', body: 'Your latest payout has been processed.' },
+    { type: 'ALERT', channel: 'IN_APP', title: 'Security notice', body: 'A new sign-in was detected on your account.' },
   ];
 
   for (const [index, row] of notifications.entries()) {
@@ -265,6 +296,9 @@ const seedNotifications = async (
     { channel: 'SMS', eventType: 'PAYMENT' },
     { channel: 'PUSH', eventType: 'PROMO' },
     { channel: 'IN_APP', eventType: 'SYSTEM' },
+    { channel: 'EMAIL', eventType: 'RETURN' },
+    { channel: 'PUSH', eventType: 'ORDER' },
+    { channel: 'IN_APP', eventType: 'PROMO' },
   ].entries()) {
     await seedRow(prisma, 'notificationPreference', demoId('notification-pref', index + 1), {
       userId: identity.customerIds[index % identity.customerIds.length],
@@ -299,6 +333,9 @@ const seedNotifications = async (
       subject: 'Return {{returnNumber}} approved',
       htmlBody: '<p>Your return has been approved.</p>',
     },
+    { key: 'demo-payment-failed', name: 'Payment failed', subject: 'Your payment needs attention', htmlBody: '<p>Please retry payment for order {{orderNumber}}.</p>' },
+    { key: 'demo-delivery-update', name: 'Delivery update', subject: 'Your order is out for delivery', htmlBody: '<p>Your order {{orderNumber}} is arriving soon.</p>' },
+    { key: 'demo-review-request', name: 'Review request', subject: 'How was your recent purchase?', htmlBody: '<p>Share your feedback about order {{orderNumber}}.</p>' },
   ].entries()) {
     await seedRowBy(
       prisma,
@@ -319,6 +356,9 @@ const seedNotifications = async (
     { key: 'demo-sms-order', name: 'Order update', body: 'Order {{orderNumber}} is {{status}}.' },
     { key: 'demo-sms-payment', name: 'Payment', body: 'Payment of {{amount}} received.' },
     { key: 'demo-sms-delivery', name: 'Delivery', body: 'Out for delivery. OTP {{otp}}.' },
+    { key: 'demo-sms-refund', name: 'Refund', body: 'Refund {{amount}} has been initiated.' },
+    { key: 'demo-sms-login', name: 'Login alert', body: 'New sign-in detected for your account.' },
+    { key: 'demo-sms-shipped', name: 'Shipment', body: 'Order {{orderNumber}} has been shipped.' },
   ].entries()) {
     await seedRowBy(
       prisma,
@@ -358,6 +398,9 @@ const seedNotifications = async (
       title: 'Order update',
       body: 'Order {{orderNumber}} is confirmed.',
     },
+    { key: 'demo-push-delivery', name: 'Delivery alert', channel: 'PUSH', title: 'Out for delivery', body: 'Your order is arriving today.' },
+    { key: 'demo-inapp-return', name: 'Return update', channel: 'IN_APP', title: 'Return updated', body: 'Your return status has changed.' },
+    { key: 'demo-push-payment', name: 'Payment alert', channel: 'PUSH', title: 'Payment received', body: 'We received your payment.' },
   ].entries()) {
     await seedRowBy(
       prisma,
@@ -371,7 +414,7 @@ const seedNotifications = async (
 
 /** Adds vendor chat threads, canned replies and user blocks. */
 const seedChat = async (prisma: PrismaClient, identity: IdentityContext): Promise<void> => {
-  for (const [index, customerId] of identity.customerIds.slice(0, 3).entries()) {
+  for (const [index, customerId] of identity.customerIds.slice(0, 7).entries()) {
     const conversation = await seedRow(prisma, 'conversation', demoId('conversation', index + 1), {
       lastMessageAt: daysFromNow(-index),
       isActive: true,
@@ -423,6 +466,9 @@ const seedChat = async (prisma: PrismaClient, identity: IdentityContext): Promis
     { title: 'Refund timeline', body: 'Refunds reach your account in 5-7 business days.' },
     { title: 'Return policy', body: 'Returns are accepted within 7 days of delivery.' },
     { title: 'Thank you', body: 'Thanks for shopping with us!' },
+    { title: 'Payment help', body: 'We can help review any payment issue and provide next steps.' },
+    { title: 'Shipping update', body: 'Your shipment tracking details are available in order history.' },
+    { title: 'Account support', body: 'Please confirm the email address registered on the account.' },
   ].entries()) {
     await seedRow(prisma, 'cannedResponse', demoId('canned-response', index + 1), {
       title: canned.title,
@@ -436,6 +482,10 @@ const seedChat = async (prisma: PrismaClient, identity: IdentityContext): Promis
     { blockerIndex: 0, blockedIndex: 1, reason: 'Abusive language' },
     { blockerIndex: 1, blockedIndex: 2, reason: 'Spam' },
     { blockerIndex: 2, blockedIndex: 0, reason: 'Unwanted contact' },
+    { blockerIndex: 3, blockedIndex: 4, reason: 'Repeated spam' },
+    { blockerIndex: 4, blockedIndex: 5, reason: 'Harassment report' },
+    { blockerIndex: 5, blockedIndex: 6, reason: 'Abusive messages' },
+    { blockerIndex: 6, blockedIndex: 3, reason: 'Unwanted contact' },
   ].entries()) {
     await seedRow(prisma, 'userBlock', demoId('user-block', index + 1), {
       blockerId: identity.customerIds[block.blockerIndex],
@@ -458,6 +508,9 @@ const seedSupport = async (
     { subject: 'Wrong item delivered', status: 'IN_PROGRESS', priority: 'URGENT' },
     { subject: 'Cannot log in', status: 'RESOLVED', priority: 'MEDIUM' },
     { subject: 'Delivery address change', status: 'CLOSED', priority: 'LOW' },
+    { subject: 'Product arrived damaged', status: 'OPEN', priority: 'HIGH' },
+    { subject: 'Need GST invoice', status: 'IN_PROGRESS', priority: 'MEDIUM' },
+    { subject: 'Unable to apply coupon', status: 'OPEN', priority: 'LOW' },
   ].entries()) {
     const row = await seedRowBy(
       prisma,
@@ -486,7 +539,7 @@ const seedSupport = async (
       isInternal: false,
     });
 
-    if (index < 3) {
+    if (index < 7) {
       await seedRow(prisma, 'ticketNote', demoId('ticket-note', index + 1), {
         ticketId: row.id,
         userId: identity.subAdminId || identity.superAdminId,
@@ -500,6 +553,9 @@ const seedSupport = async (
     'Repeated buyer, offer loyalty discount.',
     'Has an open return request.',
     'Flagged for a payment review once.',
+    'Prefers delivery notifications by email.',
+    'Interested in new electronics launches.',
+    'Requested a callback about a return.',
   ].entries()) {
     await seedRow(prisma, 'customerNote', demoId('customer-note', index + 1), {
       userId: identity.customerIds[index % identity.customerIds.length],
@@ -555,6 +611,9 @@ const seedSupport = async (
     { name: 'Repeat Buyers', slug: 'repeat-buyers', kind: 'REPEAT' },
     { name: 'VIP Shoppers', slug: 'vip-shoppers', kind: 'VIP' },
     { name: 'Blocked Users', slug: 'blocked-users', kind: 'BLOCKED' },
+    { name: 'Wholesale Customers', slug: 'wholesale-customers', kind: 'WHOLESALE' },
+    { name: 'Manual Follow-up', slug: 'manual-follow-up', kind: 'MANUAL' },
+    { name: 'Returning Customers', slug: 'returning-customers', kind: 'REPEAT' },
   ].entries()) {
     const row = await seedRowBy(
       prisma,
@@ -565,7 +624,7 @@ const seedSupport = async (
         name: segment.name,
         slug: segment.slug,
         description: `${segment.name} demo segment`,
-        color: ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444'][index],
+        color: ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#14b8a6'][index],
         kind: segment.kind as any,
         isActive: true,
       },

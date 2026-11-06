@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import * as controller from './engagement.controller';
 import * as schema from './engagement.schema';
 
@@ -9,6 +11,24 @@ const loyalty = Router();
 loyalty.get('/getPoints', authenticate, controller.getSummary);
 
 loyalty.get('/getTiers', controller.getTiers);
+
+loyalty.get(
+  '/admin/:userId/summary',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.LOYALTY_MANAGE),
+  validate({ params: schema.loyaltyUserIdParamSchema }),
+  controller.adminGetSummary,
+);
+
+loyalty.get(
+  '/admin/:userId/history',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.LOYALTY_MANAGE),
+  validate({ params: schema.loyaltyUserIdParamSchema, query: schema.listLoyaltySchema }),
+  controller.adminGetHistory,
+);
 
 loyalty.get(
   '/getHistory',
@@ -28,6 +48,7 @@ loyalty.post(
   '/adjust/:userId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.LOYALTY_MANAGE),
   validate({ params: schema.loyaltyUserIdParamSchema, body: schema.adjustPointsSchema }),
   controller.adjust,
 );
@@ -56,6 +77,7 @@ referrals.get(
   '/admin/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REFERRAL_MANAGE),
   validate({ query: schema.listAdminReferralsSchema }),
   controller.getAllReferrals,
 );
@@ -64,6 +86,7 @@ referrals.post(
   '/complete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REFERRAL_MANAGE),
   validate({ params: schema.referralIdParamSchema }),
   controller.complete,
 );
@@ -72,6 +95,7 @@ referrals.patch(
   '/updateStatus/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.REFERRAL_MANAGE),
   validate({ params: schema.referralIdParamSchema, body: schema.referralStatusSchema }),
   controller.updateStatus,
 );
@@ -95,6 +119,7 @@ giftCards.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.GIFT_CARD_MANAGE),
   validate({ query: schema.listAllGiftCardsSchema }),
   controller.getAllGiftCards,
 );
@@ -103,6 +128,7 @@ giftCards.post(
   '/create',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.GIFT_CARD_MANAGE),
   validate({ body: schema.createGiftCardSchema }),
   controller.createGiftCard,
 );
@@ -111,6 +137,7 @@ giftCards.patch(
   '/disable/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.GIFT_CARD_MANAGE),
   validate({ params: schema.giftCardIdParamSchema }),
   controller.disableGiftCard,
 );
@@ -119,6 +146,7 @@ giftCards.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.GIFT_CARD_MANAGE),
   validate({ params: schema.giftCardIdParamSchema }),
   controller.removeGiftCard,
 );
@@ -129,6 +157,7 @@ templates.get(
   '/email/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ query: schema.listTemplatesSchema }),
   controller.listEmail,
 );
@@ -137,6 +166,7 @@ templates.post(
   '/email/upsert',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ body: schema.createEmailTemplateSchema }),
   controller.upsertEmail,
 );
@@ -145,6 +175,7 @@ templates.post(
   '/email/:key/render',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema, body: schema.renderTemplateValuesSchema }),
   controller.renderEmail,
 );
@@ -153,6 +184,7 @@ templates.delete(
   '/email/:key/delete',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema }),
   controller.deleteEmail,
 );
@@ -161,6 +193,7 @@ templates.get(
   '/sms/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ query: schema.listTemplatesSchema }),
   controller.listSms,
 );
@@ -169,6 +202,7 @@ templates.post(
   '/sms/upsert',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ body: schema.createSmsTemplateSchema }),
   controller.upsertSms,
 );
@@ -177,6 +211,7 @@ templates.post(
   '/sms/:key/render',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema, body: schema.renderTemplateValuesSchema }),
   controller.renderSms,
 );
@@ -185,6 +220,7 @@ templates.delete(
   '/sms/:key/delete',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema }),
   controller.deleteSms,
 );
@@ -193,6 +229,7 @@ templates.get(
   '/notification/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ query: schema.listTemplatesSchema }),
   controller.listNotifications,
 );
@@ -201,6 +238,7 @@ templates.post(
   '/notification/upsert',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ body: schema.createNotificationTemplateSchema }),
   controller.upsertNotification,
 );
@@ -209,6 +247,7 @@ templates.post(
   '/notification/:key/render',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema, body: schema.renderTemplateValuesSchema }),
   controller.renderNotification,
 );
@@ -217,6 +256,7 @@ templates.delete(
   '/notification/:key/delete',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.NOTIFICATION_TEMPLATE_MANAGE),
   validate({ params: schema.templateKeyParamSchema }),
   controller.deleteNotification,
 );

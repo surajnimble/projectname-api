@@ -1,9 +1,8 @@
 import { z } from 'zod';
 
 import { ERROR } from '../../messages/error';
-import { AdminAction, Role, ShipmentStatus } from '@prisma/client';
+import { Role, ShipmentStatus } from '@prisma/client';
 import { VALIDATION } from '../../messages/validation';
-import { FAILED_JOB_STATUS } from '../../constants/statuses';
 import { NAME } from '../../config/password.config';
 import { PHONE_REGEX } from '../../constants/countries';
 import { common, paginationSchema } from '../../middlewares/validate.middleware';
@@ -242,22 +241,11 @@ export const updateMaintenanceSchema = z
   })
   .strict();
 
-export const triggerJobSchema = z
-  .object({
-    name: z.string().trim().min(2, VALIDATION.REQUIRED('name')).max(60),
-  })
-  .strict();
 
-export const listFailedJobsSchema = z
-  .object({
-    status: z.nativeEnum(FAILED_JOB_STATUS).optional(),
-    queue: z.string().trim().max(40).optional(),
-    jobName: z.string().trim().max(60).optional(),
-  })
-  .merge(paginationSchema)
-  .strict();
 
-export const failedJobIdParamSchema = z.object({ id });
+
+
+
 
 export const createShipmentSchema = z
   .object({
@@ -272,75 +260,39 @@ export const createShipmentSchema = z
 export const shipmentStatusSchema = z
   .object({
     status: z.nativeEnum(ShipmentStatus),
+    otp: z.string().trim().regex(/^\d{4}$/, 'Enter the 4-digit delivery OTP.').optional(),
     remarks: z.string().trim().max(300).optional(),
-  })
-  .strict();
-
-export const createSubAdminSchema = z
-  .object({
-    name: z.string().trim().min(2, VALIDATION.MIN_LENGTH('name', 2)).max(NAME.MAX_LENGTH),
-    email: z.string().trim().email(VALIDATION.INVALID_EMAIL),
-    phone,
-    password: z.string().min(8).max(64),
-    permissions: z.array(z.string().trim().max(60)).max(100).optional().default([]),
-  })
-  .strict();
-
-export const updateSubAdminSchema = z
-  .object({
-    name: z.string().trim().min(2).max(NAME.MAX_LENGTH).optional(),
-    email: z.string().trim().email(VALIDATION.INVALID_EMAIL).optional(),
-    phone: phone.optional(),
+    latitude: z.coerce.number().min(-90).max(90).optional(),
+    longitude: z.coerce.number().min(-180).max(180).optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
+  .superRefine((value, ctx) => {
+    if (value.status === ShipmentStatus.DELIVERED && !value.otp) {
+      ctx.addIssue({ code: 'custom', path: ['otp'], message: 'Delivery OTP is required.' });
+    }
+    if (value.status !== ShipmentStatus.DELIVERED && value.otp) {
+      ctx.addIssue({ code: 'custom', path: ['otp'], message: 'OTP is only accepted when completing delivery.' });
+    }
+  });
 
-export const listSubAdminsSchema = z
-  .object({
-    isActive: z.enum(['true', 'false']).optional(),
-  })
-  .merge(paginationSchema)
-  .strict();
 
-export const setPermissionsSchema = z
-  .object({
-    permissions: z.array(z.string().trim().max(60)).max(200),
-  })
-  .strict();
 
-export const listAuditLogsSchema = z
-  .object({
-    actorId: id.optional(),
-    action: z.nativeEnum(AdminAction).optional(),
-    entity: z.string().trim().max(60).optional(),
-    entityId: z.string().trim().max(60).optional(),
-    from: common.isoDate.optional(),
-    to: common.isoDate.optional(),
-  })
-  .merge(paginationSchema)
-  .strict();
 
-export const listActivityLogsSchema = z
-  .object({
-    userId: id.optional(),
-    action: z.string().trim().max(60).optional(),
-    entity: z.string().trim().max(60).optional(),
-    from: common.isoDate.optional(),
-    to: common.isoDate.optional(),
-  })
-  .merge(paginationSchema)
-  .strict();
+
+
+
+
+
+
+
+
 
 export const roleParamSchema = z.object({ role: z.nativeEnum(Role) });
 
 export const roleIdParamSchema = z.object({ id: z.nativeEnum(Role) });
 
-export const actorParamSchema = z.object({ userId: common.cuid });
 
-export const purgeAuditLogsSchema = z
-  .object({
-    beforeDays: z.coerce.number().int().min(1).max(3650),
-  })
-  .strict();
+
+
 
 export type CreateZoneInput = z.infer<typeof createZoneSchema>;

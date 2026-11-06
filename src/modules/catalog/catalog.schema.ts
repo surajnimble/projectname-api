@@ -53,9 +53,11 @@ export const createTagSchema = z
   .strict()
   .transform((v) => ({ name: v.name, slug: v.slug }));
 
-export const updateTagSchema = createTagSchema.refine((v) => Object.keys(v).length > 0, {
-  message: VALIDATION.INVALID_JSON,
-});
+export const updateTagSchema = z
+  .object({ name, slug })
+  .strict()
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
 
 export const tagIdParamSchema = z.object({ id });
 

@@ -107,4 +107,32 @@ describe('serializer registry', () => {
       isActive: false,
     });
   });
+
+  it('preserves actor and originating-admin attribution in impersonated audit logs', () => {
+    const audit = canonical.serializeAuditLog({
+      id: 'audit-1',
+      actorId: 'customer-1',
+      actorRole: 'CUSTOMER',
+      impersonatedById: 'admin-1',
+      action: 'UPDATE',
+      entity: 'Order',
+      entityId: 'order-1',
+      description: 'Order updated during impersonation',
+      changes: { status: { from: 'PENDING', to: 'PROCESSING' } },
+      meta: { source: 'impersonation' },
+      ip: '127.0.0.1',
+      userAgent: 'Test Browser',
+      createdAt: new Date('2026-11-05T09:00:00.000Z'),
+      actor: { id: 'customer-1', name: 'Customer One', email: 'customer@example.test' },
+      target: { id: 'admin-1', name: 'Admin One', email: 'admin@example.test' },
+    });
+
+    expect(audit).toMatchObject({
+      actorId: 'customer-1',
+      actorRole: 'CUSTOMER',
+      impersonatedById: 'admin-1',
+      actorData: { userId: 'customer-1', name: 'Customer One' },
+      impersonatedByData: { userId: 'admin-1', name: 'Admin One' },
+    });
+  });
 });

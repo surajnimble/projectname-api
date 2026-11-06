@@ -105,11 +105,15 @@ export const walletRedeemSchema = z
 
 export const walletCreditSchema = walletAmountSchema.extend({
   amount: z.coerce.number().positive(VALIDATION.INVALID_PRICE),
+  description: z.string().trim().min(3, VALIDATION.REQUIRED('reason')).max(300),
 });
 
 export const walletDebitSchema = walletAmountSchema.extend({
   amount: z.coerce.number().positive(VALIDATION.INVALID_PRICE),
+  description: z.string().trim().min(3, VALIDATION.REQUIRED('reason')).max(300),
 });
+
+export const adminWalletParamSchema = z.object({ userId: id }).strict();
 
 export const listPayoutsSchema = z
   .object({

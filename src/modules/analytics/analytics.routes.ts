@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema } from '../../middlewares/validate.middleware';
 import { authenticate, optionalAuth } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import { uploadFiles, uploadSingle } from '../../middlewares/upload.middleware';
 import { uploadRateLimit } from '../../middlewares/rateLimit.middleware';
 import { UPLOAD_KIND } from '../../config/upload.config';
@@ -133,6 +135,7 @@ device.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_VIEW),
   validate({ query: schema.listDevicesSchema }),
   controller.listAllDevices,
 );
@@ -141,6 +144,7 @@ device.get(
   '/getById/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_VIEW),
   validate({ params: idParamSchema }),
   controller.getDevice,
 );
@@ -149,6 +153,7 @@ device.get(
   '/getByUser/:userId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_VIEW),
   validate({ params: schema.deviceUserParamSchema, query: schema.listDevicesSchema }),
   controller.listUserDevices,
 );
@@ -157,6 +162,7 @@ device.patch(
   '/block/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_BLOCK),
   validate({ params: idParamSchema }),
   controller.blockDevice,
 );
@@ -165,6 +171,7 @@ device.patch(
   '/unblock/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_BLOCK),
   validate({ params: idParamSchema }),
   controller.unblockDevice,
 );
@@ -173,6 +180,7 @@ device.delete(
   '/delete/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.DEVICE_BLOCK),
   validate({ params: idParamSchema }),
   controller.deleteDevice,
 );
@@ -201,6 +209,7 @@ analytics.get(
   '/getOverview',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getOverview,
 );
@@ -209,6 +218,7 @@ analytics.get(
   '/getVisitors',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getVisitors,
 );
@@ -217,6 +227,7 @@ analytics.get(
   '/getUniqueVisitors',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getUniqueVisitors,
 );
@@ -225,6 +236,7 @@ analytics.get(
   '/getPageViews',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getPageViews,
 );
@@ -233,6 +245,7 @@ analytics.get(
   '/getTopPages',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.topPagesSchema }),
   controller.getTopPages,
 );
@@ -241,6 +254,7 @@ analytics.get(
   '/getTrafficSources',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getTrafficSources,
 );
@@ -249,6 +263,7 @@ analytics.get(
   '/getDeviceBreakdown',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getDeviceBreakdown,
 );
@@ -257,6 +272,7 @@ analytics.get(
   '/getGeoBreakdown',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getGeoBreakdown,
 );
@@ -265,6 +281,7 @@ analytics.get(
   '/getSessions',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.sessionsListSchema }),
   controller.getSessions,
 );
@@ -273,6 +290,7 @@ analytics.get(
   '/getSessionDetail/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ params: schema.sessionIdParamSchema }),
   controller.getSessionDetail,
 );
@@ -281,6 +299,7 @@ analytics.get(
   '/getFunnel',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.funnelReportSchema }),
   controller.getFunnel,
 );
@@ -289,6 +308,7 @@ analytics.get(
   '/getConversions',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getConversions,
 );
@@ -297,6 +317,7 @@ analytics.get(
   '/getRevenueReport',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.revenueSchema }),
   controller.getRevenueReport,
 );
@@ -304,6 +325,8 @@ analytics.get(
 analytics.get(
   '/getProductPerformance',
   authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.productPerformanceSchema }),
   controller.getProductPerformance,
 );
@@ -312,6 +335,7 @@ analytics.get(
   '/getVendorPerformance',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema.partial().merge(schema.paginationSchema).strict() }),
   controller.getVendorPerformance,
 );
@@ -320,6 +344,7 @@ analytics.get(
   '/getCustomerCohorts',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getCustomerCohorts,
 );
@@ -328,6 +353,7 @@ analytics.get(
   '/getAbandonedCarts',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.abandonedCartsSchema }),
   controller.getAbandonedCarts,
 );
@@ -336,6 +362,7 @@ analytics.get(
   '/getSearchTerms',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.searchLogsSchema }),
   controller.getSearchTerms,
 );
@@ -344,16 +371,19 @@ analytics.get(
   '/getZeroResultSearches',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.searchLogsSchema }),
   controller.getZeroResultSearches,
 );
 
-analytics.get('/getRealtime', authenticate, ...controller.guards.admin, controller.getRealtime);
+analytics.get('/getRealtime', authenticate, ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW), controller.getRealtime);
 
 analytics.get(
   '/getCrashes',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.crashesListSchema }),
   controller.getCrashes,
 );
@@ -362,6 +392,7 @@ analytics.get(
   '/getAppVersions',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ query: schema.rangeSchema }),
   controller.getAppVersions,
 );
@@ -370,16 +401,19 @@ analytics.get(
   '/export',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_EXPORT),
   validate({ query: schema.exportAnalyticsSchema }),
   controller.exportAnalytics,
 );
 
-analytics.get('/funnels', authenticate, ...controller.guards.admin, controller.listFunnels);
+analytics.get('/funnels', authenticate, ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW), controller.listFunnels);
 
 analytics.post(
   '/funnels',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ body: schema.createFunnelSchema }),
   controller.createFunnel,
 );
@@ -388,6 +422,7 @@ analytics.patch(
   '/funnels/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.ANALYTICS_VIEW),
   validate({ params: schema.funnelIdParamSchema, body: schema.updateFunnelSchema }),
   controller.updateFunnel,
 );

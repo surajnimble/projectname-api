@@ -9,6 +9,28 @@ import slugify from 'slugify';
 
 const prisma = new PrismaClient();
 
+/** Refuse to run seed/migration writes against hosted or shared databases. */
+const assertLocalSeedDatabase = (): void => {
+  const configuredUrl = process.env.DATABASE_URL;
+  if (!configuredUrl) {
+    throw new Error('[seed] DATABASE_URL is required. Configure the local PGlite/PostgreSQL URL first.');
+  }
+
+  let hostname = '';
+  try {
+    hostname = new URL(configuredUrl).hostname.toLowerCase();
+  } catch {
+    throw new Error('[seed] DATABASE_URL is invalid; refusing to run migrations or seed data.');
+  }
+
+  const localHosts = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+  if (!localHosts.has(hostname)) {
+    throw new Error(
+      `[seed] Refusing to seed non-local database host "${hostname}". Start the local database and use a loopback DATABASE_URL.`,
+    );
+  }
+};
+
 /**
  * Applies pending migrations before touching any row.
  *
@@ -435,6 +457,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     { title: 'Defective product', slug: 'defective-product' },
     { title: 'Changed mind', slug: 'changed-mind' },
     { title: 'Not as described', slug: 'not-as-described' },
+    { title: 'Missing parts', slug: 'missing-parts' },
+    { title: 'Late delivery', slug: 'late-delivery' },
   ];
 
   for (const reason of returnReasons) {
@@ -451,6 +475,8 @@ const seedDemoData = async (superAdminId: string): Promise<void> => {
     { name: 'Return / Refund', slug: 'return-refund' },
     { name: 'Account Issue', slug: 'account-issue' },
     { name: 'Other', slug: 'other' },
+    { name: 'Product Quality', slug: 'product-quality' },
+    { name: 'Vendor Support', slug: 'vendor-support' },
   ]) {
     await prisma.ticketCategory.upsert({
       where: { slug: category.slug },
@@ -812,10 +838,10 @@ const main = async (): Promise<void> => {
   // eslint-disable-next-line no-console
   console.log('[seed] starting...');
 
-  const skipMigrate = process.env.SKIP_MIGRATE === 'true';
-  if (!skipMigrate) {
-    ensureMigrated();
-  }
+  // This must run before migrations, reset, or any write to guarantee the
+  // local demo seed cannot accidentally mutate Supabase/production data.
+  assertLocalSeedDatabase();
+  ensureMigrated();
 
   const demoEnabled = isDemoSeedEnabled();
 

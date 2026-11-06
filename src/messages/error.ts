@@ -52,6 +52,7 @@ export const ERROR = {
     ALREADY_EXISTS: 'User already exists.',
     NOT_ALLOWED: 'This action is not allowed on your own account.',
     SELF_IMPERSONATION: 'You are already this user.',
+    IMPERSONATION_CUSTOMER_ONLY: 'Only customer accounts can be impersonated.',
     BANNED: 'Your account has been blocked. Contact support if you think this is a mistake.',
     SELF_BAN: 'You cannot block your own account.',
     ALREADY_BANNED: 'This customer is already blocked.',
@@ -182,6 +183,8 @@ export const ERROR = {
     IDEMPOTENCY_KEY_REUSED: 'This Idempotency-Key was already used with a different request.',
     IDEMPOTENCY_IN_PROGRESS: 'A request with this Idempotency-Key is still in progress.',
     REASON_INPUT_REQUIRED: 'Provide reasonId or reasonText.',
+    COD_COLLECTION_REQUIRED: 'Collect the outstanding COD amount before finalizing delivery.',
+    COD_COLLECTION_EXCEEDS_DUE: 'Collected COD amount cannot exceed the outstanding balance.',
   },
   PAYOUT: {
     NOT_FOUND: 'Payout not found.',
@@ -330,6 +333,10 @@ export const ERROR = {
     ALREADY_EXISTS: 'This user is already a delivery boy.',
     HAS_ACTIVE_DELIVERIES: 'This rider still has active deliveries.',
     HAS_UNDELIVERED_PARCELS: 'This rider still has undelivered parcels.',
+    OTP_INVALID: 'The delivery OTP is invalid.',
+    OTP_EXPIRED: 'The delivery OTP has expired. Request a new assignment code.',
+    OTP_ATTEMPTS_EXCEEDED: 'Too many incorrect delivery OTP attempts. Request a new code.',
+    SHIPMENT_REQUIRED: 'Create a shipment before assigning a delivery rider.',
   },
   SETTING: {
     NOT_FOUND: 'Setting not found.',

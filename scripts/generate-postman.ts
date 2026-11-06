@@ -7,7 +7,6 @@ import { getSpec } from '../src/docs/swagger.routes';
 const OUT_DIR = process.argv[2] ?? join(process.env.USERPROFILE ?? '.', 'Desktop', 'postman');
 
 const COLLECTION_NAME = 'Startup Marketplace API';
-const LIVE_URL = 'https://startup-backend-m2uh.onrender.com/api/v1';
 const LOCAL_URL = 'http://localhost:5000/api/v1';
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
@@ -277,7 +276,7 @@ const main = (): void => {
       description: [
         "Generated from the API's own OpenAPI spec (`/api/v1/docs.json`), so it cannot drift from the docs.",
         '',
-        'Pick the **Local** or **Live** environment from the environment selector (top right) before running anything.',
+        'Select the **Local** environment from the environment selector (top right) before running requests. This collection is configured for local QA only.',
         '',
         'Run the **Auth** folder first. The collection-level test script captures `accessToken`, `refreshToken` and the id variables automatically from whatever responses return them, so every protected request below works without manual wiring.',
         '',
@@ -307,10 +306,6 @@ const main = (): void => {
     [
       'Environment-Local.postman_environment.json',
       JSON.stringify(environment('Local', LOCAL_URL), null, 2),
-    ],
-    [
-      'Environment-Live.postman_environment.json',
-      JSON.stringify(environment('Live', LIVE_URL), null, 2),
     ],
   ] as const;
 

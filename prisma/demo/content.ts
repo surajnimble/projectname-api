@@ -23,6 +23,11 @@ const seedContent = async (
       slug: 'return-policy',
       content: 'Returns are accepted within 7 days of delivery.',
     },
+    { title: 'Shipping Policy', slug: 'shipping-policy', content: 'Orders are dispatched within 1-2 business days.' },
+    { title: 'Terms of Service', slug: 'terms-of-service', content: 'Use the marketplace responsibly and keep account details secure.' },
+    { title: 'Cookie Policy', slug: 'cookie-policy', content: 'Cookies help remember preferences and improve the storefront.' },
+    { title: 'Cancellation Policy', slug: 'cancellation-policy', content: 'Eligible orders may be cancelled before dispatch.' },
+    { title: 'Seller Policy', slug: 'seller-policy', content: 'Sellers must provide accurate product, stock and fulfilment information.' },
   ].entries()) {
     await seedRowBy(prisma, 'page', { slug: page.slug }, demoId('page', index + 1), {
       ...page,
@@ -61,6 +66,9 @@ const seedContent = async (
       content: 'Expect discounts across electronics, fashion and home.',
       tags: ['sale', 'promo'],
     },
+    { title: 'A guide to everyday essentials', slug: 'guide-to-everyday-essentials', excerpt: 'Simple picks for everyday use.', content: 'Compare product details, warranty and verified reviews before buying.', tags: ['guide', 'essentials'] },
+    { title: 'How to track your order', slug: 'how-to-track-your-order', excerpt: 'Track each milestone from dispatch to delivery.', content: 'Open order details to view the latest shipment status and tracking link.', tags: ['orders', 'shipping'] },
+    { title: 'Marketplace seller spotlight', slug: 'marketplace-seller-spotlight', excerpt: 'Meet independent marketplace sellers.', content: 'Discover the makers and small businesses behind popular products.', tags: ['sellers', 'community'] },
   ].entries()) {
     await seedRowBy(prisma, 'blog', { slug: blog.slug }, demoId('blog', index + 1), {
       ...blog,
@@ -71,13 +79,21 @@ const seedContent = async (
     });
   }
 
-  await seedRow(prisma, 'faq', demoId('faq', 'shipping'), {
-    question: 'Do you ship internationally?',
-    answer: 'Yes. International shipping takes 7-15 business days.',
-    category: 'shipping',
-    sortOrder: 5,
-    isActive: true,
-  });
+  for (const [index, faq] of [
+    { question: 'Do you ship internationally?', answer: 'Yes. International shipping takes 7-15 business days.', category: 'shipping' },
+    { question: 'How can I track my order?', answer: 'Open Orders and select the order to view its current tracking status.', category: 'orders' },
+    { question: 'What payment methods are accepted?', answer: 'Available payment methods are shown securely at checkout.', category: 'payments' },
+    { question: 'How do I request a return?', answer: 'Open the delivered order and submit a return request within the eligible window.', category: 'returns' },
+    { question: 'When will I receive my refund?', answer: 'Refund timing depends on the payment provider and bank processing.', category: 'returns' },
+    { question: 'How do I become a seller?', answer: 'Create a vendor account and submit the required business details for review.', category: 'seller' },
+    { question: 'Can I update my delivery address?', answer: 'You can update the address before the order is dispatched.', category: 'orders' },
+  ].entries()) {
+    await seedRow(prisma, 'faq', demoId('faq', index + 1), {
+      ...faq,
+      sortOrder: index + 1,
+      isActive: true,
+    });
+  }
 
   void identity;
 };
@@ -113,6 +129,9 @@ const seedInbound = async (prisma: PrismaClient): Promise<void> => {
       message: 'I would like to sell on your marketplace.',
       isRead: true,
     },
+    { name: 'Rohan Kapoor', email: 'rohan@example.com', subject: 'Payment status', message: 'My payment is pending but the amount was debited.', isRead: false },
+    { name: 'Ayesha Khan', email: 'ayesha@example.com', subject: 'Product details', message: 'Could you confirm the warranty for this item?', isRead: false },
+    { name: 'Manish Rao', email: 'manish@example.com', subject: 'Account help', message: 'I need help updating my account email address.', isRead: true },
   ].entries()) {
     await seedRow(prisma, 'contactSubmission', demoId('contact', index + 1), {
       ...submission,
@@ -126,6 +145,9 @@ const seedInbound = async (prisma: PrismaClient): Promise<void> => {
     'subscriber2@example.com',
     'subscriber3@example.com',
     'subscriber4@example.com',
+    'subscriber5@example.com',
+    'subscriber6@example.com',
+    'subscriber7@example.com',
   ].entries()) {
     await seedRowBy(
       prisma,

@@ -54,6 +54,23 @@ export const getTiers = asyncHandler(async (_req, res) => {
   });
 });
 
+export const adminGetSummary = asyncHandler(async (req, res) => {
+  const result = await service.getLoyaltySummary(D.str(req.params.userId));
+  return ApiResponse.success(res, { message: SUCCESS.LOYALTY.POINTS_FETCHED, result });
+});
+
+export const adminGetHistory = asyncHandler(async (req, res) => {
+  const { page, limit, skip, take } = getPagination(req.query as any);
+  const { rows, total } = await service.listLoyaltyHistory(D.str(req.params.userId), {
+    ...(req.query as any), skip, take,
+  });
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.LOYALTY.HISTORY_FETCHED,
+    result: { loyaltyTransactionList: rows.map(serializeLoyaltyTransaction) },
+    totalRecord: total, currentPage: page, limit,
+  });
+});
+
 /**
  * @openapi
  * /loyalty/getHistory:

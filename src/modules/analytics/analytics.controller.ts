@@ -479,10 +479,20 @@ export const getAppVersions = asyncHandler(async (req, res) => {
 export const exportAnalytics = asyncHandler(async (req, res) => {
   const { columns, rows, truncated } = await service.exportAnalytics(req.query);
 
-  const csv = [columns.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
+  const csvCell = (value: unknown): string => {
+    const raw = typeof value === 'number' ? String(value) : String(value ?? '');
+    const protectedValue = typeof value === 'number' || !/^[\s]*[=+@-]/.test(raw) ? raw : `'${raw}`;
+    return /[\",\r\n]/.test(protectedValue)
+      ? `"${protectedValue.replace(/"/g, '""')}"`
+      : protectedValue;
+  };
+  const csv = [columns, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+  // Express query values can also be ParsedQs objects or arrays; only accept a scalar string.
+  const reportType = typeof req.query.report === 'string' ? req.query.report : '';
+  const fileName = reportType === 'revenue' ? 'revenue-report.csv' : 'analytics.csv';
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="analytics.csv"');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
 
   res.setHeader('X-Truncated', String(truncated));
 

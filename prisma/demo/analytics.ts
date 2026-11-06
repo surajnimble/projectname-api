@@ -13,6 +13,9 @@ const seedTracking = async (prisma: PrismaClient, identity: IdentityContext): Pr
     { eventType: 'product_view', eventName: 'product', pageUrl: '/products/classic-cotton-shirt' },
     { eventType: 'add_to_cart', eventName: 'cart', pageUrl: '/cart' },
     { eventType: 'search', eventName: 'search', pageUrl: '/search?q=shirt' },
+    { eventType: 'category_view', eventName: 'category', pageUrl: '/categories/electronics' },
+    { eventType: 'checkout_started', eventName: 'checkout', pageUrl: '/checkout' },
+    { eventType: 'purchase', eventName: 'purchase', pageUrl: '/orders/confirmation' },
   ].entries()) {
     await seedRow(prisma, 'visitorLog', demoId('visitor-log', index + 1), {
       sessionKey: `demo-session-${index + 1}`,
@@ -59,6 +62,9 @@ const seedTracking = async (prisma: PrismaClient, identity: IdentityContext): Pr
     { errorMessage: 'RangeError: invalid time value', platform: 'IOS' },
     { errorMessage: 'NetworkError: failed to fetch', platform: 'WEB' },
     { errorMessage: 'TypeError: cannot read property id', platform: 'ANDROID' },
+    { errorMessage: 'NetworkError: request timed out', platform: 'IOS' },
+    { errorMessage: 'RangeError: maximum call stack exceeded', platform: 'WEB' },
+    { errorMessage: 'TypeError: cannot read property price', platform: 'ANDROID' },
   ].entries()) {
     await seedRow(prisma, 'crashLog', demoId('crash-log', index + 1), {
       deviceId: `demo-device-${index + 1}`,
@@ -82,6 +88,10 @@ const seedFunnels = async (prisma: PrismaClient): Promise<void> => {
     { name: 'Checkout', slug: 'demo-checkout', description: 'Home to paid order' },
     { name: 'Signup', slug: 'demo-signup', description: 'Visit to verified account' },
     { name: 'Product discovery', slug: 'demo-product-discovery', description: 'Search to cart' },
+    { name: 'Repeat purchase', slug: 'demo-repeat-purchase', description: 'Returning visit to repeat order' },
+    { name: 'Campaign landing', slug: 'demo-campaign-landing', description: 'Campaign visit to conversion' },
+    { name: 'Mobile checkout', slug: 'demo-mobile-checkout', description: 'Mobile product view to paid order' },
+    { name: 'Vendor discovery', slug: 'demo-vendor-discovery', description: 'Vendor profile to product order' },
   ].entries()) {
     const row = await seedRowBy(
       prisma,
@@ -140,6 +150,9 @@ const seedRollups = async (prisma: PrismaClient): Promise<void> => {
     '2026-10-29T00:00:00.000Z',
     '2026-10-30T00:00:00.000Z',
     '2026-10-31T00:00:00.000Z',
+    '2026-11-01T00:00:00.000Z',
+    '2026-11-02T00:00:00.000Z',
+    '2026-11-03T00:00:00.000Z',
   ].entries()) {
     await seedRowBy(
       prisma,
@@ -191,6 +204,9 @@ const seedRollups = async (prisma: PrismaClient): Promise<void> => {
       visitors: 60,
       pageViews: 190,
     },
+    { date: '2026-11-01', country: 'IN', state: 'KA', city: 'Bengaluru', visitors: 240, pageViews: 720 },
+    { date: '2026-11-02', country: 'AE', state: 'DU', city: 'Abu Dhabi', visitors: 70, pageViews: 210 },
+    { date: '2026-11-03', country: 'US', state: 'NY', city: 'New York', visitors: 85, pageViews: 260 },
   ].entries()) {
     const date = new Date(`${visit.date}T00:00:00.000Z`);
     await prisma.geoVisit.upsert({

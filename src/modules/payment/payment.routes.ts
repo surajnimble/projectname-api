@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { validate, idParamSchema, paginationSchema } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { requirePermission } from '../../middlewares/rbac.middleware';
+import { PERMISSION } from '../../constants/permissions';
 import { idempotency } from '../../middlewares/idempotency.middleware';
 import * as controller from './payment.controller';
 import * as schema from './payment.schema';
@@ -13,6 +15,7 @@ payment.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYMENT_LIST),
   validate({ query: schema.listPaymentsSchema }),
   controller.getAll,
 );
@@ -65,6 +68,8 @@ payment.post(
 payment.patch(
   '/markCodCollected/:orderId',
   authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYMENT_CONFIRM),
   idempotency('payment.markCodCollected'),
   validate({
     params: schema.paymentOrderParamSchema,
@@ -77,6 +82,7 @@ payment.patch(
   '/confirmPayment/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYMENT_CONFIRM),
   idempotency('payment.confirmPayment'),
   validate({ params: idParamSchema }),
   controller.confirmPayment,
@@ -86,6 +92,7 @@ payment.post(
   '/refund/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYMENT_REFUND),
   idempotency('payment.createRefund'),
   validate({ params: idParamSchema, body: schema.initiateRefundSchema.omit({ paymentId: true }) }),
   controller.createRefund,
@@ -137,6 +144,7 @@ payout.get(
   '/getAll',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_LIST),
   validate({ query: schema.listPayoutsSchema }),
   controller.payoutList,
 );
@@ -145,6 +153,7 @@ payout.patch(
   '/approvePayout/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_APPROVE),
   validate({
     params: schema.payoutIdParamSchema,
     body: schema.payoutStatusSchema.omit({ status: true }),
@@ -156,16 +165,18 @@ payout.patch(
   '/rejectPayout/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_REJECT),
   validate({ params: schema.payoutIdParamSchema, body: schema.rejectPayoutSchema }),
   controller.rejectPayout,
 );
 
-payout.post('/generateCycles', authenticate, ...controller.guards.admin, controller.generateCycles);
+payout.post('/generateCycles', authenticate, ...controller.guards.admin, requirePermission(PERMISSION.PAYOUT_GENERATE), controller.generateCycles);
 
 payout.get(
   '/getSummary',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_LIST),
   validate({ query: schema.payoutSummarySchema }),
   controller.getSummary,
 );
@@ -174,6 +185,7 @@ payout.get(
   '/getStatement/:vendorId',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_LIST),
   validate({ params: schema.vendorIdParamSchema, query: schema.statementQuerySchema }),
   controller.getStatement,
 );
@@ -182,6 +194,7 @@ payout.post(
   '/bulkApprove',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_APPROVE),
   validate({ body: schema.bulkApproveSchema }),
   controller.bulkApprove,
 );
@@ -198,6 +211,7 @@ payout.patch(
   '/updateStatus/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.PAYOUT_APPROVE),
   validate({ params: schema.payoutIdParamSchema, body: schema.payoutStatusSchema }),
   controller.updatePayoutStatus,
 );
@@ -212,6 +226,7 @@ returns.post(
   '/addReason',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_LIST),
   validate({ body: schema.returnReasonSchema }),
   controller.addReturnReason,
 );
@@ -226,6 +241,8 @@ returns.post(
 returns.get(
   '/getAll',
   authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_LIST),
   validate({ query: schema.listReturnsSchema }),
   controller.returnList,
 );
@@ -233,34 +250,40 @@ returns.get(
 returns.get(
   '/getById/:id',
   authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_LIST),
   validate({ params: schema.returnIdParamSchema }),
   controller.returnById,
 );
 
 returns.patch(
   '/approve/:id',
-  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_APPROVE),
   validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
   controller.approveReturn,
 );
 
 returns.patch(
   '/reject/:id',
-  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_REJECT),
   validate({ params: schema.returnIdParamSchema, body: schema.rejectReturnSchema }),
   controller.rejectReturn,
 );
 
 returns.patch(
   '/markPickedUp/:id',
-  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_APPROVE),
   validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
   controller.markPickedUp,
 );
 
 returns.patch(
   '/markReceived/:id',
-  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_APPROVE),
   validate({ params: schema.returnIdParamSchema, body: schema.returnTransitionSchema }),
   controller.markReceived,
 );
@@ -269,6 +292,7 @@ returns.patch(
   '/processRefund/:id',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.RETURN_REFUND),
   validate({ params: schema.returnIdParamSchema, body: schema.processReturnRefundSchema }),
   controller.processReturnRefund,
 );
@@ -278,6 +302,24 @@ export const returnRoutes = returns;
 const wallet = Router();
 
 wallet.get('/getBalance', authenticate, controller.walletBalance);
+
+wallet.get(
+  '/admin/:userId/summary',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.WALLET_ADJUST),
+  validate({ params: schema.adminWalletParamSchema }),
+  controller.adminWalletSummary,
+);
+
+wallet.get(
+  '/admin/:userId/transactions',
+  authenticate,
+  ...controller.guards.admin,
+  requirePermission(PERMISSION.WALLET_ADJUST),
+  validate({ params: schema.adminWalletParamSchema, query: schema.walletListSchema }),
+  controller.adminWalletTransactions,
+);
 
 wallet.get(
   '/getTransactions',
@@ -304,6 +346,7 @@ wallet.post(
   '/adminCredit',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WALLET_ADJUST),
   validate({ body: schema.walletCreditSchema }),
   controller.adminCredit,
 );
@@ -312,6 +355,7 @@ wallet.post(
   '/adminDebit',
   authenticate,
   ...controller.guards.admin,
+  requirePermission(PERMISSION.WALLET_ADJUST),
   validate({ body: schema.walletDebitSchema }),
   controller.adminDebit,
 );

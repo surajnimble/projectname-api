@@ -243,6 +243,12 @@ export const createFlashSaleSchema = z
   .strict()
   .refine((v) => new Date(v.endsAt) > new Date(v.startsAt), {
     message: ERROR.FLASH_SALE.INVALID_WINDOW,
+  })
+  .refine((v) => new Set(v.items.map((item) => item.productId)).size === v.items.length, {
+    message: 'Each product can only be added to a flash sale once.',
+  })
+  .refine((v) => v.discountType !== 'PERCENT' || v.discountValue <= 100, {
+    message: 'Percentage discount cannot exceed 100.',
   });
 
 export const updateFlashSaleSchema = z
@@ -268,7 +274,10 @@ export const updateFlashSaleSchema = z
       .optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON });
+  .refine((v) => Object.keys(v).length > 0, { message: VALIDATION.INVALID_JSON })
+  .refine((v) => v.discountType !== 'PERCENT' || v.discountValue === undefined || v.discountValue <= 100, {
+    message: 'Percentage discount cannot exceed 100.',
+  });
 
 export const flashSaleIdParamSchema = z.object({ id });
 

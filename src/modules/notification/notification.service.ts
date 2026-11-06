@@ -23,6 +23,13 @@ export const listNotifications = async (
   if (D.str(query.channel)) where.channel = query.channel as NotificationChannel;
   if (D.str(query.isRead) === 'true') where.isRead = true;
   if (D.str(query.isRead) === 'false') where.isRead = false;
+  const search = D.str(query.search).trim();
+  if (search) {
+    where.OR = [
+      { title: { contains: search, mode: 'insensitive' } },
+      { body: { contains: search, mode: 'insensitive' } },
+    ];
+  }
 
   const [rows, total, unread] = await Promise.all([
     prisma.notification.findMany({
@@ -129,38 +136,54 @@ export const broadcast = async (input: {
   userIds?: string[];
   toAll?: boolean;
   type?: string;
-  channel?: string;
+  channel?: 'IN_APP';
   title: string;
   body?: string;
   data?: Record<string, any>;
 }): Promise<number> => {
-  const targets = D.arr(input.userIds).map(String);
-
-  if (D.bool(input.toAll)) {
-    const users = await prisma.user.findMany({
-      where: { isActive: true },
-      select: { id: true },
-      take: OPS.JOB_BATCH_SIZE,
-    });
-    return notifyUsers(
-      users.map((u) => u.id),
-      {
-        type: D.str(input.type) as any,
-        channel: D.str(input.channel) as any,
-        title: input.title,
-        body: D.str(input.body),
-        data: input.data ?? {},
-      },
-    );
-  }
-
-  return notifyUsers(targets, {
-    type: D.str(input.type) as any,
-    channel: D.str(input.channel) as any,
+  const notification = {
+    type: D.str(input.type || 'PROMO') as any,
+    channel: 'IN_APP' as const,
     title: input.title,
     body: D.str(input.body),
     data: input.data ?? {},
-  });
+  };
+
+  if (D.bool(input.toAll)) {
+    const batchSize = Math.max(1, Math.min(OPS.JOB_BATCH_SIZE, 100));
+    let lastUserId = '';
+    let sent = 0;
+
+    // Process every active, non-deleted account in bounded batches. The old
+    // implementation selected only the first batch and silently skipped the rest.
+    while (true) {
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          deletedAt: null,
+          ...(lastUserId ? { id: { gt: lastUserId } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: batchSize,
+      });
+
+      if (users.length === 0) break;
+      sent += await notifyUsers(users.map((user) => user.id), notification);
+      lastUserId = users[users.length - 1].id;
+      if (users.length < batchSize) break;
+    }
+
+    return sent;
+  }
+
+  const targets = [...new Set(D.arr(input.userIds).map(String).filter(Boolean))];
+  const batchSize = 100;
+  let sent = 0;
+  for (let index = 0; index < targets.length; index += batchSize) {
+    sent += await notifyUsers(targets.slice(index, index + batchSize), notification);
+  }
+  return sent;
 };
 
 const CONVERSATION_INCLUDE = {
@@ -384,6 +407,84 @@ export const listConversations = async (
   );
 
   return { rows: withUnread, total, unreadTotal: unreadCounts.reduce((s, c) => s + c, 0) };
+};
+
+/** Admin-only read access. Deliberately separate from participant-scoped customer chat APIs. */
+export const adminListConversations = async (
+  query: Record<string, any>,
+  actorId: string,
+  req?: any,
+): Promise<{ rows: ConversationRow[]; total: number }> => {
+  const where: Prisma.ConversationWhereInput = {};
+  if (query.isActive === 'true') where.isActive = true;
+  if (query.isActive === 'false') where.isActive = false;
+
+  const search = D.str(query.search).trim();
+  if (search) {
+    where.OR = [
+      { participants: { some: { user: { name: { contains: search, mode: 'insensitive' } } } } },
+      { participants: { some: { user: { email: { contains: search, mode: 'insensitive' } } } } },
+      { participants: { some: { vendor: { shopName: { contains: search, mode: 'insensitive' } } } } },
+      { messages: { some: { body: { contains: search, mode: 'insensitive' } } } },
+    ];
+  }
+
+  const [rows, total] = await Promise.all([
+    prisma.conversation.findMany({
+      where,
+      include: CONVERSATION_INCLUDE,
+      orderBy: { lastMessageAt: 'desc' },
+      skip: D.num(query.skip),
+      take: D.num(query.take),
+    }),
+    prisma.conversation.count({ where }),
+  ]);
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'ADMIN_CHAT_CONVERSATIONS_VIEWED',
+    entity: 'Conversation',
+    meta: { search: search ? '[FILTERED]' : '', isActive: query.isActive ?? 'all', resultCount: rows.length },
+  });
+
+  return { rows: rows as ConversationRow[], total };
+};
+
+export const adminGetMessages = async (
+  conversationId: string,
+  query: Record<string, any>,
+  actorId: string,
+  req?: any,
+): Promise<{ rows: any[]; total: number }> => {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true },
+  });
+  if (!conversation) throw AppError.notFound(ERROR.CHAT.NOT_FOUND);
+
+  const where: Prisma.MessageWhereInput = { conversationId };
+  const [rows, total] = await Promise.all([
+    prisma.message.findMany({
+      where,
+      include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+      orderBy: { createdAt: 'desc' },
+      skip: D.num(query.skip),
+      take: D.num(query.take),
+    }),
+    prisma.message.count({ where }),
+  ]);
+
+  void writeActivityLog({
+    req,
+    userId: actorId,
+    action: 'ADMIN_CHAT_MESSAGES_VIEWED',
+    entity: 'Conversation',
+    entityId: conversationId,
+    meta: { resultCount: rows.length },
+  });
+
+  return { rows, total };
 };
 
 export const getMessages = async (
@@ -1024,6 +1125,7 @@ export const updateNotificationTemplate = async (
       ...(input.name === undefined ? {} : { name: D.str(input.name) }),
       ...(input.title === undefined ? {} : { title: D.str(input.title) }),
       ...(input.body === undefined ? {} : { body: D.str(input.body) }),
+      ...(input.channel === undefined ? {} : { channel: input.channel as NotificationChannel }),
       ...(input.variables === undefined ? {} : { variables: D.strArr(input.variables) }),
       ...(input.isActive === undefined ? {} : { isActive: Boolean(input.isActive) }),
     },

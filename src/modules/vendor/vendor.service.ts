@@ -26,6 +26,8 @@ import {
   getVendorPayoutHoldDays,
   getVendorStoreConfig,
 } from '../../services/settings.service';
+
+export const getCommissionBoundsForAdmin = () => getCommissionBounds();
 import { deleteTempFiles } from '../../middlewares/upload.middleware';
 import { addDays, toDayKey } from '../../utils/dates';
 import { ListVendorFilters, KycUpload, PayoutRequestResult } from './vendor.types';
@@ -402,6 +404,69 @@ export const suspendVendor = async (
   });
 
   return updated;
+};
+
+export const bulkApproveVendors = async (
+  input: { vendorIds: string[]; commissionRate?: number; remark?: string },
+  req?: any,
+): Promise<{ updatedCount: number; failedList: { vendorId: string; reason: string }[] }> => {
+  const failedList: { vendorId: string; reason: string }[] = [];
+  let updatedCount = 0;
+
+  for (const vendorId of input.vendorIds) {
+    try {
+      await approveVendor(vendorId, {
+        ...(input.commissionRate !== undefined ? { commissionRate: input.commissionRate } : {}),
+        ...(input.remark ? { remark: input.remark } : {}),
+      }, req);
+      updatedCount += 1;
+    } catch (error) {
+      failedList.push({
+        vendorId,
+        reason: error instanceof Error ? error.message : 'Vendor approval failed.',
+      });
+    }
+  }
+
+  void writeAuditLog({
+    req,
+    action: ADMIN_ACTION.APPROVE,
+    entity: 'VendorProfile',
+    description: `Bulk vendor approval: ${updatedCount} succeeded, ${failedList.length} failed`,
+    changes: { updatedCount, failedCount: failedList.length },
+  });
+
+  return { updatedCount, failedList };
+};
+
+export const bulkSuspendVendors = async (
+  input: { vendorIds: string[]; reason: string },
+  req?: any,
+): Promise<{ updatedCount: number; failedList: { vendorId: string; reason: string }[] }> => {
+  const failedList: { vendorId: string; reason: string }[] = [];
+  let updatedCount = 0;
+
+  for (const vendorId of input.vendorIds) {
+    try {
+      await suspendVendor(vendorId, { reason: input.reason }, req);
+      updatedCount += 1;
+    } catch (error) {
+      failedList.push({
+        vendorId,
+        reason: error instanceof Error ? error.message : 'Vendor suspension failed.',
+      });
+    }
+  }
+
+  void writeAuditLog({
+    req,
+    action: ADMIN_ACTION.SUSPEND,
+    entity: 'VendorProfile',
+    description: `Bulk vendor suspension: ${updatedCount} succeeded, ${failedList.length} failed`,
+    changes: { updatedCount, failedCount: failedList.length },
+  });
+
+  return { updatedCount, failedList };
 };
 
 export const updateCommission = async (

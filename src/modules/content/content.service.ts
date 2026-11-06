@@ -998,14 +998,21 @@ export const updateTaxConfig = async (
   input: Record<string, any>,
   req?: any,
 ): Promise<any> => {
-  const existing = await prisma.taxConfig.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.taxConfig.findUnique({ where: { id }, select: { id: true, slug: true } });
 
   if (!existing) throw AppError.notFound(ERROR.TAX.NOT_FOUND);
+
+  const nextSlug = input.slug === undefined ? undefined : toSlugValue(D.str(input.slug));
+  if (nextSlug && nextSlug !== existing.slug) {
+    const duplicate = await prisma.taxConfig.findUnique({ where: { slug: nextSlug }, select: { id: true } });
+    if (duplicate && duplicate.id !== id) throw AppError.conflict(ERROR.TAX.SLUG_EXISTS, ERROR_CODE.DUPLICATE);
+  }
 
   const row = await prisma.taxConfig.update({
     where: { id },
     data: {
       ...(input.name === undefined ? {} : { name: D.str(input.name) }),
+      ...(nextSlug === undefined ? {} : { slug: nextSlug }),
       ...(input.percent === undefined ? {} : { percent: D.float(input.percent) }),
       ...(input.cgstPercent === undefined ? {} : { cgstPercent: D.float(input.cgstPercent) }),
       ...(input.sgstPercent === undefined ? {} : { sgstPercent: D.float(input.sgstPercent) }),
@@ -1472,8 +1479,10 @@ export const listBulkJobs = async (
   return { rows, total };
 };
 
-export const getBulkJob = async (jobId: string): Promise<any> => {
-  const job = await prisma.bulkJob.findUnique({ where: { jobId: D.str(jobId) } });
+export const getBulkJob = async (jobId: string, vendorId?: string): Promise<any> => {
+  const job = await prisma.bulkJob.findFirst({
+    where: { jobId: D.str(jobId), ...(vendorId ? { vendorId } : {}) },
+  });
 
   if (!job) throw AppError.notFound(ERROR.BULK.JOB_NOT_FOUND);
 
@@ -1758,28 +1767,54 @@ export const inventoryReport = async (): Promise<Record<string, any>> => {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     select: {
+      id: true,
       name: true,
       sku: true,
       stock: true,
       lowStockThreshold: true,
       status: true,
       vendor: { select: { shopName: true } },
+      variants: {
+        select: { id: true, title: true, sku: true, stock: true },
+      },
     },
     orderBy: { stock: 'asc' },
-    take: 500,
+  });
+
+  const rows = products.flatMap((product: any) => {
+    const common = {
+      productId: D.str(product.id),
+      name: D.str(product.name),
+      shop: D.str(product.vendor?.shopName),
+      threshold: D.num(product.lowStockThreshold),
+      status: D.str(product.status),
+    };
+
+    const baseStockRow = {
+      ...common,
+      variantId: '',
+      variantTitle: '',
+      isVariant: false,
+      sku: D.str(product.sku),
+      stock: D.num(product.stock),
+      isLow: D.num(product.stock) <= D.num(product.lowStockThreshold),
+    };
+    const variantRows = D.arr(product.variants).map((variant: any) => ({
+      ...common,
+      variantId: D.str(variant.id),
+      variantTitle: D.str(variant.title),
+      isVariant: true,
+      sku: D.str(variant.sku) || D.str(product.sku),
+      stock: D.num(variant.stock),
+      isLow: D.num(variant.stock) <= D.num(product.lowStockThreshold),
+    }));
+
+    return [baseStockRow, ...variantRows];
   });
 
   return toReport(
-    ['name', 'sku', 'shop', 'stock', 'threshold', 'status', 'isLow'],
-    products.map((p: any) => ({
-      name: D.str(p.name),
-      sku: D.str(p.sku),
-      shop: D.str(p.vendor?.shopName),
-      stock: D.num(p.stock),
-      threshold: D.num(p.lowStockThreshold),
-      status: D.str(p.status),
-      isLow: D.num(p.stock) <= D.num(p.lowStockThreshold),
-    })),
+    ['productId', 'variantId', 'isVariant', 'name', 'variantTitle', 'sku', 'shop', 'stock', 'threshold', 'status', 'isLow'],
+    rows,
   );
 };
 

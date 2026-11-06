@@ -31,6 +31,12 @@ const PAYMENT_INCLUDE = {
 
 type PaymentRow = Prisma.PaymentGetPayload<{ include: typeof PAYMENT_INCLUDE }>;
 
+const COD_COLLECTABLE_PAYMENT_STATUSES: ReadonlySet<PaymentStatus> = new Set([
+  PaymentStatus.PENDING,
+  PaymentStatus.COD_PENDING,
+  PaymentStatus.COD_COLLECTED,
+]);
+
 export const listPayments = async (
   userId: string | null,
   query: Record<string, any>,
@@ -281,45 +287,100 @@ export const payBalance = async (
 };
 
 export const collectCod = async (
-  input: { orderId: string; amount?: number; reference?: string },
+  input: { orderId: string; subOrderId?: string; amount?: number; reference?: string },
   actorId?: string,
   req?: any,
 ): Promise<PaymentRow> => {
   const order = await prisma.order.findUnique({
     where: { id: D.str(input.orderId) },
-    select: { id: true, orderNumber: true, total: true, walletAmount: true, userId: true },
+    select: { id: true, orderNumber: true, userId: true },
   });
 
   if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);
 
   const payment = await prisma.payment.findFirst({
-    where: { orderId: order.id, status: PaymentStatus.COD_PENDING },
+    where: {
+      orderId: order.id,
+      method: PaymentMethod.COD,
+      status: { in: [PaymentStatus.PENDING, PaymentStatus.COD_PENDING, PaymentStatus.COD_COLLECTED] },
+    },
     orderBy: { createdAt: 'desc' },
   });
 
   if (!payment) throw AppError.unprocessable(ERROR.PAYMENT.ALREADY_PAID);
 
-  const amount = D.num(input.amount) || money(order.total - order.walletAmount);
+  const outstanding = money(Math.max(0, payment.amount - payment.paidAmount));
+  if (outstanding <= 0) throw AppError.unprocessable(ERROR.PAYMENT.ALREADY_PAID);
+
+  let subOrderShare: number | undefined;
+  if (D.str(input.subOrderId)) {
+    const subOrder = await prisma.subOrder.findFirst({
+      where: { id: D.str(input.subOrderId), orderId: order.id },
+      select: { total: true },
+    });
+    if (!subOrder) throw AppError.notFound(ERROR.ORDER.SUB_ORDER_NOT_FOUND);
+    const activeSubOrders = await prisma.subOrder.aggregate({
+      where: {
+        orderId: order.id,
+        status: { notIn: ['CANCELLED', 'RETURNED'] },
+      },
+      _sum: { total: true },
+    });
+    const activeSubOrderTotal = D.float(activeSubOrders._sum.total);
+    subOrderShare =
+      activeSubOrderTotal > 0
+        ? money(outstanding * (subOrder.total / activeSubOrderTotal))
+        : outstanding;
+  }
+
+  const amount =
+    input.amount === undefined
+      ? Math.min(outstanding, subOrderShare ?? outstanding)
+      : money(input.amount);
+
+  if (amount <= 0) {
+    throw AppError.unprocessable(ERROR.PAYMENT.COD_COLLECTION_REQUIRED, ERROR_CODE.INVALID_STATUS_TRANSITION);
+  }
+  if (amount > outstanding) {
+    throw AppError.unprocessable(ERROR.PAYMENT.COD_COLLECTION_EXCEEDS_DUE, ERROR_CODE.INVALID_STATUS_TRANSITION);
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
-    await tx.payment.update({
-      where: { id: payment.id },
+    const current = await tx.payment.findUnique({ where: { id: payment.id } });
+    if (!current || !COD_COLLECTABLE_PAYMENT_STATUSES.has(current.status)) {
+      throw AppError.unprocessable(ERROR.PAYMENT.ALREADY_PAID);
+    }
+
+    const currentOutstanding = money(Math.max(0, current.amount - current.paidAmount));
+    if (amount > currentOutstanding || currentOutstanding <= 0) {
+      throw AppError.unprocessable(ERROR.PAYMENT.COD_COLLECTION_EXCEEDS_DUE, ERROR_CODE.INVALID_STATUS_TRANSITION);
+    }
+
+    const paidAmount = money(current.paidAmount + amount);
+    const isSettled = paidAmount >= current.amount;
+    const paymentUpdate = await tx.payment.updateMany({
+      where: { id: payment.id, paidAmount: current.paidAmount, status: current.status },
       data: {
-        status: PaymentStatus.COD_COLLECTED,
-        paidAmount: amount,
+        status: isSettled ? PaymentStatus.COD_COLLECTED : PaymentStatus.COD_PENDING,
+        paidAmount,
         reference: D.str(input.reference),
         collectedBy: D.str(actorId),
-        paidAt: new Date(),
+        paidAt: isSettled ? new Date() : null,
       },
-      include: PAYMENT_INCLUDE,
     });
+    if (paymentUpdate.count !== 1) {
+      throw AppError.conflict(ERROR.PAYMENT.ALREADY_PAID, ERROR_CODE.DUPLICATE);
+    }
 
     await tx.order.update({
       where: { id: order.id },
-      data: { paymentStatus: PaymentStatus.PAID, balancePaid: true },
+      data: {
+        paymentStatus: isSettled ? PaymentStatus.PAID : PaymentStatus.COD_PENDING,
+        balancePaid: isSettled,
+      },
     });
 
-    return tx.payment.findUnique({ where: { id: payment.id }, include: PAYMENT_INCLUDE });
+    return tx.payment.findUniqueOrThrow({ where: { id: payment.id }, include: PAYMENT_INCLUDE });
   });
 
   void writeActivityLog({
@@ -328,14 +389,17 @@ export const collectCod = async (
     action: 'COD_COLLECTED',
     entity: 'Order',
     entityId: order.id,
-    meta: { amount },
+    meta: { amount, subOrderId: D.str(input.subOrderId), paymentStatus: updated.status },
   });
 
+  const remaining = money(Math.max(0, payment.amount - payment.paidAmount - amount));
   void notifyUser({
     userId: order.userId,
     type: 'PAYMENT',
-    title: `Payment received for ${order.orderNumber}`,
-    body: `We recorded ${amount} as collected.`,
+    title: `COD collection recorded for ${order.orderNumber}`,
+    body: remaining > 0
+      ? `We recorded ${amount}. The remaining COD balance is ${remaining}.`
+      : `We recorded ${amount}. Your COD balance is fully settled.`,
     data: { orderId: order.id },
   });
 
@@ -520,9 +584,12 @@ export const listRefunds = async (
   return { rows, total };
 };
 
-export const getWalletBalance = async (userId: string): Promise<number> => {
+export const getWalletBalance = async (
+  userId: string,
+  db: Prisma.TransactionClient = prisma,
+): Promise<number> => {
   const [credits, debits] = await Promise.all([
-    prisma.walletTransaction.aggregate({
+    db.walletTransaction.aggregate({
       where: {
         userId,
         status: 'SUCCESS',
@@ -530,7 +597,7 @@ export const getWalletBalance = async (userId: string): Promise<number> => {
       },
       _sum: { amount: true },
     }),
-    prisma.walletTransaction.aggregate({
+    db.walletTransaction.aggregate({
       where: { userId, status: 'SUCCESS', type: { in: ['DEBIT', 'REDEEM'] } },
       _sum: { amount: true },
     }),
@@ -602,27 +669,52 @@ export const adjustWallet = async (
 
   if (!cfg.enabled) throw AppError.unprocessable(ERROR.WALLET.NOT_ENABLED);
 
-  const current = await getWalletBalance(userId);
-  const next = money(current + D.num(input.amount));
+  const adjustmentAmount = D.num(input.amount);
+  let row: any = null;
+  let previousBalance = 0;
+  let nextBalance = 0;
 
-  if (next < 0) {
-    throw AppError.unprocessable(ERROR.WALLET.INSUFFICIENT_BALANCE);
+  // The balance check and ledger insert must be atomic. Serializable isolation
+  // prevents concurrent admin adjustments from both spending the same balance.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      row = await prisma.$transaction(
+        async (tx) => {
+          const targetUser = await tx.user.findUnique({
+            where: { id: userId },
+            select: { id: true },
+          });
+          if (!targetUser) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
+          const current = await getWalletBalance(userId, tx);
+          const next = money(current + adjustmentAmount);
+          if (next < 0) throw AppError.unprocessable(ERROR.WALLET.INSUFFICIENT_BALANCE);
+          if (next > cfg.maxBalance) {
+            throw AppError.unprocessable(`${ERROR.WALLET.MAX_BALANCE} (${cfg.maxBalance})`);
+          }
+
+          previousBalance = current;
+          nextBalance = next;
+          return tx.walletTransaction.create({
+            data: {
+              userId,
+              type: adjustmentAmount >= 0 ? 'CREDIT' : 'DEBIT',
+              amount: Math.abs(adjustmentAmount),
+              balanceAfter: next,
+              description: D.str(input.description),
+              reference: D.str(input.reference),
+            },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      break;
+    } catch (error) {
+      const isSerializationConflict =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034';
+      if (!isSerializationConflict || attempt === 2) throw error;
+    }
   }
-
-  if (next > cfg.maxBalance) {
-    throw AppError.unprocessable(`${ERROR.WALLET.MAX_BALANCE} (${cfg.maxBalance})`);
-  }
-
-  const row = await prisma.walletTransaction.create({
-    data: {
-      userId,
-      type: D.num(input.amount) >= 0 ? 'CREDIT' : 'DEBIT',
-      amount: Math.abs(D.num(input.amount)),
-      balanceAfter: next,
-      description: D.str(input.description),
-      reference: D.str(input.reference),
-    },
-  });
 
   void writeActivityLog({
     req,
@@ -630,17 +722,17 @@ export const adjustWallet = async (
     action: 'WALLET_ADJUSTED',
     entity: 'WalletTransaction',
     entityId: row.id,
-    meta: { amount: input.amount, balanceAfter: next },
+    meta: { amount: input.amount, balanceBefore: previousBalance, balanceAfter: nextBalance },
   });
 
   void notifyUser({
     userId,
     type: 'PAYMENT',
-    title: next >= current ? 'Wallet credited' : 'Wallet debited',
+    title: nextBalance >= previousBalance ? 'Wallet credited' : 'Wallet debited',
     body:
       D.str(input.description) ||
-      `${Math.abs(D.num(input.amount))} ${next >= current ? 'added to' : 'deducted from'} your wallet.`,
-    data: { transactionId: row.id, balance: next },
+      `${Math.abs(D.num(input.amount))} ${nextBalance >= previousBalance ? 'added to' : 'deducted from'} your wallet.`,
+    data: { transactionId: row.id, balance: nextBalance },
   });
 
   return row;
@@ -1532,7 +1624,7 @@ export const submitManualPayment = async (
 
   const order = await prisma.order.findFirst({
     where: { id: D.str(input.orderId), userId },
-    select: { id: true, orderNumber: true, total: true, walletAmount: true, userId: true },
+    select: { id: true, orderNumber: true, userId: true, total: true, walletAmount: true },
   });
 
   if (!order) throw AppError.notFound(ERROR.ORDER.NOT_FOUND);

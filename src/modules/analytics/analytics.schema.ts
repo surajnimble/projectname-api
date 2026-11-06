@@ -277,6 +277,8 @@ export const crashesListSchema = rangeSchema
 
 export const exportAnalyticsSchema = rangeSchema
   .extend({
+    report: z.enum(['pageViews', 'revenue']).default('pageViews'),
+    groupBy: z.enum(['day', 'week', 'month']).optional(),
     limit: z.coerce.number().int().min(1).max(50_000).optional(),
   })
   .strict();

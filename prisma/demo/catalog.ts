@@ -183,16 +183,24 @@ const seedProducts = async (
 const seedCatalogReference = async (
   prisma: PrismaClient,
 ): Promise<{ brandBySlug: Record<string, string>; tagIds: string[]; attributeIds: string[] }> => {
-  await seedRowBy(prisma, 'brand', { slug: 'soundwave' }, demoId('brand', 'soundwave'), {
-    name: 'SoundWave',
-    slug: 'soundwave',
-    description: 'Audio and wearable accessories.',
-    isActive: true,
-  });
+  const brandRows = [
+    { name: 'SoundWave', slug: 'soundwave', description: 'Audio and wearable accessories.' },
+    { name: 'HomeCraft', slug: 'homecraft', description: 'Functional home and kitchen essentials.' },
+    { name: 'ActiveLife', slug: 'activelife', description: 'Fitness and outdoor accessories.' },
+    { name: 'PureBasics', slug: 'purebasics', description: 'Everyday essentials and apparel.' },
+  ];
+  for (const brand of brandRows) {
+    await seedRowBy(prisma, 'brand', { slug: brand.slug }, demoId('brand', brand.slug), {
+      ...brand, isActive: true,
+    });
+  }
 
   for (const tag of [
     { name: 'bestseller', slug: 'bestseller' },
     { name: 'trending', slug: 'trending' },
+    { name: 'staff-pick', slug: 'staff-pick' },
+    { name: 'limited-stock', slug: 'limited-stock' },
+    { name: 'eco-friendly', slug: 'eco-friendly' },
   ]) {
     await seedRowBy(prisma, 'tag', { slug: tag.slug }, demoId('tag', tag.slug), {
       ...tag,
@@ -200,15 +208,16 @@ const seedCatalogReference = async (
     });
   }
 
-  await seedRowBy(prisma, 'attribute', { slug: 'warranty' }, demoId('attribute', 'warranty'), {
-    name: 'Warranty',
-    slug: 'warranty',
-    type: 'SELECT',
-    options: ['6 months', '1 year', '2 years'],
-    isVariant: false,
-    isFilterable: true,
-    isActive: true,
-  });
+  for (const attribute of [
+    { name: 'Warranty', slug: 'warranty', type: 'SELECT', options: ['6 months', '1 year', '2 years'], isVariant: false },
+    { name: 'Fit', slug: 'fit', type: 'SELECT', options: ['Slim', 'Regular', 'Relaxed'], isVariant: true },
+    { name: 'Pattern', slug: 'pattern', type: 'SELECT', options: ['Solid', 'Striped', 'Printed'], isVariant: false },
+    { name: 'Connectivity', slug: 'connectivity', type: 'SELECT', options: ['Bluetooth', 'Wi-Fi', 'Wired'], isVariant: false },
+  ]) {
+    await seedRowBy(prisma, 'attribute', { slug: attribute.slug }, demoId('attribute', attribute.slug), {
+      ...attribute, isFilterable: true, isActive: true,
+    });
+  }
 
   const brands = await prisma.brand.findMany({ select: { id: true, slug: true } });
   const brandBySlug = Object.fromEntries(brands.map((brand) => [brand.slug, brand.id]));
@@ -284,7 +293,7 @@ const seedProductDetails = async (
     }
   }
 
-  for (const [index, slug] of slugs.slice(0, 4).entries()) {
+  for (const [index, slug] of slugs.slice(0, 7).entries()) {
     const productId = productIdBySlug[slug];
     if (!productId || !tagIds[index % tagIds.length]) continue;
     await prisma.productTag.upsert({
@@ -294,7 +303,7 @@ const seedProductDetails = async (
     });
   }
 
-  for (const [index, slug] of slugs.slice(0, 4).entries()) {
+  for (const [index, slug] of slugs.slice(0, 7).entries()) {
     const productId = productIdBySlug[slug];
     const attributeId = attributeIds[index % attributeIds.length];
     if (!productId || !attributeId) continue;
@@ -326,12 +335,11 @@ const seedCollections = async (
       description: 'The latest products across every shop.',
       sortOrder: 1,
     },
-    {
-      name: 'Best Sellers',
-      slug: 'best-sellers',
-      description: 'What customers buy most.',
-      sortOrder: 2,
-    },
+    { name: 'Best Sellers', slug: 'best-sellers', description: 'What customers buy most.', sortOrder: 2 },
+    { name: 'Electronics Essentials', slug: 'electronics-essentials', description: 'Everyday technology and accessories.', sortOrder: 3 },
+    { name: 'Home Favourites', slug: 'home-favourites', description: 'Useful upgrades for the home.', sortOrder: 4 },
+    { name: 'Fitness Picks', slug: 'fitness-picks', description: 'Accessories for active routines.', sortOrder: 5 },
+    { name: 'Under 1500', slug: 'under-1500', description: 'Value picks under ₹1,500.', sortOrder: 6 },
   ]) {
     await seedRowBy(
       prisma,
@@ -346,7 +354,7 @@ const seedCollections = async (
   const collectionIds = collections.map((collection) => collection.id);
 
   const slugs = Object.keys(productIdBySlug);
-  for (const [index, slug] of slugs.slice(0, 4).entries()) {
+  for (const [index, slug] of slugs.slice(0, 7).entries()) {
     const productId = productIdBySlug[slug];
     const collectionId = collectionIds[index % collectionIds.length];
     if (!productId || !collectionId) continue;

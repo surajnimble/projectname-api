@@ -234,6 +234,15 @@ export const getById = asyncHandler(async (req, res) => {
         reviewCount: D.num(user?._count?.reviews),
         addressCount: D.num(user?._count?.addresses),
       },
+      banData: user?.banData
+        ? {
+            isActive: user.banData.isActive === true,
+            reason: D.str(user.banData.reason),
+            expiresAt: D.date(user.banData.expiresAt),
+            revokedAt: D.date(user.banData.revokedAt),
+            revokeReason: D.str(user.banData.revokeReason),
+          }
+        : { isActive: false, reason: '', expiresAt: '', revokedAt: '', revokeReason: '' },
     }),
   });
 });

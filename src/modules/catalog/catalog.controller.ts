@@ -130,6 +130,14 @@ export const createTag = asyncHandler(async (req, res) => {
   return ApiResponse.created(res, SUCCESS.TAG.CREATED, serializeTag(tag));
 });
 
+export const updateTag = asyncHandler(async (req, res) => {
+  const tag = await service.updateTag(req.params.id, req.body, req);
+  return ApiResponse.success(res, {
+    message: SUCCESS.TAG.UPDATED,
+    result: serializeTag(tag),
+  });
+});
+
 export const bulkCreateTags = asyncHandler(async (req, res) => {
   const result = await service.bulkCreateTags(req.body);
   return ApiResponse.created(res, SUCCESS.TAG.CREATED, serializeBulkResult(result));

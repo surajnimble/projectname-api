@@ -72,6 +72,14 @@ router.post(
   controller.createTag,
 );
 
+router.patch(
+  '/tags/updateTag/:id',
+  authenticate,
+  ...controller.guards.tag,
+  validate({ params: schema.tagIdParamSchema, body: schema.updateTagSchema }),
+  controller.updateTag,
+);
+
 router.post(
   '/tags/bulkCreate',
   authenticate,

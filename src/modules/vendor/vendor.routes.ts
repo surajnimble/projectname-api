@@ -428,6 +428,13 @@ router.get(
  *     security: [{ bearerAuth: [] }]
  */
 router.get(
+  '/commissionBounds',
+  authenticate,
+  ...controller.guards.adminList,
+  controller.getCommissionBounds,
+);
+
+router.get(
   '/getAll',
   authenticate,
   ...controller.guards.adminList,
@@ -485,6 +492,22 @@ router.patch(
   ...controller.guards.adminSuspend,
   validate({ params: schema.vendorIdParamSchema, body: schema.suspendSchema }),
   controller.suspendVendor,
+);
+
+router.post(
+  '/bulkApprove',
+  authenticate,
+  ...controller.guards.adminApprove,
+  validate({ body: schema.bulkApproveSchema }),
+  controller.bulkApproveVendors,
+);
+
+router.post(
+  '/bulkSuspend',
+  authenticate,
+  ...controller.guards.adminSuspend,
+  validate({ body: schema.bulkSuspendSchema }),
+  controller.bulkSuspendVendors,
 );
 
 router.patch(

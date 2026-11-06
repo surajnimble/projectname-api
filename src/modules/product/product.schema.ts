@@ -97,6 +97,32 @@ export const updateStockSchema = z
   })
   .strict();
 
+export const adjustStockSchema = z
+  .object({
+    adjustment: z.coerce.number().int().min(-1_000_000).max(1_000_000),
+    setStockTo: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    // May be negative only to compare-and-set legacy bad stock back to a valid value.
+    expectedStock: z.coerce.number().int().min(-1_000_000).max(1_000_000).optional(),
+    lowStockThreshold: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    reason: z.string().trim().min(3).max(300),
+    variantId: id.optional(),
+  })
+  .strict()
+  .refine((value) => value.adjustment !== 0 || value.setStockTo !== undefined || value.lowStockThreshold !== undefined, {
+    message: 'Provide a stock change or a new low-stock threshold.',
+  })
+  .refine((value) => (value.setStockTo === undefined) === (value.expectedStock === undefined), {
+    message: 'Expected stock is required when setting an absolute stock quantity.',
+  });
+
+export const stockMovementsQuerySchema = paginationSchema.extend({
+  productId: id.optional(),
+});
+
+export const inventoryListQuerySchema = paginationSchema.extend({
+  status: z.enum(['ALL', 'LOW', 'OUT', 'HEALTHY']).optional(),
+});
+
 export const toggleStatusSchema = z.object({ status: z.nativeEnum(PRODUCT_STATUS) }).strict();
 
 export const rejectProductSchema = z

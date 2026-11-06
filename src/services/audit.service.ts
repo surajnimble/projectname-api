@@ -40,7 +40,7 @@ export const writeAuditLog = async (input: AuditInput): Promise<void> => {
         ip: ctx.ip,
         userAgent: ctx.userAgent,
         requestId: ctx.requestId,
-        impersonatedById: input.impersonatedById,
+        impersonatedById: input.impersonatedById ?? input.req?.auth?.impersonatedById,
       },
     });
   } catch (err) {

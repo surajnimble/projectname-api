@@ -7,6 +7,7 @@ import { D } from '../../utils/defaults';
 import { getPagination } from '../../utils/pagination';
 import { requireRole } from '../../middlewares/auth.middleware';
 import * as service from './notification.service';
+import { writeActivityLog } from '../../services/audit.service';
 import {
   serializeNotification,
   serializeConversation,
@@ -218,6 +219,42 @@ export const startConversation = asyncHandler(async (req, res) => {
  *       200: { description: Paginated messages, newest first }
  *       404: { description: Not a participant }
  */
+export const adminGetConversations = asyncHandler(async (req, res) => {
+  const { page, limit, skip, take } = getPagination(req.query as any);
+  const { rows, total } = await service.adminListConversations(
+    { ...(req.query as any), skip, take },
+    userId(req),
+    req,
+  );
+
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.CHAT.CONVERSATIONS_FETCHED,
+    result: { conversationList: rows.map(serializeConversation) },
+    totalRecord: total,
+    currentPage: page,
+    limit,
+  });
+});
+
+export const adminGetMessages = asyncHandler(async (req, res) => {
+  const { page, limit, skip, take } = getPagination(req.query as any);
+  const conversationId = D.str(req.params.conversationId);
+  const { rows, total } = await service.adminGetMessages(
+    conversationId,
+    { ...(req.query as any), skip, take },
+    userId(req),
+    req,
+  );
+
+  return ApiResponse.paginated(res, {
+    message: SUCCESS.CHAT.MESSAGES_FETCHED,
+    result: { conversationId, messageList: rows.map(serializeMessage) },
+    totalRecord: total,
+    currentPage: page,
+    limit,
+  });
+});
+
 export const getMessages = asyncHandler(async (req, res) => {
   const { page, limit, skip, take } = getPagination(req.query as any);
 
@@ -534,6 +571,18 @@ export const getStats = asyncHandler(async (_req, res) => {
  */
 export const broadcast = asyncHandler(async (req, res) => {
   const count = await service.broadcast(req.body);
+  void writeActivityLog({
+    req,
+    action: 'NOTIFICATION_BROADCAST',
+    entity: 'Notification',
+    meta: {
+      type: D.str(req.body.type),
+      channel: D.str(req.body.channel),
+      toAll: D.bool(req.body.toAll),
+      requestedRecipients: D.arr(req.body.userIds).length,
+      sentCount: D.num(count),
+    },
+  });
   return ApiResponse.accepted(res, SUCCESS.NOTIFICATION.BULK_SENT, { sentCount: D.num(count) });
 });
 

@@ -74,6 +74,7 @@ The canonical reference for what the API does: its features, business rules, beh
 
 - **Order state machine** — the main path is `PENDING → CONFIRMED → SHIPPED → DELIVERED`, ending in `CANCELLED` or `RETURNED`. The full status set is `PENDING`, `PENDING_TOKEN`, `CONFIRMED`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED`, `CANCELLED`, `RETURNED`. Random transitions are blocked (`422 INVALID_STATUS_TRANSITION`).
 - **Inventory management** — stock is decremented inside a transaction, so nothing oversells.
+- **Admin inventory console** — `GET /products/inventory` provides full-catalogue server-side search, stock-state filters, pagination and global stock totals. Base-product stock and each variant SKU are separate stock rows, matching checkout consumption; exports include the same stock positions. `POST /products/adjustStock/:id` supports audited add/remove/set operations and low-stock threshold updates; `GET /products/stockMovements` returns paginated stock history. Set operations use an expected-stock check to reject stale edits, and removals cannot take stock below zero. Inventory reads require `report:view`; adjustments require `product:update`.
 - **Multi-vendor cart split** — placing an order creates one `SubOrder` per vendor, and each vendor sees only their part.
 - **Payout and commission** — earnings = order total − commission − fee; vendor payouts are calculated from that.
 - **Currency and tax config** — per-vendor GST / tax configuration, so tax is applied vendor-wise.
@@ -542,10 +543,10 @@ export const encryptionMiddleware = (req, res, next) => {
 ### B12. Role permissions
 
 - **A role is the floor, not the answer.** `requireRole(SUPER_ADMIN, SUB_ADMIN)` says who may enter the area; `requirePermission(PERMISSION.X)` says what they may do inside it. A sub-admin who is not granted a permission gets `403 PERMISSION_NOT_GRANTED`, never a silently reduced response.
-- **The database wins.** `RolePermission` rows, once any exist for a role, replace the shipped `DEFAULT_ROLE_PERMISSIONS` wholesale. Merging rows over the defaults would make a revoke impossible — the code default would keep handing the permission back.
+- **Role defaults and per-user grants are separate.** `RolePermission` defines defaults for a role. Each sub-admin can have an explicit `User.subAdminPermissions` override (`hasCustomPermissions=true`); when set, that array is authoritative, including an intentionally empty array. Legacy sub-admins without an override continue to inherit the role defaults.
 - **`SUPER_ADMIN` is never filtered.** The seed gives it the literal `*` row, which resolves to every permission in `PERMISSION_VALUES`; it also short-circuits `requirePermission` outright.
-- **A change takes effect immediately.** Both `PATCH /admin/updatePermissions/:role` and the internal writer drop the `perms:<role>` Redis key, so a revoke is not served from cache for the rest of the TTL.
-- **Dashboard counters are filtered per area** (`GET /admin/getDashboardStats`). `totalUsers` follows `user:list`, `totalOrders` `order:list`, `revenue30d` `report:view`, `pendingRefunds` `payment:list`, `openTickets` `ticket:list`, `pendingReturns` `return:list`, `totalProducts` `product:view:all`, `totalVendors` `vendor:list`, `pendingVendors` `vendor:approve`. A counter the caller may not see is **omitted**, never sent as `0` — a zero would read as "nothing pending" and drive the wrong decision.
+- **A change takes effect immediately.** `PATCH /admin/updatePermissions/{id}` updates only the sub-admin user identified by `{id}` and invalidates that user's permission cache. `RolePermission` stores inherited defaults; the current admin router exposes no role-wide permission mutation endpoint.
+- **Dashboard counters are filtered per area** (`GET /admin/getDashboardStats`). `totalUsers` follows `user:list`, `totalOrders` `order:list`, `revenue30d` `report:view`, `pendingRefunds` `payment:list`, `openTickets` `ticket:list`, `pendingReturns` `return:list`, `totalProducts` `product:view:all`, `totalVendors` `vendor:list`, `pendingVendors` `vendor:approve`, and `pendingAdminOrders` `order:confirm`. The admin UI also retains which fields were actually returned so an unauthorized metric is hidden instead of rendered as zero. A counter the caller may not see is **omitted**, never sent as `0` — a zero would read as "nothing pending" and drive the wrong decision.
 - **Every role-guarded route in `shipping.routes.ts` also carries `requirePermission`** — 34 of 34, across `/admin/*`, `/settings/*`, `/audit/*` and `/deliveryBoys/*`. A script asserts this (`role-guarded routes: 34 | without requirePermission: 0`) so a new admin route cannot land with the role guard alone. A route that is not permission-gated is open to any role that passes `requireRole`.
 
 ---
@@ -1005,6 +1006,7 @@ A key is a flat camelCase string — `siteName`, `paymentTokenEnabled`, `mainten
 | Key | Default | Public |
 | --- | --- | --- |
 | `vendorAutoApprove` | `false` | no |
+| `orderRequireAdminConfirmation` | `true` | no |
 | `vendorMaxProducts` | `500` | no |
 | `vendorMinPayoutAmount` | `500` (INR) | no |
 | `vendorPayoutCycleDays` | `7` | no |
@@ -1360,7 +1362,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | GET | `/admin/getSystemHealth` | Required | SUPER_ADMIN | DB/Redis/Queue |
 | PATCH | `/admin/resolveFailedJob/{id}` | Required | SUPER_ADMIN | Close without replay |
 | PATCH | `/admin/toggleSubAdminStatus/{id}` | Required | SUPER_ADMIN | Active/Suspend |
-| PATCH | `/admin/updatePermissions/{id}` | Required | SUPER_ADMIN | Set perms |
+| PATCH | `/admin/updatePermissions/{id}` | Required | SUPER_ADMIN | Set permissions for one sub-admin user (not the whole role) |
 | PATCH | `/admin/updateSubAdmin/{id}` | Required | SUPER_ADMIN | Update |
 | POST | `/admin/clearCache` | Required | SUPER_ADMIN | Flush Redis |
 | POST | `/admin/createSubAdmin` | Required | SUPER_ADMIN | Create sub-admin |
@@ -1960,6 +1962,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | --- | --- | --- | --- | --- |
 | DELETE | `/shipping/deleteMethod/{id}` | Required | ADMIN | Delete |
 | DELETE | `/shipping/deleteZone/{id}` | Required | ADMIN | Delete |
+| DELETE | `/shipping/deletePartner/{id}` | Required | ADMIN | Delete partner; shipment history is preserved with partnerId cleared |
 | GET | `/shipping/getMethods` | Public | Public | Methods |
 | GET | `/shipping/getPartners` | Required | ADMIN | List |
 | GET | `/shipping/getZones` | Required | ADMIN | Zones |
@@ -1981,6 +1984,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | --- | --- | --- | --- | --- |
 | DELETE | `/tags/deleteTag/{id}` | Required | ADMIN | Delete |
 | GET | `/tags/getAll` | Public | Public | List tags |
+| PATCH | `/tags/updateTag/{id}` | Required | ADMIN | Update tag name and/or slug |
 | POST | `/tags/bulkCreate` | Required | Any | Bulk create |
 | POST | `/tags/createTag` | Required | ADMIN | Create tag |
 
@@ -2122,6 +2126,8 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | GET | `/vendors/getStats` | Required | VENDOR | Dashboard stats |
 | GET | `/vendors/getStore/{slug}` | Public | Public | Storefront page |
 | PATCH | `/vendors/approveVendor/{id}` | Required | ADMIN | Approve vendor |
+| POST | `/vendors/bulkApprove` | Required | ADMIN with `vendor:approve` | Approve up to 50 vendors; partial failures returned |
+| POST | `/vendors/bulkSuspend` | Required | ADMIN with `vendor:suspend` | Suspend up to 50 vendors with a reason; partial failures returned |
 | PATCH | `/vendors/rejectVendor/{id}` | Required | ADMIN | Reject vendor |
 | PATCH | `/vendors/suspendVendor/{id}` | Required | ADMIN | Suspend vendor |
 | PATCH | `/vendors/updateAnnouncement/{id}` | Required | VENDOR | Update announcement |
@@ -2134,6 +2140,7 @@ Every route is mounted under `/api/v1`. The tables below are derived from the Op
 | POST | `/vendors/createAnnouncement` | Required | VENDOR | Create announcement |
 | POST | `/vendors/requestPayout` | Required | VENDOR | Request payout |
 | POST | `/vendors/uploadDocuments` | Required | VENDOR | KYC docs |
+
 
 #### `/version`
 

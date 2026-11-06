@@ -478,6 +478,43 @@ export const updateSubOrderStatus = asyncHandler(async (req, res) => {
 
 /**
  * @openapi
+ * /orders/adminBulkReview:
+ *   post:
+ *     tags: [Orders]
+ *     summary: Confirm or reject several sub-orders awaiting admin review
+ *     description: >
+ *       Confirms eligible sub-orders for vendor processing, or rejects them,
+ *       restores stock and notifies customers. Every unprocessed id is returned
+ *       in `skippedList` with its reason.
+ *     responses:
+ *       200: { description: Updated sub-orders and skipped ids }
+ *       422: { description: None of the requested sub-orders could move }
+ */
+export const adminBulkReview = asyncHandler(async (req, res) => {
+  const outcome = await service.adminBulkReviewSubOrders(
+    req.body,
+    req.auth!.userId,
+    req,
+  );
+
+  return ApiResponse.success(res, {
+    message: SUCCESS.ORDER.ADMIN_BULK_REVIEW_UPDATED,
+    result: {
+      action: D.str(outcome.action),
+      requestedCount: D.num(outcome.requested),
+      updatedCount: D.num(outcome.updated.length),
+      skippedCount: D.num(outcome.skipped.length),
+      subOrderList: D.arr(outcome.updated).map(serializeSubOrder),
+      skippedList: D.arr(outcome.skipped).map((row: any) => ({
+        subOrderId: D.str(row?.subOrderId),
+        reason: D.str(row?.reason),
+      })),
+    },
+  });
+});
+
+/**
+ * @openapi
  * /orders/vendorBulkStatusUpdate:
  *   post:
  *     tags: [Orders]

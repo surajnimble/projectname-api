@@ -82,6 +82,21 @@ const ORDERS: DemoOrder[] = [
     shipping: 49,
     placedDaysAgo: 1,
   },
+  {
+    key: '5', orderNumber: 'ORD-DEMO-1005', customerIndex: 4, vendorKey: 'main', status: 'CONFIRMED',
+    paymentMethod: 'UPI', paymentStatus: 'PAID', productSlug: 'fitness-band-lite', qty: 1,
+    price: 1999, shipping: 0, placedDaysAgo: 3,
+  },
+  {
+    key: '6', orderNumber: 'ORD-DEMO-1006', customerIndex: 5, vendorKey: 'second', status: 'DELIVERED',
+    paymentMethod: 'CARD', paymentStatus: 'PAID', productSlug: 'wireless-headphones', qty: 1,
+    price: 2499, shipping: 49, placedDaysAgo: 16,
+  },
+  {
+    key: '7', orderNumber: 'ORD-DEMO-1007', customerIndex: 6, vendorKey: 'main', status: 'PENDING',
+    paymentMethod: 'COD', paymentStatus: 'PENDING', productSlug: 'cotton-t-shirt', qty: 2,
+    price: 499, shipping: 49, placedDaysAgo: 0,
+  },
 ];
 
 /** Creates the orders, their vendor split, line items and timeline. */
@@ -207,7 +222,7 @@ const seedOrderExtras = async (
   identity: IdentityContext,
   orderIds: string[],
 ): Promise<void> => {
-  for (const [index, label] of ['priority', 'gift', 'repeat-customer'].entries()) {
+  for (const [index, label] of ['priority', 'gift', 'repeat-customer', 'fragile', 'express', 'wholesale', 'follow-up'].entries()) {
     await seedRow(prisma, 'orderTag', demoId('order-tag', index + 1), {
       orderId: orderIds[index % orderIds.length],
       label,
@@ -220,6 +235,10 @@ const seedOrderExtras = async (
     'Customer asked for delivery after 6 pm.',
     'Packed with extra bubble wrap.',
     'Follow up if the shipment is delayed.',
+    'Customer requested a gift receipt.',
+    'Confirm address before dispatch.',
+    'Seller packed the order separately.',
+    'Escalate if dispatch is delayed.',
   ].entries()) {
     await seedRow(prisma, 'orderNote', demoId('order-note', index + 1), {
       orderId: orderIds[index % orderIds.length],
@@ -279,6 +298,10 @@ const seedMoney = async (
     { paymentIndex: 0, amount: 799, reason: 'Item returned', status: 'REFUNDED' },
     { paymentIndex: 1, amount: 500, reason: 'Price difference', status: 'PENDING' },
     { paymentIndex: 2, amount: 250, reason: 'Partial cancellation', status: 'PENDING' },
+    { paymentIndex: 3, amount: 149, reason: 'Shipping fee adjustment', status: 'PENDING' },
+    { paymentIndex: 4, amount: 199, reason: 'Promotional price adjustment', status: 'PENDING' },
+    { paymentIndex: 5, amount: 300, reason: 'Damaged packaging goodwill', status: 'REFUNDED' },
+    { paymentIndex: 6, amount: 99, reason: 'Duplicate charge review', status: 'PENDING' },
   ].entries()) {
     const paymentId = paymentIds[refund.paymentIndex];
     if (!paymentId) continue;
@@ -298,6 +321,10 @@ const seedMoney = async (
     { amount: 12500, status: 'PAID', method: 'BANK' },
     { amount: 3200, status: 'PENDING', method: 'UPI' },
     { amount: 800, status: 'REJECTED', method: 'BANK' },
+    { amount: 5400, status: 'PENDING', method: 'BANK' },
+    { amount: 2600, status: 'PAID', method: 'UPI' },
+    { amount: 7100, status: 'PENDING', method: 'BANK' },
+    { amount: 1900, status: 'REJECTED', method: 'UPI' },
   ].entries()) {
     await seedRow(prisma, 'payout', demoId('payout', index + 1), {
       vendorId: identity.vendorIds[index % 2 === 0 ? 'main' : 'second'],
@@ -334,6 +361,10 @@ const seedReturns = async (
     { status: 'REFUNDED', type: 'REFUND', qty: 1 },
     { status: 'APPROVED', type: 'EXCHANGE', qty: 1 },
     { status: 'REQUESTED', type: 'REPLACEMENT', qty: 1 },
+    { status: 'APPROVED', type: 'REFUND', qty: 1 },
+    { status: 'REJECTED', type: 'EXCHANGE', qty: 1 },
+    { status: 'REQUESTED', type: 'REFUND', qty: 1 },
+    { status: 'APPROVED', type: 'REPLACEMENT', qty: 1 },
   ].entries()) {
     const row = await seedRowBy(
       prisma,
@@ -462,7 +493,7 @@ const seedFulfilment = async (
 ): Promise<void> => {
   const productSlugs = Object.keys(catalog.productIdBySlug);
 
-  for (const [index, customerId] of identity.customerIds.slice(0, 3).entries()) {
+  for (const [index, customerId] of identity.customerIds.slice(0, 7).entries()) {
     const cart = await seedRowBy(
       prisma,
       'cart',
@@ -507,7 +538,7 @@ const seedFulfilment = async (
     }
   }
 
-  for (const [index, slug] of productSlugs.slice(0, 3).entries()) {
+  for (const [index, slug] of productSlugs.slice(0, 7).entries()) {
     const productId = catalog.productIdBySlug[slug];
     if (!productId) continue;
     await seedRow(prisma, 'savedCartItem', demoId('saved-cart-item', index + 1), {
@@ -566,6 +597,9 @@ const seedEngagement = async (
       comment: 'Nice cut, needs a belt.',
       status: 'PENDING',
     },
+    { slug: 'fitness-band-lite', customerIndex: 4, rating: 5, title: 'Lightweight and accurate', comment: 'Comfortable band with useful daily activity tracking.', status: 'APPROVED' },
+    { slug: 'wireless-headphones', customerIndex: 5, rating: 4, title: 'Clear sound', comment: 'Good sound quality for calls and music.', status: 'APPROVED' },
+    { slug: 'cotton-t-shirt', customerIndex: 6, rating: 5, title: 'Soft fabric', comment: 'Comfortable fabric and good stitching.', status: 'PENDING' },
   ];
 
   for (const [index, review] of reviewSeeds.entries()) {
@@ -600,6 +634,9 @@ const seedEngagement = async (
     { slug: 'smart-watch-pro', question: 'Can it answer phone calls?' },
     { slug: 'bluetooth-speaker-mini', question: 'Is it waterproof?' },
     { slug: 'fitness-band-lite', question: 'Does it track sleep automatically?' },
+    { slug: 'wireless-headphones', question: 'Does it support multipoint pairing?' },
+    { slug: 'cotton-t-shirt', question: 'Is the fabric pre-shrunk?' },
+    { slug: 'slim-fit-trousers', question: 'Is the waist adjustable?' },
   ];
 
   for (const [index, seed] of questionSeeds.entries()) {

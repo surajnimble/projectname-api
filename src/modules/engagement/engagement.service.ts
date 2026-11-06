@@ -37,6 +37,12 @@ const tierFor = (balance: number) =>
   [...LOYALTY_TIER].reverse().find((t) => balance >= D.num(t.minPoints)) ?? LOYALTY_TIER[0];
 
 export const getLoyaltySummary = async (userId: string): Promise<Record<string, any>> => {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+    select: { id: true },
+  });
+  if (!user) throw AppError.notFound(ERROR.USER.NOT_FOUND);
+
   const config = await getLoyaltyConfig();
 
   const balance = await currentBalance(userId);
@@ -229,18 +235,19 @@ export const adjustPoints = async (
 
   if (!user) throw AppError.notFound(ERROR.USER.NOT_FOUND);
 
-  if (amount < 0) {
-    const balance = await currentBalance(targetUserId);
-
-    if (Math.abs(amount) > balance) throw AppError.unprocessable(ERROR.LOYALTY.INSUFFICIENT_POINTS);
-  }
-
-  const result = await prisma.$transaction((tx) =>
-    writeLoyaltyTxn(
-      targetUserId,
-      { type: 'ADJUSTMENT', points: amount, description: D.str(description) || 'Admin adjustment' },
-      tx,
-    ),
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const balance = await currentBalance(targetUserId, tx);
+      if (amount < 0 && Math.abs(amount) > balance) {
+        throw AppError.unprocessable(ERROR.LOYALTY.INSUFFICIENT_POINTS);
+      }
+      return writeLoyaltyTxn(
+        targetUserId,
+        { type: 'ADJUSTMENT', points: amount, description: D.str(description) || 'Admin adjustment' },
+        tx,
+      );
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
 
   void writeAuditLog({
@@ -419,53 +426,72 @@ export const completeReferral = async (
   const existing = await prisma.referral.findUnique({ where: { id: referralId } });
 
   if (!existing) throw AppError.notFound(ERROR.COMMON.NOT_FOUND);
-
-  if (existing.status === 'COMPLETED')
+  if (existing.status === 'COMPLETED') {
     return { referralId, status: 'COMPLETED', alreadyCompleted: true };
-
+  }
   if (existing.status !== 'PENDING') throw AppError.unprocessable(ERROR.REFERRAL.EXPIRED);
-
   if (!existing.refereeId) throw AppError.unprocessable(ERROR.REFERRAL.NOT_APPLIED);
 
   const config = await getReferralConfig();
   const referrerReward = D.float(existing.referrerReward) || config.referrerReward;
   const refereeReward = D.float(existing.refereeReward) || config.refereeReward;
-
-  const payouts: { userId: string; amount: number; description: string }[] = [
+  const payouts = [
     { userId: existing.referrerId, amount: referrerReward, description: 'Referral reward' },
-    {
-      userId: D.str(existing.refereeId),
-      amount: refereeReward,
-      description: 'Referral signup bonus',
-    },
+    { userId: D.str(existing.refereeId), amount: refereeReward, description: 'Referral signup bonus' },
   ];
 
-  const row = await prisma.$transaction(async (tx) => {
-    const settled = await tx.referral.update({
-      where: { id: referralId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    });
-
-    for (const payout of payouts) {
-      const balance = await tx.walletTransaction.aggregate({
-        where: { userId: payout.userId, status: 'SUCCESS' },
-        _sum: { amount: true },
+  // The conditional status update and both credits share one transaction. This
+  // prevents two admin requests from paying the same referral twice.
+  const row = await prisma.$transaction(
+    async (tx) => {
+      const claimed = await tx.referral.updateMany({
+        where: { id: referralId, status: 'PENDING' },
+        data: { status: 'COMPLETED', completedAt: new Date() },
       });
 
-      await tx.walletTransaction.create({
-        data: {
-          userId: payout.userId,
-          type: 'CREDIT',
-          amount: money(payout.amount),
-          balanceAfter: money(D.float(balance._sum?.amount) + payout.amount),
-          description: payout.description,
-          reference: `referral_${D.str(referralId)}`,
-        },
-      });
-    }
+      if (claimed.count !== 1) {
+        const latest = await tx.referral.findUnique({ where: { id: referralId } });
+        if (latest?.status === 'COMPLETED') return { latest, alreadyCompleted: true };
+        throw AppError.unprocessable(ERROR.REFERRAL.EXPIRED);
+      }
 
-    return settled;
-  });
+      for (const payout of payouts) {
+        const [credits, debits] = await Promise.all([
+          tx.walletTransaction.aggregate({
+            where: {
+              userId: payout.userId, status: 'SUCCESS',
+              type: { in: ['CREDIT', 'REFUND', 'REWARD', 'ADJUSTMENT'] },
+            },
+            _sum: { amount: true },
+          }),
+          tx.walletTransaction.aggregate({
+            where: { userId: payout.userId, status: 'SUCCESS', type: { in: ['DEBIT', 'REDEEM'] } },
+            _sum: { amount: true },
+          }),
+        ]);
+        const balanceAfter = money(D.float(credits._sum.amount) - D.float(debits._sum.amount) + payout.amount);
+
+        await tx.walletTransaction.create({
+          data: {
+            userId: payout.userId,
+            type: 'CREDIT',
+            amount: money(payout.amount),
+            balanceAfter,
+            description: payout.description,
+            reference: `referral_${D.str(referralId)}`,
+          },
+        });
+      }
+
+      const settled = await tx.referral.findUnique({ where: { id: referralId } });
+      return { latest: settled, alreadyCompleted: false };
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+
+  if (row.alreadyCompleted) {
+    return { referralId, status: 'COMPLETED', alreadyCompleted: true };
+  }
 
   void writeAuditLog({
     req,
@@ -477,10 +503,10 @@ export const completeReferral = async (
 
   return {
     referralId,
-    status: D.str(row.status),
+    status: D.str(row.latest?.status),
     referrerReward,
     refereeReward,
-    completedAt: D.date(row.completedAt),
+    completedAt: D.date(row.latest?.completedAt),
     alreadyCompleted: false,
   };
 };
@@ -496,8 +522,18 @@ export const updateReferralStatus = async (
   });
 
   if (!existing) throw AppError.notFound(ERROR.COMMON.NOT_FOUND);
+  if (existing.status !== 'PENDING' || !['EXPIRED', 'REJECTED'].includes(status)) {
+    throw AppError.unprocessable(ERROR.REFERRAL.EXPIRED);
+  }
 
-  const row = await prisma.referral.update({ where: { id: referralId }, data: { status } });
+  const changed = await prisma.referral.updateMany({
+    where: { id: referralId, status: 'PENDING' },
+    data: { status },
+  });
+  if (changed.count !== 1) throw AppError.conflict(ERROR.REFERRAL.EXPIRED, ERROR_CODE.DUPLICATE);
+
+  const row = await prisma.referral.findUnique({ where: { id: referralId } });
+  if (!row) throw AppError.notFound(ERROR.COMMON.NOT_FOUND);
 
   void writeAuditLog({
     req,

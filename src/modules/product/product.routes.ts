@@ -157,8 +157,94 @@ router.delete(
 router.patch(
   '/updateStock/:id',
   authenticate,
+  ...controller.guards.stockUpdate,
   validate({ params: schema.productIdParamSchema, body: schema.updateStockSchema }),
   controller.updateStock,
+);
+
+/**
+ * @openapi
+ * /products/adjustStock/{id}:
+ *   post:
+ *     tags: [Products]
+ *     summary: Apply an audited stock adjustment to a product or variant
+ *     description: Add/remove stock atomically, or set an absolute quantity using an expected-stock check. Negative stock is rejected.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { name: id, in: path, required: true, schema: { type: string } }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [adjustment, reason]
+ *             properties:
+ *               adjustment: { type: integer, minimum: -1000000, maximum: 1000000 }
+ *               setStockTo: { type: integer, minimum: 0 }
+ *               expectedStock: { type: integer, minimum: -1000000, description: Current quantity to compare; supports correction of legacy negative stock }
+ *               lowStockThreshold: { type: integer, minimum: 0 }
+ *               variantId: { type: string }
+ *               reason: { type: string, minLength: 3, maxLength: 300 }
+ *     responses:
+ *       200: { description: Stock adjustment applied }
+ *       403: { description: Missing product:update permission }
+ *       422: { description: Stock changed or adjustment would make inventory negative }
+ */
+router.post(
+  '/adjustStock/:id',
+  authenticate,
+  ...controller.guards.adminUpdate,
+  validate({ params: schema.productIdParamSchema, body: schema.adjustStockSchema }),
+  controller.adjustStock,
+);
+
+/**
+ * @openapi
+ * /products/inventory:
+ *   get:
+ *     tags: [Products]
+ *     summary: List inventory stock items across the full catalogue
+ *     description: Server-side search, stock-state filters, pagination and global inventory totals. Variant SKUs are listed independently.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+ *       - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+ *       - { name: search, in: query, schema: { type: string, maxLength: 120 } }
+ *       - { name: status, in: query, schema: { type: string, enum: [ALL, LOW, OUT, HEALTHY] } }
+ *     responses:
+ *       200: { description: Paginated inventory with global totals }
+ *       403: { description: Missing report:view permission }
+ */
+router.get(
+  '/inventory',
+  authenticate,
+  ...controller.guards.inventoryRead,
+  validate({ query: schema.inventoryListQuerySchema }),
+  controller.listInventory,
+);
+
+/**
+ * @openapi
+ * /products/stockMovements:
+ *   get:
+ *     tags: [Products]
+ *     summary: Get paginated inventory adjustment history
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+ *       - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+ *       - { name: productId, in: query, schema: { type: string } }
+ *     responses:
+ *       200: { description: Stock movement history }
+ *       403: { description: Missing report:view permission }
+ */
+router.get(
+  '/stockMovements',
+  authenticate,
+  ...controller.guards.inventoryRead,
+  validate({ query: schema.stockMovementsQuerySchema }),
+  controller.getStockMovements,
 );
 
 router.patch(

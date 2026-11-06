@@ -94,6 +94,29 @@ export const suspendSchema = z
   })
   .strict();
 
+export const bulkApproveSchema = z
+  .object({
+    vendorIds: z.array(common.cuid).min(1, VALIDATION.REQUIRED('vendorIds')).max(50),
+    commissionRate: z.coerce.number().min(0).max(100).optional(),
+    remark: z.string().trim().max(NAME.COMMENT_MAX_LENGTH).optional(),
+  })
+  .strict()
+  .refine((value) => new Set(value.vendorIds).size === value.vendorIds.length, {
+    message: VALIDATION.INVALID_JSON,
+    path: ['vendorIds'],
+  });
+
+export const bulkSuspendSchema = z
+  .object({
+    vendorIds: z.array(common.cuid).min(1, VALIDATION.REQUIRED('vendorIds')).max(50),
+    reason: z.string().trim().min(1, VALIDATION.REQUIRED('reason')).max(NAME.COMMENT_MAX_LENGTH),
+  })
+  .strict()
+  .refine((value) => new Set(value.vendorIds).size === value.vendorIds.length, {
+    message: VALIDATION.INVALID_JSON,
+    path: ['vendorIds'],
+  });
+
 export const updateCommissionSchema = z
   .object({
     commissionRate: z.coerce

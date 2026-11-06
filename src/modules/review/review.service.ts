@@ -1033,14 +1033,14 @@ export const createFlashSale = async (
 
   const products = await prisma.product.findMany({
     where: { id: { in: D.arr(input.items).map((i: any) => D.str(i.productId)) }, deletedAt: null },
-    select: { id: true, price: true, status: true },
+    select: { id: true, price: true, stock: true, status: true },
   });
 
   if (products.length !== D.arr(input.items).length) {
     throw AppError.unprocessable(ERROR.PRODUCT.NOT_FOUND_BULK);
   }
 
-  const priceMap = new Map(products.map((p) => [p.id, p.price]));
+  const productMap = new Map(products.map((p) => [p.id, p]));
   const discountType = D.str(input.discountType) || 'PERCENT';
 
   const slug = await uniqueFlashSaleSlug(D.str(input.name));
@@ -1058,8 +1058,9 @@ export const createFlashSale = async (
       items: {
         create: D.arr(input.items).map((i: any) => {
           const productId = D.str(i.productId);
+          const product = productMap.get(productId);
           const computed = salePriceFor(
-            { price: priceMap.get(productId), __override: D.num(i.salePrice) },
+            { price: product?.price, __override: D.num(i.salePrice) },
             discountType,
             D.float(input.discountValue),
           );
@@ -1067,7 +1068,7 @@ export const createFlashSale = async (
           return {
             productId,
 
-            saleStock: Math.min(D.num(i.saleStock), D.num(priceMap.get(productId))),
+            saleStock: Math.min(D.num(i.saleStock), D.num(product?.stock)),
             salePrice: computed,
             createdById: D.str(actorId) || null,
           };
@@ -1096,54 +1097,109 @@ export const updateFlashSale = async (
 ): Promise<any> => {
   const sale = await prisma.flashSale.findUnique({
     where: { id: saleId },
-    select: { id: true, discountType: true, discountValue: true },
+    select: { id: true, discountType: true, discountValue: true, startsAt: true, endsAt: true },
   });
 
   if (!sale) throw AppError.notFound(ERROR.FLASH_SALE.NOT_FOUND);
 
-  if (
-    input.startsAt &&
-    input.endsAt &&
-    new Date(D.str(input.endsAt)) <= new Date(D.str(input.startsAt))
-  ) {
+  const startsAt = input.startsAt === undefined ? sale.startsAt : new Date(D.str(input.startsAt));
+  const endsAt = input.endsAt === undefined ? sale.endsAt : new Date(D.str(input.endsAt));
+  if (endsAt <= startsAt) {
     throw AppError.unprocessable(ERROR.FLASH_SALE.INVALID_WINDOW);
   }
 
-  if (D.arr(input.items).length) {
+  const effectiveDiscountType = input.discountType === undefined ? sale.discountType : D.str(input.discountType);
+  const effectiveDiscountValue = input.discountValue === undefined ? sale.discountValue : D.float(input.discountValue);
+  if (effectiveDiscountType === 'PERCENT' && (effectiveDiscountValue < 0 || effectiveDiscountValue > 100)) {
+    throw AppError.unprocessable('Percentage discount must be between 0 and 100.');
+  }
+
+  if (Array.isArray(input.items)) {
+    const requestedItems = D.arr(input.items);
+    const productIds = requestedItems.map((item: any) => D.str(item.productId));
     const products = await prisma.product.findMany({
-      where: {
-        id: { in: D.arr(input.items).map((i: any) => D.str(i.productId)) },
-        deletedAt: null,
-      },
-      select: { id: true, price: true },
+      where: { id: { in: productIds }, deletedAt: null },
+      select: { id: true, price: true, stock: true },
     });
 
-    if (products.length !== D.arr(input.items).length) {
+    if (products.length !== new Set(productIds).size || new Set(productIds).size !== productIds.length) {
       throw AppError.unprocessable(ERROR.PRODUCT.NOT_FOUND_BULK);
     }
 
-    const priceMap = new Map(products.map((p) => [p.id, p.price]));
-    const discountType = D.str(input.discountType) || sale.discountType;
-    const discountValue = D.num(input.discountValue) || sale.discountValue;
-
-    await prisma.flashSaleItem.deleteMany({ where: { flashSaleId: saleId } });
-
-    await prisma.flashSaleItem.createMany({
-      data: D.arr(input.items).map((i: any) => {
-        const productId = D.str(i.productId);
-        return {
-          flashSaleId: saleId,
-          productId,
-          saleStock: Math.min(D.num(i.saleStock), D.num(priceMap.get(productId))),
-          salePrice: salePriceFor(
-            { price: priceMap.get(productId), __override: D.num(i.salePrice) },
-            discountType,
-            discountValue,
-          ),
-          createdById: D.str(actorId) || null,
-        };
-      }),
+    const productMap = new Map(products.map((product) => [product.id, product]));
+    const currentItems = await prisma.flashSaleItem.findMany({
+      where: { flashSaleId: saleId },
+      select: { id: true, productId: true, saleStock: true, soldCount: true },
     });
+    const currentByProduct = new Map(currentItems.map((item) => [item.productId, item]));
+    const requestedIds = new Set(productIds);
+    const discountType = D.str(input.discountType) || sale.discountType;
+    const discountValue = input.discountValue === undefined ? sale.discountValue : D.num(input.discountValue);
+
+    const removedItems = currentItems.filter((item) => !requestedIds.has(item.productId));
+    if (removedItems.some((item) => item.soldCount > 0)) {
+      throw AppError.unprocessable('A flash-sale product with completed sales cannot be removed.');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (removedItems.length) {
+        await tx.flashSaleItem.deleteMany({ where: { id: { in: removedItems.map((item) => item.id) } } });
+      }
+
+      for (const item of requestedItems) {
+        const productId = D.str(item.productId);
+        const product = productMap.get(productId)!;
+        const existing = currentByProduct.get(productId);
+        const requestedStock = item.saleStock === undefined ? existing?.saleStock ?? 0 : D.num(item.saleStock);
+        const saleStock = Math.min(requestedStock, D.num(product.stock));
+
+        if (existing && saleStock < existing.soldCount) {
+          throw AppError.unprocessable('Sale stock cannot be lower than units already sold.');
+        }
+
+        const salePrice = salePriceFor(
+          { price: product.price, __override: D.num(item.salePrice) },
+          discountType,
+          discountValue,
+        );
+
+        if (existing) {
+          await tx.flashSaleItem.update({
+            where: { id: existing.id },
+            data: { saleStock, salePrice, isSoldOut: saleStock <= existing.soldCount },
+          });
+        } else {
+          await tx.flashSaleItem.create({
+            data: {
+              flashSaleId: saleId,
+              productId,
+              saleStock,
+              salePrice,
+              createdById: D.str(actorId) || null,
+            },
+          });
+        }
+      }
+    });
+  } else if (input.discountType !== undefined || input.discountValue !== undefined) {
+    const currentItems = await prisma.flashSaleItem.findMany({
+      where: { flashSaleId: saleId },
+      select: { id: true, product: { select: { price: true } } },
+    });
+    await prisma.$transaction(
+      currentItems.map((item) =>
+        prisma.flashSaleItem.update({
+          where: { id: item.id },
+          data: {
+            salePrice: salePriceFor(
+              { price: item.product.price },
+              effectiveDiscountType,
+              effectiveDiscountValue,
+            ),
+          },
+        }),
+      ),
+    );
   }
 
   const row = await prisma.flashSale.update({
